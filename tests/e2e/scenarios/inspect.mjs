@@ -2,7 +2,7 @@
 // Section Analysis on a clicked face (cut + hatched cap + Analysis item), Appearance (A) by drag &
 // drop and click, Physical Material, Properties from the browser body context menu; then the 8 surface
 // analyses (Zebra, Draft, Curvature Map, Minimum Radius, Accessibility, Isocurve, Curvature Comb, Environment Map)
-// and Manage Materials (Material Browser) — see ../inspect-analyses-part.mjs.
+// and Manage Materials (Material Browser): see ../inspect-analyses-part.mjs.
 import { defineScenario, mainIfDirect, apiBox, near } from "../lib.mjs";
 import { analysesPart, materialsPart } from "../inspect-analyses-part.mjs";
 
@@ -141,8 +141,10 @@ const scenario = defineScenario({
     t.check("material Aluminum 6061 assigned", await t.app((b) => window.app.doc.bodies[b].material === "aluminum-6061", box.body));
     await t.key("Escape");
     await t.settle(120);
-    // browser context menu -> Properties (fallback: command)
-    const row = await t.app(() => { const e = document.querySelector('#browser-host [data-node^="body:"]'); if (e) e.setAttribute("data-qa-body", "1"); return !!e; });
+    // browser context menu -> Properties (fallback: command); the Bodies folder starts collapsed
+    if (!(await t.visible('#browser-host [data-node^="body:"]'))) await t.click('#browser-host [data-node="bodies:root"] .br-twisty', { timeout: 1500 });
+    await t.settle(150);
+    const row =await t.app(() => { const e = document.querySelector('#browser-host [data-node^="body:"]'); if (e) e.setAttribute("data-qa-body", "1"); return !!e; });
     let opened = false;
     if (row) {
       await t.click('[data-qa-body="1"]', { button: "right" });
@@ -182,8 +184,9 @@ const scenario = defineScenario({
     await t.settle(250);
     const an = await t.app(() => window.app.ui.inspect.analyses());
     t.check("Section1 added to the Analysis list", an.some((x) => x.type === "section" && x.name === "Section1"), JSON.stringify(an));
-    const browserHas = await t.app(() => /Section1/.test((document.getElementById("browser-host") || {}).innerText || ""));
-    if (!browserHas) t.note("browser does not show the Analysis folder yet (browser module reads app.ui.inspect.analyses())");
+    if (!(await t.visible('#browser-host [data-node^="analysis:a"]'))) await t.click('#browser-host [data-node="analysis:root"] .br-twisty', { timeout: 1500 });
+    await t.settle(150);
+    t.check("browser Analysis folder lists Section1", await t.app(() => /Section1/.test((document.querySelector("#browser-host") || {}).innerText || "")));
     await t.escapeAll();
 
     // ------------------------------------------------------------- surface analyses + Manage Materials

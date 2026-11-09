@@ -8,7 +8,9 @@ const V3 = THREE.Vector3;
 export const EDGE_PX = 5;
 export const POINT_PX = 7;
 const RANK = { point: 0, curve: 1, area: 2 };
-const AREA_PRIO = { profile: 0, sketchCurve: 0, sketchPoint: 0, originPlane: 1, cplane: 1, face: 2, meshFace: 2, body: 3 };
+// meshFace after body: a plain click on a mesh body selects the body (Fusion's Design tabs); mesh tools that
+// filter for meshFace still get the face group.
+const AREA_PRIO = { profile: 0, sketchCurve: 0, sketchPoint: 0, originPlane: 1, cplane: 1, face: 2, body: 3, meshFace: 4 };
 
 function segDist2(px, py, ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay;

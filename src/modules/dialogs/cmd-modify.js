@@ -312,7 +312,7 @@ export function openMove(app, opts = {}) {
     ctrlWidth: 130,
     rows: [
       { id: "objType", type: "buttons", label: "Move Object", options: [{ value: "components", label: "Components", icon: "components", disabled: true }, { value: "bodies", label: "Bodies", icon: "bodies" }, { value: "faces", label: "Faces", icon: "faces", disabled: true }], default: "bodies" },
-      { id: "bodies", type: "selection", label: "Selection", kinds: ["body", "face"], mapRef: toBodyRef, prompt: "Select bodies to move" },
+      { id: "bodies", type: "selection", label: "Selection", kinds: ["body", "face"], meshBodies: true, mapRef: toBodyRef, prompt: "Select bodies to move" },
       { id: "moveType", type: "buttons", label: "Move Type", options: [{ value: "free", label: "Free Move", icon: "freeMove" }, { value: "translate", label: "Translate", icon: "translate" }, { value: "rotate", label: "Rotate", icon: "rotate" }], default: "free" },
       { id: "tx", type: "value", label: "X Distance", kind: "length", default: "0.00 mm", visible: (v) => v.moveType !== "rotate" },
       { id: "ty", type: "value", label: "Y Distance", kind: "length", default: "0.00 mm", visible: (v) => v.moveType !== "rotate" },
@@ -363,7 +363,7 @@ function deleteThings(app, bodies, feats) {
       doc.features.splice(i, 1);
       if (doc.marker > i) doc.marker -= 1;
     }
-    const live = bodies.filter((b) => app.result && app.result.state.bodies.has(b));
+    const live = bodies.filter((b) => app.result && (app.result.state.bodies.has(b) || !!(app.result.state.meshBodies && app.result.state.meshBodies.has(b))));
     if (live.length) {
       const nf = { type: "delete", bodies: live };
       prepareFeature(doc, nf);

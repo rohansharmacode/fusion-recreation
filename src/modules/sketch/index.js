@@ -12,6 +12,14 @@ import { DimensionTool, initDimension, closeEdit } from "./dimension.js";
 import { CONSTRAINTS, runConstraint, runFix } from "./constraints.js";
 import { TrimTool, ExtendTool, OffsetTool, FilletTool, ChamferTool, MirrorTool, ProjectTool, toggleConstruction, projectRefs } from "./modify.js";
 import { SplineTool, BlendTool, makeEllipseTool } from "./freeform.js";
+import { TanTanCircleTool, ThreeTanCircleTool, makeConicTool, makeArcSlot3Tool, makeArcSlotCTool, CVSplineTool, BreakTool, openEditConic } from "./tools2.js";
+import { openText, initText } from "./text.js";
+import { openSketchScale } from "./scale.js";
+import { openRectPattern, openCircPattern, initPatterns } from "./patterns.js";
+import { openIntersect, openInclude3D, openIntersectionCurve, openProjectToSurface, openIsoparametric, openSpunProfile } from "./include3d.js";
+import { openInsertSVG, openInsertDXF } from "./importx.js";
+import { openAutoConstrain, autoConstrainAndFinish } from "./autoconstrain.js";
+import { fitPointInfo, activateTangentHandle, deactivateTangentHandle } from "./handles.js";
 
 const inSketch = (app) => app.mode === "sketch";
 
@@ -38,8 +46,19 @@ const DRAW = [
   ["DrawPoint", "Point", null, "Creates a sketch point."],
   ["DrawSpline", "Fit Point Spline", null, "Creates a spline through the selected fit points. Select the first point to start the spline. Select additional points as fit points."],
   ["CircleElipse", "Ellipse", null, "Creates an ellipse defined by a center point, major axis and a point on the ellipse."],
+  ["CircleTanTanRadius", "2-Tangent Circle", null, "Creates a circle of a specified radius tangent to two lines."],
+  ["CircleThreeTangent", "3-Tangent Circle", null, "Creates a circle tangent to three lines."],
+  ["ConicCurveCmd", "Conic Curve", null, "Creates a conic curve from two end points, a vertex point and a Rho value."],
+  ["ShapeArcSlotThreePoint", "Three Point Arc Slot", null, "Creates an arc slot from a three point arc and the width."],
+  ["ShapeArcSlotCenterTwoPoint", "Center Point Arc Slot", null, "Creates an arc slot from a center point, the start and end points of its arc and the width."],
+  ["DrawCVMSpline3D", "Control Point Spline", null, "Creates a spline shaped by control points. Select the first point to start the spline. Select additional points to define the control frame."],
 ];
-const FREEFORM_TOOLS = { DrawSpline: () => new SplineTool(), CircleElipse: () => makeEllipseTool() };
+const FREEFORM_TOOLS = {
+  DrawSpline: () => new SplineTool(), CircleElipse: () => makeEllipseTool(),
+  CircleTanTanRadius: () => new TanTanCircleTool(), CircleThreeTangent: () => new ThreeTanCircleTool(),
+  ConicCurveCmd: () => makeConicTool(), ShapeArcSlotThreePoint: () => makeArcSlot3Tool(), ShapeArcSlotCenterTwoPoint: () => makeArcSlotCTool(),
+  DrawCVMSpline3D: () => new CVSplineTool(),
+};
 
 function startDrawTool(app, id, label) {
   const go = () => { const t = FREEFORM_TOOLS[id] ? FREEFORM_TOOLS[id]() : makeDrawTool(id, label); if (t) t.start(); };
@@ -96,6 +115,36 @@ function registerCommands(app) {
     if (pre.length) { projectRefs(pre); app.selection.clear(); }
     new ProjectTool().start();
   });
+  sketchTool("BreakSketchCmd", "Break", null, "Breaks a curve into pieces at the intersections with other curves. Hover to preview the piece, then click to break the curve.", () => new BreakTool().start());
+  // dialog commands of the active sketch
+  sketchTool("SketchScaleCmd", "Sketch Scale", null, "Scales sketch geometry about a point by a scale factor.", () => openSketchScale());
+  sketchTool("RectangularSketchPatternCommand", "Rectangular Pattern", null, "Copies sketch geometry in rows and columns.", () => openRectPattern());
+  sketchTool("CircularSketchPatternCommand", "Circular Pattern", null, "Copies sketch geometry around a center point.", () => openCircPattern());
+  sketchTool("IntersectCmd", "Intersect", null, "Creates sketch curves where bodies, faces or edges cross the sketch plane.", () => openIntersect());
+  sketchTool("Include3DGeometry", "Include 3D Geometry", null, "Brings edges, points and faces into the active sketch without projecting them onto the sketch plane.", () => openInclude3D());
+  sketchTool("IntersectionCurve", "Intersection Curve", null, "Creates 3D sketch curves where sketch curves, projected along a direction, meet faces.", () => openIntersectionCurve());
+  sketchTool("ProjectToSurface", "Project to Surface", null, "Projects sketch curves onto faces as 3D sketch curves.", () => openProjectToSurface());
+  sketchTool("SketchIsoparametricCurve", "Isoparametric Curve", null, "Creates a 3D sketch curve along a face in its U or V direction.", () => openIsoparametric());
+  sketchTool("SpunProfileCmd", "Spun Profile", null, "Creates the silhouette of bodies spun around an axis in the sketch plane.", () => openSpunProfile());
+  sketchTool("SketchAutoConstraintAndDimCmd", "AutoConstrain", null, "Suggests sets of constraints and dimensions that fully constrain the sketch.", () => openAutoConstrain());
+  sketchTool("SketchAutoConstraintAndDimFromDatumCmd", "AutoConstrain from Datum", null, "Suggests constraints and dimensions measured from a datum point that you select.", () => openAutoConstrain({ id: "SketchAutoConstraintAndDimFromDatumCmd", pickDatum: true }));
+  reg({
+    id: "SketchAutoConstrainAndFinish", label: "Finish with AutoConstrain", kind: "tool", when: "sketch", enabled: inSketch,
+    tooltip: "Adds the suggested constraints and dimensions, then finishes the sketch.",
+    run: () => { if (inSketch(app)) autoConstrainAndFinish(); },
+  });
+  // Text and Insert SVG / DXF also start from the model environment (a plane or sketch is picked first)
+  reg({ id: "MTextCmd", label: "Text", kind: "tool", tooltip: "Creates text in a frame or along a path. The text outlines become sketch profiles.", run: () => { if (!inSketch(app)) startCreateSketch(() => openText()); else openText(); } });
+  reg({ id: "SketchImportSVG", label: "Insert SVG", kind: "tool", tooltip: "Inserts the curves of an SVG file into a sketch.", run: () => openInsertSVG() });
+  reg({ id: "ImportDxfFileCommand", label: "Insert DXF", kind: "tool", tooltip: "Inserts the geometry of a 2D DXF file into a sketch.", run: () => openInsertDXF() });
+  // tangent handles of fit point splines (right-click a fit point)
+  const handleCmd = (id, label, active, fn) => reg({
+    id, label, kind: "tool", when: "sketch",
+    enabled: (a) => { const f = inSketch(a) && fitPointInfo(a.selection.items); return !!f && f.active === active; },
+    run: (a) => { const f = fitPointInfo(a.selection.items); if (!f || f.active !== active) { a.toast("Select a fit point of a fit point spline", "info", 1800); return; } fn(f); },
+  });
+  handleCmd("AddTangentHandle", "Activate Tangent handle", false, activateTangentHandle);
+  handleCmd("DeleteTangentCommand", "Deactivate Tangent Handle", true, deactivateTangentHandle);
   for (const [id, def] of Object.entries(CONSTRAINTS)) sketchTool(id, def.label, null, `Applies a ${def.label.toLowerCase()} constraint.`, () => runConstraint(id));
   sketchTool("ConstraintFix", "Fix/UnFix", null, "Fixes or unfixes the selected sketch geometry.", () => runFix());
   reg({ id: "SketchFixConstraintCmd", label: "Fix/UnFix", kind: "tool", when: "sketch", enabled: inSketch, run: () => runFix() });
@@ -121,6 +170,10 @@ export function init(app) {
   initDimension();
   initStatus();
   registerCommands(app);
+  initText();
+  initPatterns();
+  ST.curveEditors = ST.curveEditors || {};
+  ST.curveEditors.conic = (id) => openEditConic(id);
   app.featureEditors.sketch = (a, id) => enterSketch(id);
 
   app.on("model", () => rebuild());
@@ -154,6 +207,8 @@ export function init(app) {
     cancelTool: () => endTool(),
     lookAt: () => lookAtSketch(true),
     data: () => activeData(),
+    /** {spline, k, point, active} when items is one fit point of a fit point spline (marking menu) */
+    fitPointInfo: (items) => fitPointInfo(items),
   };
   rebuild();
 }

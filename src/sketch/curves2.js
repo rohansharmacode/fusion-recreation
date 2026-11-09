@@ -277,7 +277,10 @@ export function textContours(sk, id, pathGeomOf = null, pt = ptOf(sk), sizeOverr
       start = al === "center" ? (total - tw) / 2 : al === "right" ? total - tw : 0;
     }
     const below = cv.above === false;
-    const rev = !!cv.flipH;
+    // the text reads left to right: a path running right-to-left at its middle is followed backwards
+    const dm = g.der(S.locate(total / 2));
+    const backwards = dm[0] < -1e-9 || (Math.abs(dm[0]) <= 1e-9 && dm[1] < 0);
+    const rev = !!cv.flipH !== backwards;
     for (const [x, key, adv] of glyphs) {
       const gw = (adv || 0) * H;
       // arc length of the glyph's centre

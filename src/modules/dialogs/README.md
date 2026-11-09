@@ -60,7 +60,7 @@ on a document replace (undo/redo/open) and when the sketch environment is entere
 
 | type | value | extra props |
 |---|---|---|
-| `selection` | array of refs | `selText(n, dlg)` (button text; default "Select" / "n selected"), `clearButton:false`, `advance:false` (no auto-advance), `kinds:['profile','face',...]`, `planar` (faces must be planar), `max` (1 = single), `min` (default 1; 0 = optional), `toggle` (default true: clicking a selected item removes it), `filter(ref, dlg)`, `mapRef(ref, dlg) -> ref \| ref[] \| null` (e.g. face → its edges, face → body), `prompt` |
+| `selection` | array of refs | `selText(n, dlg)` (button text; default "Select" / "n selected"), `clearButton:false`, `advance:false` (no auto-advance), `kinds:['profile','face',...]`, `meshBodies:true` (body refs of mesh-like bodies are accepted too; default B-rep only), `planar` (faces must be planar), `max` (1 = single), `min` (default 1; 0 = optional), `toggle` (default true: clicking a selected item removes it), `filter(ref, dlg)`, `mapRef(ref, dlg) -> ref \| ref[] \| null` (e.g. face → its edges, face → body), `prompt` |
 | `value` | expression string (`"10 mm"`, `"d1/2"`) | `embed:true` (no row: a custom row places `dlg.embedInput(id, cls)`, e.g. the fillet table, hole callouts), `kind:'length'\|'angle'\|'none'`, `positive`, `nonNegative`, `min`, `max`, `integer`, `step` (↑/↓ keys) |
 | `dropdown` | option value | `options:[{value, label, icon, disabled}]` (icon = glyph name from glyphs.js), `noCaret` |
 | `buttons` | option value | icon toggles, same `options` (disabled ones look normal and explain themselves in a toast) |

@@ -1,4 +1,4 @@
-// Release verification in headless Edge (playwright-core, channel "msedge").
+// Release verification in headless Edge (playwright-core, channel "msedge"; Chromium off Windows, see browser.mjs).
 //
 //   node scripts/verify-release.mjs                # build release/ then verify it
 //   node scripts/verify-release.mjs --no-build     # verify the existing release/
@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { build, sizeReport, RELEASE_FILES } from "./build.mjs";
 import { serve } from "./serve.mjs";
+import { browserOptions } from "./browser.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const args = Object.fromEntries(process.argv.slice(2).map((a) => { const m = /^--([^=]+)(?:=(.*))?$/.exec(a); return m ? [m[1], m[2] ?? true] : [a, true]; }));
@@ -53,7 +54,7 @@ check("occt.gz.wasm is gzip data", gzHead[0] === 0x1f && gzHead[1] === 0x8b);
 const server = await serve({ dir, port });
 const artifactPort = Number(args["artifact-port"] || port + 99); // 5438 by default (QA uses port+100)
 const artifactServer = await serve({ dir, port: artifactPort, artifact: true });
-const browser = await chromium.launch({ channel: "msedge", headless: !args.headed, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
+const browser = await chromium.launch(browserOptions({ headless: !args.headed, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] }));
 const url = `http://127.0.0.1:${port}/`;
 
 async function newPage(o = {}) {

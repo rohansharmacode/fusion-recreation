@@ -231,6 +231,9 @@ const OVERFLOW_SKETCH = [
   ["ConstraintTangent", (c) => c.circles >= 1 && c.curves === 2],
   ["ConstraintEqual", (c) => c.curves === 2 && (c.lines === 2 || c.circles === 2)],
   ["ConstraintSymmetry", (c) => c.lines === 1 && c.curves === 3],
+  // fit point of a fit point spline: tangent handle (sketch module, app.ui.sketch.fitPointInfo)
+  ["AddTangentHandle", (c) => { const f = c.app.ui.sketch && c.app.ui.sketch.fitPointInfo && c.app.ui.sketch.fitPointInfo(c.items); return !!f && !f.active; }],
+  ["DeleteTangentCommand", (c) => { const f = c.app.ui.sketch && c.app.ui.sketch.fitPointInfo && c.app.ui.sketch.fitPointInfo(c.items); return !!f && f.active; }],
   "-",
   ["FusionDeleteCommand", (c) => c.n > 0],
   ["SoftDeleteCommand", (c) => c.n === 0],
@@ -336,7 +339,7 @@ export function createMarkingMenu(app, opts = {}) {
     if (!Array.isArray(items) || !items.length) return null;
     return items.map((it) => {
       if (!it.submenu || typeof it.submenu === "string") return it;
-      const key = /^sketch$/i.test(it.label || "") ? "sketch" : `env-${String(it.label || "more").toLowerCase().replace(/W+/g, "-")}`;
+      const key = /^sketch$/i.test(it.label || "") ? "sketch" : `env-${String(it.label || "more").toLowerCase().replace(/\W+/g, "-")}`;
       if (key !== "sketch") envSubmenus[key] = it.submenu;
       return { pos: it.pos, submenu: key, label: it.label || "More" };
     });

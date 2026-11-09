@@ -3,7 +3,8 @@ export const meta = {
   description: 'Wave 1 (lean): resume foundation + sketch, inspect, manage, annotate builders from their partial work, then one integration verify',
   phases: [
     { title: 'Build', detail: 'foundation chain + 4 builders resume from partial edits' },
-    { title: 'Verify', detail: 'full engine + e2e suite, regressions fixed' },
+    { title: 'Review', detail: 'cheap fresh-eyes review of each area diff', model: 'haiku' },
+    { title: 'Verify', detail: 'confirm review findings, full engine + e2e suite, regressions fixed' },
   ],
 }
 
@@ -55,6 +56,7 @@ Hard rules:
 6. No npm installs unless your task allows it.
 7. Keep the UI responsive; cache meshes; no heavy kernel work per pointer move.
 8. Write src/modules/<your module>/README.md (when you own a module): commands, data formats, API for other modules.
+9. Never write the em dash character (U+2014) in code, comments, docs, test names or your report; use a comma, colon, full stop or brackets. Keep your report brief and factual.
 
 Build and test with ONLY your own directories and ports (key: ${key}, ports ${port}-${port + 9}):
 - Build: node scripts/build.mjs --out=build/${key}   (add --only=viewport,sketch,dialogs,inspect,shell,browser,timeline,menus,<your module> if a parallel engineer has temporarily broken a module you do not own).
@@ -63,7 +65,7 @@ Build and test with ONLY your own directories and ports (key: ${key}, ports ${po
 - Engine tests (when src/model.js, src/kernel.js or src/sketch/* changed): npm test, node tests/spline_test.mjs, node tests/robust_test.mjs.
 - Split up or background commands longer than about 9 minutes.`
 
-const RESUME = (key) => `RESUMING: an earlier engineer started exactly this task and was stopped after about an hour (to save tokens, not because of a problem). Their partial work is in the working tree; nothing has been committed since commit a000b92, so git diff a000b92 -- <your owned files> and git status show it (other engineers' changes are in the same diff, so look only at your files). Review it quickly, keep what is good, and finish the task. A tests/e2e/scenarios/${key}.mjs may already exist.`
+const RESUME = (key) => `RESUMING: an earlier engineer started exactly this task and was stopped after about an hour (to save tokens, not because of a problem). Their partial work is committed as WIP commit e450b32 (the last green commit is a000b92), so git diff a000b92 -- <your owned files> shows it (other engineers' changes are in the same diff, so look only at your files). Ignore docs/WIP.md, docs/wip-wave1-workflow.js and skill-log.md. Review it quickly, keep what is good, and finish the task. A tests/e2e/scenarios/${key}.mjs may already exist.`
 
 const tail = (key) => `
 Add or finish the QA scenario tests/e2e/scenarios/${key}.mjs that drives your commands through the real UI and checks results (bodies, volumes, browser and timeline entries, undo, save/open). Before you finish, your scenario plus core-loop, modeling, toolbar and undo-redo must pass with zero console errors. Work through the whole list. Final answer = the structured report (implemented ids that really work; notImplemented with reasons; sharedEdits; contracts other engineers can use; tests run and results; honest knownIssues).`
@@ -134,17 +136,40 @@ ${resume ? RESUME(a.key) + '\n\n' : ''}${task}
 Files you own: ${a.owned}.
 ${tail(a.key)}`
 
+const REVIEW = {
+  type: 'object',
+  properties: { findings: { type: 'array', items: { type: 'object', properties: {
+    file: { type: 'string' }, line: { type: 'number' }, severity: { type: 'string', enum: ['high', 'medium', 'low'] }, problem: { type: 'string' },
+  }, required: ['file', 'line', 'severity', 'problem'] } } },
+  required: ['findings'],
+}
+const REVIEW_PATHS = {
+  foundation: 'src/model.js src/app src/modules.js scripts/build.mjs src/modules/shell src/modules/viewport src/modules/browser src/modules/timeline src/modules/menus src/modules/inspect/mesh.js src/modules/inspect/insert.js src/modules/icons src/modules/dialogs tests/registry_test.mjs tests/e2e/scenarios/foundation.mjs tests/e2e/scenarios/components.mjs',
+  sketch: 'src/sketch src/modules/sketch src/expr.js package.json tests/sketch3_test.mjs tests/e2e/scenarios/sketch.mjs',
+  inspect: 'src/modules/inspect tests/e2e/scenarios/inspect.mjs',
+  manage: 'src/modules/manage tests/e2e/scenarios/manage.mjs',
+  annotate: 'src/modules/annotate tests/e2e/scenarios/annotate.mjs',
+  configure: 'src/modules/configure tests/e2e/scenarios/configure.mjs',
+}
+const review = (key) => agent(`Review a code change with fresh eyes. Project: ${ROOT} (browser JavaScript, ES modules, three.js, an OpenCascade wasm kernel). Run git diff --stat a000b92 -- ${REVIEW_PATHS[key]} , then read the diff one file at a time (git diff a000b92 -- <file>). Find real problems only: bugs, crashes, wrong logic, broken undo/redo or save/open, event-listener or memory leaks, unhandled errors, code that cannot work, duplicated code, and em dash characters (U+2014) in added lines. Do not edit files and do not run the app. Report each problem with file, line number in the new file, severity and one short sentence. Return an empty list if you find nothing.`, { label: 'review:' + key, phase: 'Review', schema: REVIEW, model: 'haiku' })
+
 phase('Build')
+const configureReview = review('configure')
 const reports = await parallel(AREAS.map((a) => async () => {
   if (a.key === 'foundation') {
     const r1 = await agent(prompt(a, F1_TASK, true), { label: 'build:foundation-1', phase: 'Build', schema: BUILD })
     if (!r1) return null
     const r2 = await agent(prompt(a, F2_TASK(r1), false), { label: 'build:foundation-2', phase: 'Build', schema: BUILD })
-    return { key: a.key, part1: r1, part2: r2 }
+    const rv = await review(a.key)
+    return { key: a.key, part1: r1, part2: r2, review: rv }
   }
   const r = await agent(prompt(a, a.task, true), { label: 'build:' + a.key, phase: 'Build', schema: BUILD })
-  return r ? { key: a.key, ...r } : null
+  if (!r) return null
+  const rv = await review(a.key)
+  return { key: a.key, ...r, review: rv }
 }))
+const reviews = { configure: ((await configureReview) || {}).findings || [] }
+for (const r of reports.filter(Boolean)) reviews[r.key] = (r.review && r.review.findings) || []
 
 const brief = reports.filter(Boolean).map((r) => r.key === 'foundation'
   ? { key: 'foundation', implemented: [...r.part1.implemented, ...((r.part2 && r.part2.implemented) || [])], notImplemented: [...r.part1.notImplemented, ...((r.part2 && r.part2.notImplemented) || [])], knownIssues: [...r.part1.knownIssues, ...((r.part2 && r.part2.knownIssues) || [])], contracts: r.part1.contracts + '\n' + ((r.part2 && r.part2.contracts) || 'PART 2 FAILED') }
@@ -154,10 +179,11 @@ phase('Verify')
 const v = await agent(`${ctx('verify', 5600)}
 
 ROLE: integration engineer. These areas were just built in parallel in this working tree: ${JSON.stringify(brief)}. Also finished earlier: configure (Configure, configuration table, rules: ${args && args.configure ? args.configure : 'see src/modules/configure/README.md'}).
+0. Cheap fresh-eyes reviewers flagged these possible problems per area (they can be wrong): ${JSON.stringify(reviews)}. Check each against the code, fix the real ones, and list in fixes which you fixed and which you rejected (one line each).
 1. Run all engine tests (npm test, node tests/spline_test.mjs, node tests/robust_test.mjs, plus tests/registry_test.mjs and tests/sketch3_test.mjs if present) and the full QA suite: QA_OUT=build/verify QA_SHOTS=tests/e2e/out/verify QA_PORT=5600 node tests/e2e/run-all.mjs --parallel=4 --quiet (background + poll if it exceeds 9 minutes).
 2. Fix every failure at its root cause with minimal edits (any file now; don't redesign others' work; fix code rather than weaken tests unless the expectation is wrong for real Fusion). Re-run until all pass with zero console errors. Then do a release build (node scripts/build.mjs --release) and run the core-loop, modeling, sketch, foundation and components scenarios against release/ (check run-all.mjs for the release flags) and confirm it boots without console errors.
 3. In a booted app count app.commands.all() real vs stub and list remaining stub ids.
 4. Make ARCHITECTURE.md's module and command-ownership tables list the new modules (manage, annotate, configure) and contracts; fix contradictions.
 Return the structured report.`, { label: 'verify', phase: 'Verify', schema: VERIFY })
 
-return { brief, verify: v }
+return { brief, reviews, verify: v }

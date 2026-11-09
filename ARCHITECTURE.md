@@ -11,7 +11,8 @@ src/app/layout.css         grid layout + theme tokens (CSS variables)           
 src/modules.js             module start-up order                                                     [orchestrator-owned]
 src/modules/<name>/index.js   each UI module: `export function init(app)` (may be async)
 src/modules/icons/icons.js    shared original SVG icon library (not an init module)
-src/model.js kernel.js expr.js   parametric document + evaluator, replicad/OCCT wrapper, expression/ParamTable
+src/model.js kernel.js expr.js   parametric document + evaluator (+ feature-type registry), replicad/OCCT wrapper, expression/ParamTable
+src/meshdata.js               triangle-mesh helpers (mesh bodies): weld, bbox, volume, transforms, STL writers, base64
 src/sketch/                   solver.js (LM constraint solver + DOF), regions.js (profiles), sketch.js (model + ops),
                               curves.js (spline / ellipse / elliptical-arc geometry)
 scripts/                      build.mjs (esbuild bundle, --release), serve.mjs (static server, --artifact),
@@ -27,7 +28,8 @@ UI modules (start-up order in `src/modules.js`): `viewport`, `sketch`, `dialogs`
   cmd-modify / cmd-construct / cmd-coil-pipe / cmd-split-scale / cmd-thread, threads, cosmetic, glyphs, fallback (see its README.md)
 * inspect: measure, section, properties, appearance, library, analyses, geom, overlay, ui, canvas (Insert Canvas),
   mesh + insert (Insert Mesh STL/OBJ), bom (Bill of Materials), interference
-* shell: appbar, toolbar, menu, panels, tooltip, spec (toolbar layout), common, theme.css
+* shell: appbar, toolbar, menu, panels, tooltip, spec (Design toolbar layout, contextual tabs, marking menus, mode toolbars),
+  workspaces-spec (other workspaces' toolbars), workspace (workspace chrome, placeholder, finish fallbacks), common, theme.css
 * browser: index, ui, scene;  timeline: index, actions, deps;  menus: index, files, params, markingmenu, toolbox, shortcuts, info, modal, util
 * icons: icons, draw, parts, ui, cmd-solid / cmd-sketch / cmd-other (original SVG only)
 
@@ -39,7 +41,7 @@ npm run release                # node scripts/build.mjs --release -> release/ (m
 npm run analyze                # release build to build/analyze with per-package size of app.js
 npm run serve                  # dist/ on :5173;  serve:release  release/ on :5174
 npm run serve:artifact         # release/ on :5175 with strict CSP; open /__sandbox.html (sandboxed-iframe rehearsal)
-npm test                       # engine tests: sketch_test, sketch_engine2, kernel_smoke, kernel2, dialogs_model
+npm test                       # engine tests: sketch_test, sketch_engine2, kernel_smoke, kernel2, dialogs_model, registry_test
 node tests/spline_test.mjs; node tests/robust_test.mjs   # extra engine tests (not in `npm test`)
 npm run e2e                    # node tests/e2e/run-all.mjs: builds to build/qa, runs every QA scenario in headless Edge
 npm run e2e:release            # same against release/ (--release --out=release)
@@ -56,7 +58,7 @@ Environment variables (read in `tests/e2e/lib.mjs`): `QA_OUT` build dir (default
 root (default `tests/e2e/out/qa`; results.json goes there), `QA_PORT` first server port (default 5318; parallel runs use consecutive ports).
 Scenarios (`tests/e2e/scenarios/*.mjs`, 20): toolbar, core-loop, viewcube, marking-menu, toolbox, undo-redo, save-open,
 parameters, browser, timeline, modeling, navigation, sketch, shortcuts, look, small-screen, robustness, create-modify,
-insert, inspect. Each is `defineScenario({name, run(t)})` with helpers from `lib.mjs` (`t.check`, `t.app`, `t.key`, `t.fill`, `t.state`, ...).
+insert, inspect, foundation (registry, body kinds, environments, workspaces) and the newer module scenarios. Each is `defineScenario({name, run(t)})` with helpers from `lib.mjs` (`t.check`, `t.app`, `t.key`, `t.fill`, `t.state`, ...).
 `tests/e2e/refshots.mjs [--refs=<dir>] [--only=04,13] [--no-build]` reproduces real-Fusion reference captures through the UI and writes
 `[ref | ours]` side-by-side composites to `tests/e2e/out/refpairs/` (reference folder: `$FUSION_REFS`). The older per-module
 scripts in `tests/e2e/` (`boot.mjs`, `shell.mjs`, `dialogs.mjs`, ...) can still be run directly.
@@ -77,7 +79,7 @@ Prefix class names with your module (`tb-`, `br-`, `tl-`, `dlg-`, `sk-`, `vp-`, 
 
 ## App (src/app/core.js)
 ```
-app.doc                      plain JSON document (see "Document"); ALWAYS read through app.doc — it is replaced
+app.doc                      plain JSON document (see "Document"); ALWAYS read through app.doc; it is replaced
                              on undo/redo/open. Never keep feature objects across mutations; keep ids.
 app.feature(id) / featureIndex(id)
 app.mutate(label, fn(doc), {recompute=true}) -> ret    one undoable change (snapshots doc), then recompute
@@ -87,14 +89,21 @@ app.recompute()              evaluate timeline -> app.result, emits 'model'
 app.preview(f, {replaceId}) -> {result, feature}        tentative evaluation for live preview (emits 'model' {preview:true})
 app.endPreview()             go back to the committed result
 app.result                   {state:{bodies,sketches,planes}, results:{[featureId]:{ok,error?,warning?,tool?,rolled?,suppressed?}}, params}
-app.bodies() -> [{id, shape, meta}]   app.body(id)   app.bodyMeta(id) -> doc.bodies[id] {name, visible, appearance, material}
+app.bodies() -> [{id, shape, meta, kind}]   app.body(id)   B-rep bodies only (solid + surface, OCCT shapes)
+app.allBodies() / anyBody(id) -> {id, kind, shape?|mesh?, entry?, meta}   every kind (see "Body kinds")
+app.bodyKind(id) -> 'solid'|'surface'|'mesh'|'tspline'|...   app.bodyInfo(id) -> {kind, name, volume, area, bbox, triangles?}
+app.bodyMeta(id) -> doc.bodies[id] {name, visible, appearance, material, kind?, sheetMetal?}
+app.featureEditor(type) / hasFeatureEditor(type) / featureLabel(type)   (featureEditors[type] or the registered def)
+app.registerBodyKind(kind, hooks)   app.enterEnvironment(spec) / exitEnvironment(id) / environment / environments / inMode(mode)
+app.registerWorkspace(def) / setWorkspace(id) / workspace / workspaceList() / workspaceDef(id)
 app.sketchState(id) -> {id, plane, sk, regions, status}   app.planeState(id)   app.featureResult(id)
 app.selection                {items, hover, filter, set/add/remove/toggle/clear/has/ofKind/setHover/accepts}
 app.commands                 registry: register(def), run(id, ctx), get(id), has(id), all(), isEnabled(id), lastRepeatable
 app.input                    pointer/keyboard handler stack: push(handler) -> pop(), dispatch(), top()
 app.history                  undo(), redo(), canUndo(), canRedo()
 app.featureEditors[type] = (app, featureId) => void     Edit Feature entry points; app.editFeature(id) calls them
-app.mode 'model'|'sketch', app.activeSketch (feature id), app.setMode(mode, sketchId)
+app.mode 'model'|'sketch'|<environment mode>, app.activeSketch (feature id), app.setMode(mode, sketchId)
+                             (setMode('model') inside an environment returns to that environment's mode)
 app.activeCommand            {id, ok(), cancel()} while a command dialog is open (set/cleared by the dialog framework)
 app.appearances              {id: {name, color, metalness, roughness, opacity?}}
 app.ui.<name>                public objects modules expose to each other (e.g. app.ui.dialog, app.ui.toolbar)
@@ -117,7 +126,7 @@ app.on(type, fn) -> off;  app.emit(type, detail)
 | `selection` / `hover` | `{items}` / `{ref}` | core Selection |
 | `mode` | `{mode, sketch}` | core setMode |
 | `commands` | `{id}` | registry (a command was registered) |
-| `command-start` | `{id, def}` | registry before running a feature/tool command — open dialogs & sketch tools cancel themselves |
+| `command-start` | `{id, def}` | registry before running a feature/tool command: open dialogs & sketch tools cancel themselves |
 | `input`, `history` | | core |
 | `camera` | | viewport after each rendered frame where the camera/scene changed (reposition HTML labels) |
 | `canvas-contextmenu` | `{x, y, clientX, clientY, ctx}` | viewport when a right-click was not consumed by an input handler |
@@ -130,6 +139,10 @@ app.on(type, fn) -> off;  app.emit(type, detail)
 | `selection-filters` | `{filters}` | shell toolbar (Select panel priority filters) |
 | `viewport-visibility` / `viewport-grid` | object visibility / grid prefs | viewport |
 | `analyses` / `insert` | `{}` | inspect (analysis list changed / canvas or mesh inserted) |
+| `feature-types` | `{type}` | core when `M.registerFeature` adds a type (timeline / browser refresh icons, labels) |
+| `body-kinds` | `{kind}` | core `registerBodyKind` |
+| `environment` | `{env, action:'enter'|'exit', reason?}` | core `enterEnvironment` / `exitEnvironment` (a `mode` event follows) |
+| `workspace` / `workspaces` | `{id, prev, def}` / `{id}` | core `setWorkspace` / `registerWorkspace` |
 
 ### Refs (selection / hover / pick results)
 ```
@@ -141,7 +154,11 @@ app.on(type, fn) -> off;  app.emit(type, detail)
 {kind:'sketchCurve', sketch, curve} {kind:'sketchPoint', sketch, point} {kind:'sketchDim', sketch, cid}
 {kind:'originPlane', name:'XY'|'XZ'|'YZ'} {kind:'originAxis', name:'X'|'Y'|'Z'} {kind:'originPoint'}
 {kind:'cplane', id}  {kind:'feature', id}
+{kind:'meshFace', body, tri, group, p, n}   triangle `tri` of a mesh body; group = its face group (-1 none). refKey
+                                            treats refs of one group as the same selection unless triOnly:true
 ```
+B-rep surface bodies use the face / edge / vertex refs. A plain click on a mesh body gives `{kind:'body'}`
+(meshFace ranks after body); a mesh tool that sets `app.selection.filter = (r) => r.kind === 'meshFace'` gets face groups.
 `refKey(ref)` (exported from core.js) gives a stable identity string.
 
 Feature face/edge refs stored in the document are `{body, p[, n][, sig]}`. `sig` is **derived, optional** data written by
@@ -151,7 +168,9 @@ by `sig` first (`K.matchEdge` / `K.matchFace`), then by nearest point to `p`, an
 `sig` (old documents, fresh picks) fall back to nearest-point and get one on first resolve. Never author `sig` by hand.
 
 ### Commands
-`register({id, label, tooltip?, icon?, shortcut?: "E" | ["Ctrl+Z"], when?: 'model'|'sketch', kind?: 'feature'|'tool'|'view'|'ui', stub?, run(app, ctx), enabled?(app), checked?(app)})`.
+`register({id, label, tooltip?, icon?, shortcut?: "E" | ["Ctrl+Z"], when?: 'model'|'sketch'|<env mode>, workspace?, kind?: 'feature'|'tool'|'view'|'ui', stub?, run(app, ctx), enabled?(app), checked?(app)})`.
+* `when: 'form'` (any environment mode): enabled only while `app.inMode('form')`; offered by the S toolbox there.
+  `workspace: 'CAMEnvironment'`: the command belongs to that workspace (toolbox and shortcuts answer only there).
 * Use **Fusion's own command ids** (from `TabToolbars.xml`, table below). A real registration replaces a stub; a
   stub never replaces a real command. `kind:'feature'|'tool'` fires `command-start` (cancels open dialogs/tools);
   `'view'|'ui'` do not (orbit, fit, toggles, menus).
@@ -185,7 +204,7 @@ addPickProvider(fn(x, y, ray, opts) -> hits[]) -> remove()       (sketch module 
 lookAt(plane, {animate=true}) -> Promise      camera looks along -n with plane y up (Look At / sketch entry)
 setView(name, {animate})   'home','top','bottom','front','back','left','right' (+ ViewCube corners/edges)
 fit({animate})
-setPreview([{shape, color:'cut'|'new'|'#hex', opacity}]) / clearPreview()    transient tool bodies
+setPreview([{shape | mesh:{positions, indices?}, color:'cut'|'new'|'#hex', opacity}]) / clearPreview()    transient tool bodies
 setOriginVisible(bool)    temporarily show origin planes/axes for picking (Create Sketch)
 meshFor(shape) -> cached K.meshBody() data
 ```
@@ -193,8 +212,11 @@ Standard views (Z-up): Front looks from −Y, Right from +X, Top from +Z, Home =
 Body visibility: `doc.bodies[id].visible`; sketches/planes: `feature.visible !== false`; origin: `doc.origin.visible`.
 
 ## Document (src/model.js)
-`doc = {version, name, units:'mm', params:[{name, expr, kind, comment}], features:[...], marker, bodies:{id:meta}, counters, origin:{visible}, canvases?, meshes?}`
-(`canvases` = Insert Canvas images, `meshes` = Insert Mesh STL/OBJ bodies; document data, not timeline features).
+`doc = {version, name, units:'mm', params:[{name, expr, kind, comment}], features:[...], marker, bodies:{id:meta}, counters, origin:{visible}, canvases?, meshData?}`
+(`canvases` = Insert Canvas images, document data, not timeline features; `meshData` = triangle data of `mesh` features,
+`{[id]: {positions: base64 Float32, indices?: base64 Uint32, groups?: base64 Uint32, tris}}`, written by `M.storeMeshData`).
+Older documents with `doc.meshes` (display-only Insert Mesh) are converted on open by `M.migrateDoc` (core `loadDocument`
+and menus `loadDoc` call it). Default body names `BodyN` count only default-named bodies (`counters.bodyName`).
 Numeric feature fields are **expression strings** (`"10 mm"`, `"d1/2"`, `"30 deg"`) evaluated by the
 ParamTable; `M.assignParams` gives each a model parameter name stored in `f.p[field]` (d1, d2 …).
 Feature shapes (all have `id, type, name`; `suppressed`, `visible` optional):
@@ -221,11 +243,137 @@ move     {bodies, tx,ty,tz, rx,ry,rz, copy}   mirror {bodies, plane, operation} 
 loft     {profiles, ruled, operation}   sweep {profile, path:{sketch, curves}, operation}   delete {bodies}
 split    Split Body   coil {diameter, revolutions, height, pitch, angle, sectionSize, ...}   pipe {distance, sectionSize, thickness, ...}
 scale    {factor | sx,sy,sz}   thread {length, offset, ...}  (modeled + cosmetic threads, dialogs/threads.js)
+mesh     {data (doc.meshData id), file, format, units, flipUp, tx,ty,tz, rx,ry,rz, scale, tris, bbox, newBody}  Insert Mesh
 ```
 Feature types (`FIELDS` / `TYPE_LABEL` in model.js): sketch, extrude, revolve, fillet, chamfer, shell, hole, box, cylinder,
-sphere, torus, cplane, rpattern, cpattern, move, mirror, combine, loft, sweep, delete, draft, split, coil, pipe, scale, thread.
+sphere, torus, cplane, rpattern, cpattern, move, mirror, combine, loft, sweep, delete, draft, split, coil, pipe, scale, thread,
+mesh, plus every type a module registers (next section).
 `FIELDS[type]` lists the expression-valued fields and their kind (`length`|`angle`|`none`); each gets a model parameter (d1, d2 ...).
 planeRef for a planar face: `{kind:'face', body, p, n, plane:{o,x,n}}` (use `K.planeFromNormal(p, n)`).
+
+## Feature-type registry (src/model.js)
+Modules add timeline feature types without editing model.js: `M.registerFeature(type, def)` (also `app.M.registerFeature`).
+It wires FIELDS, TYPE_LABEL, NAME_STEM and the evaluator; core naming / parameters / body ids, the timeline (label, icon,
+dependency checks), the browser and Edit Feature then work for the type. Register at module `init` (before documents
+that use the type are evaluated; an unknown type fails with "... features are not available in this build").
+```js
+import * as M from "../../model.js";
+M.registerFeature("rib", {
+  label: "Rib",                                  // timeline tooltip, undo label "Create Rib", app.featureLabel
+  stem: "Rib",                                   // auto names Rib1, Rib2 (default: label)
+  fields: { thickness: "length", depth: "length" },   // expression fields -> model parameters d1, d2 (f.p[field])
+  makesBodies: (f) => f.operation === "new",     // true: core sets f.newBody; a number n: f.newBodies[0..n-1]
+  apply(st, f, P, doc) {                         // st = copy of the state: replace Map entries, never mutate shapes
+    const t = M.fval(P, f, "thickness");          // throw new Error("...") = failed feature with that message
+    const tool = /* OCCT shape */ null;
+    st._tool = tool;                              // optional: shown as result.tool (cut previews)
+    return { affected: M.applyOp(st, f, tool, doc) };   // {affected?, warning?, ...} -> app.result.results[f.id]
+  },
+  deps: (f) => ({ sketches: [f.profile.sketch], cplanes: [], bodies: [], features: [], geo: [] }),  // timeline reorder checks
+  touches: (f) => f.bodies || [],                // bodies it modifies (timeline dependency checks)
+  editor: (app, id) => openRibDialog(app, id),   // Edit Feature / timeline double-click (app.featureEditors[type] wins)
+  icon: "FusionRibCommand",                      // command id whose icon the timeline / browser show
+  browser: { folder: "construction" },           // optional: list the feature itself in a browser folder (+ node(app, f))
+});
+```
+Built-in types cannot be replaced unless `replace:true`. Queries: `M.featureDef(type)` (built-ins give `{builtin:true}`),
+`M.featureTypes()`, `M.registeredFeatures()`, `M.isFeatureType(type)`, `M.onFeatureRegistered(fn)` (core re-emits `feature-types`).
+Evaluator helpers for apply(): `M.helpers` (each also a named export): `fval, cloneState, emptyState, locateEdge, locateFace(s),
+resolveFace, resolvePlane, followFacePlane, resolveRegion, pointInRegion, profileGroups, applyOp, axisFromRef, bodiesBBoxCenter,
+modelSize, touches, fuseTemp, edgeFeature, edgesForRefs, groupByBody, rotatePoint, rotateTo, circumcenter, splitTool, pipePath,
+chainPath, trimPath, orderEdges, patternFeatures, friendly, quietFinder, shapeKind, bodyKind, isSolidBody, isBrepBody, allBodyIds,
+bodyBBox, storeMeshData, meshDataOf, stageMeshData, unstageMeshData, meshInsertMatrix`. `locateEdge` / `locateFace` refresh the
+stored ref (`sig`, `p`) on every resolve (see "Refs"). Node test: `tests/registry_test.mjs`.
+
+## Body kinds
+`doc.bodies[id].kind`: `'solid'` (default, not stored) | `'surface'` | `'mesh'` | `'tspline'` | a registered kind; sheet metal is a
+solid with `meta.sheetMetal`. Core mirrors the evaluated kind and `sheetMetal` into the metadata after each evaluation.
+Evaluation state (model.js `emptyState()`; `cloneState` copies every Map-valued key, so modules may add their own):
+```
+st.bodies      Map id -> {id, shape, from, kind?, sheetMetal?}   OCCT shapes: solids and surfaces (open shells / faces;
+                                                                  M.shapeKind(shape) tells them apart)
+st.meshBodies  Map id -> {id, kind:'mesh'|'tspline'|..., mesh, data?, bbox?, from}   not OCCT. mesh = src/meshdata.js format
+               {positions: Float32Array, indices: Uint32Array|null (null = soup), normals?, groups? (face group per triangle)}
+```
+* Rendering (viewport/bodies.js): solids double-sided; surfaces front side in the appearance and back side gold like Fusion;
+  mesh-like kinds flat-shaded facets, edges = open boundary + face-group borders (`edges` hook: 'groups'|'sharp'|'none'|'all').
+* Picking: surfaces use face / edge / vertex refs; meshes give `body` and `meshFace` hits (see "Refs").
+* Browser: every kind is listed in the Bodies folder with its own icon (solid, surface, mesh, T-spline, sheet metal) and a
+  tooltip subtitle ("Mesh Body | 12 triangles"); hide / isolate / rename / Delete (Delete feature) work for all kinds.
+* Export: STL writes B-rep and mesh triangles (one file); STEP writes B-rep bodies only (toast when mesh bodies are skipped).
+* `app.bodyInfo(id)`: volume / area / bbox for Properties and BOM (mesh volume from the closed triangle mesh; `info` hook).
+* Insert Mesh (`ParaMeshInsertAlignCommand`, inspect/mesh.js) adds a `mesh` feature; the body is named after the file, Edit
+  Feature reopens the dialog, Move/Copy and Delete handle mesh bodies. Dialog selection rows accept mesh-like bodies
+  only with `meshBodies: true` (solid features keep refusing them, like Fusion). Dialog previews use `M.stageMeshData(mesh)` -> `tmp:n`
+  ids, committed with `M.storeMeshData(doc, mesh)`.
+```js
+app.registerBodyKind("tspline", {            // merged into app.bodyKinds[kind]; emits 'body-kinds' and re-renders
+  label: "T-Spline Body", icon: "<svg ...>",  // browser subtitle / 16 px icon markup
+  brep: false,                               // st.meshBodies entry (true = OCCT shape in st.bodies)
+  mesh: (entry, app) => entry.data.evaluatedMesh,      // triangles to draw / pick (default entry.mesh)
+  render: (entry, app) => cageObject(entry),           // extra THREE.Object3D in the body group (rebuilt with the body)
+  pick: (entry, x, y, ray, opts) => [],                // extra hits, same format as viewport pick providers
+  edges: "none",                                       // mesh edge display
+  info: (entry) => ({ volume, area }),                 // Properties / BOM numbers
+});
+```
+The bounding box of a mesh-like body is `entry.bbox` (object or function) when set, else computed from `entry.mesh`.
+
+## Contextual environments (core + shell toolbar)
+Fusion's FORM, BASE FEATURE, FLAT PATTERN, DIRECT MESH EDITING ... tabs. The layouts are in `shell/spec.js` CONTEXTUAL_TABS
+(ids FormTab, BasefeatureSolidTab, BasefeatureSurfaceTab, FlatPatternSolidTab, FlatPatternSurfaceTab, ParaMeshBaseFeatureTab,
+EditSnapshotTab, PCBTab; each `{id, label, mode, env, panels, finish, finishPanel, baseTabs}`); their commands are stubs until
+a module registers them. Small floating mode bars (Configure, Edit In Place) are `MODE_TOOLBARS`.
+```js
+const env = app.enterEnvironment({
+  id: "form", mode: "form", label: "FORM",
+  tab: "FormTab",                    // CONTEXTUAL_TABS id, {id, label, panels:[ids]} or an array of them
+  panels: { MyPanel: { label: "MY", controls: ["MyCmd"], dropdown: [] } },   // optional extra panels
+  finishCommand: "TSplineBaseFeatureStop",   // green check FINISH button (panel label from spec, or finishLabel)
+  baseTabs: [],                      // persistent tabs kept: [] none (spec default for these tabs), null all, [ids]
+  markingMenu: "TSplineEnvironment", // spec MARKING_MENUS id or [{pos, id} | {pos, label, submenu}]
+  shortcuts: ["TSplineBoxCommand"],  // default S-toolbox row of the environment
+  modeToolbar: "ConfigToolbar", modeLabel: (app) => "Name",   // optional floating mode bar instead of / with a tab
+  feature: featureId,                // optional: the feature being edited
+  onExit(reason) {},                 // 'finish' | 'cancel' | 'exit' | 'replaced' | 'workspace' | 'document'
+});
+app.exitEnvironment("form", { reason: "finish" });
+```
+While active: `app.mode === env.mode`, `app.environment` is the innermost env (the sketch reports
+`{id:'sketch', builtin:true}`), commands with `when: env.mode` are enabled, the toolbar shows the contextual tab with its
+FINISH panel, the marking menu and S toolbox ("Form Shortcuts") follow the environment and shortcut lists are per mode.
+Esc cancels the active command and then the selection, never the environment (like Fusion). A sketch made inside an environment
+returns to it on Finish Sketch. Until a module registers the finish command, the shell's fallback leaves the environment
+(`exitEnvironment(id, {reason:'finish'})`). New / open document and workspace switches exit every environment.
+
+## Workspaces (core + shell)
+The DESIGN switcher lists Fusion's workspaces in Fusion's order (core `WORKSPACE_ORDER`): Design (FusionSolidEnvironment),
+Generative Design (GenerativeEnvironment), Render (FusionRenderEnvironment), Animation (Publisher3DEnvironment), Simulation
+(SimulationEnvironment), Manufacture (CAMEnvironment), Drawing (FusionDocumentationEnvironment). Toolbar layouts of the
+non-Design workspaces, generated from the install, are in `shell/workspaces-spec.js` (`WORKSPACE_SPECS`, `WORKSPACE_PANELS`,
+`WORKSPACE_COMMANDS`); their commands are stubs scoped with `workspace: <id>`. An unregistered workspace shows its toolbar,
+a placeholder card with "Back to Design", and a labelled bottom strip.
+```js
+app.registerWorkspace({
+  id: "FusionRenderEnvironment",          // label defaults to Fusion's
+  tabs: [{ id: "RenderTab", label: "RENDER", panels: ["RenderSetupPanel"] }],   // default: workspaces-spec tabs
+  panels: { RenderSetupPanel: { label: "SETUP", controls: ["..."], dropdown: [] } },   // merged over the spec panels
+  enter(app) {}, exit(app) {},
+  timeline: (host, app) => dispose,       // own bottom strip (false hides it; omitted = placeholder strip)
+  browser: true,                          // false hides the browser
+  canvas: (layer, app) => dispose,        // optional overlay layer over the canvas
+  shortcuts: ["..."],                     // default S-toolbox row
+});
+app.setWorkspace("FusionRenderEnvironment");   // finishes the sketch, exits environments, emits 'workspace'
+```
+NextWorkspace / PreviousWorkspace (Ctrl+] / Ctrl+[) step through the list. The timeline and browser of Design are kept
+(hidden, not destroyed) while another workspace shows.
+
+## Browser and timeline hooks
+`app.ui.browser.registerFolder({key, label, after?: "bodies:root", before?, build(app) -> node|null})` adds a folder to the
+root component (node = `{eye?, onEye?, menu?() -> items, children:[{key, label, icon, ref?, eye?, onEye?, onDbl?, menu?,
+renamable?, rename?(name), tip?, badge?}]}`; returns remove()); `app.ui.browser.invalidate()` re-renders. Registered feature
+types with `browser.folder` are listed in that folder. The timeline reads `def.deps` / `def.touches` for its reorder checks.
 
 ## Command ownership (Fusion ids from the local install's TabToolbars.xml)
 At runtime 456 ids are registered: 220 real commands, 217 stubs (`stub:true`, toast "isn't available in this unofficial recreation yet"),
@@ -242,7 +390,7 @@ the rest hidden aliases. A real registration replaces a stub; a stub never repla
 | shell | every other toolbar id as a stub; real: ToggleDataPanel (Ctrl+Alt+P), ShowFusionHomeCmd, ToggleComments, ToggleToolbar, ResetLayout (Ctrl+Alt+R), SaveAsImageCommand, FileClose, ThreeDprintCmdDef, ShowCommandHelp, NextWorkspace / PreviousWorkspace; placeholder Undo / Redo / FileNew / About that menus replaces |
 | menus | FileNew (Ctrl+N), FileOpen (Ctrl+O), FileSave (Ctrl+S), FileSaveAs, RecoverySave (Ctrl+Shift+S), FileExport (STEP / STL / JSON), FileExportSTL, Undo (Ctrl+Z), Redo (Ctrl+Y), ShowToolbox (S), RepeatCommand, ChangeParameterCommand, FusionComputeAllCommand (Ctrl+B), ToggleVisibility (V), FusionEditFeatureCommand, UnisolateAllCmd, SetOrbitCenterCommand, ResetOrbitCenterCommand, KeyboardShortcuts, About, delete-key routing, marking menu |
 
-## DOM test hooks (keep these stable — e2e tests rely on them)
+## DOM test hooks (keep these stable: e2e tests rely on them)
 * Any button/menu item that runs a command: `data-cmd="<commandId>"`.
 * Toolbar tabs: `[data-tab="SolidTab"]`; panel dropdown triggers `[data-panel="SolidCreatePanel"]`.
 * Command dialog: `.dlg[data-dialog="<commandId>"]`, inputs `[data-input="<fieldId>"]`, buttons `[data-action="ok"|"cancel"]`.
@@ -253,7 +401,7 @@ the rest hidden aliases. A real registration replaces a stub; a stub never repla
 
 ## Rules for module builders
 1. Edit only files you own (your `src/modules/<name>/`). Additive, minimal changes to `src/app/core.js`,
-   `src/model.js`, `src/kernel.js`, `src/sketch/*` are allowed only when unavoidable — keep existing behaviour,
+   `src/model.js`, `src/kernel.js`, `src/sketch/*` are allowed only when unavoidable; keep existing behaviour,
    keep `node tests/*.mjs` passing, and list them in your report.
 2. Other builders work in parallel. Keep your files syntactically valid at all times (`node --check <file>` after
    writing); test with `--only=` builds so unfinished modules don't break you.

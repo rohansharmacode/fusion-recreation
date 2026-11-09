@@ -683,6 +683,7 @@ export class App extends EventTarget {
     this.history.redoStack = [];
     this.evaluator.invalidate();
     this.dirty = false;
+    while (this._envStack.length) this.exitEnvironment(this._envStack[this._envStack.length - 1].id, { reason: "document" });
     this._replaceDoc(d);
     this.emit("history", {});
   }

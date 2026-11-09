@@ -265,8 +265,10 @@ function gdtSpec(f, ctx) {
   const below = at >= 0 ? tplLines.slice(at + 1).filter((s) => s.trim()) : tplLines.filter((s) => s.trim());
   if (f.annot) {
     // attached to a dimension / hole note: the frame goes under that annotation's text
-    const host = ctx.mainOf ? ctx.mainOf(f.annot) : null;
-    const orphan = !host;
+    // the host is laid out later in the same pass (annotations with `after` go last), so only its
+    // presence in the document decides whether the frame is orphaned
+    const hf = ctx.app ? ctx.app.feature(f.annot) : null;
+    const orphan = !hf || !!hf.suppressed;
     return {
       id: f.id, orphan, warning: orphan ? "The attached PMI is outdated." : null, selRefs: [], after: true,
       build: (view) => {

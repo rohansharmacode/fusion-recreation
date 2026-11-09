@@ -1,7 +1,7 @@
 # inspect module
 
 Fusion's INSPECT tools, the appearance / physical material tools and Manage Materials.
-(`mesh.js` and `insert.js` — Insert Mesh and the canvas / mesh-body store — belong to the foundation engineer.)
+(`mesh.js` and `insert.js`: Insert Mesh and the canvas / mesh-body store, belong to the foundation engineer.)
 
 | command id | name | files |
 |---|---|---|

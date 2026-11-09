@@ -226,7 +226,9 @@ export class Dialog {
     if (!d || !ref || !(d.kinds || []).includes(ref.kind)) return false;
     if (ref.kind === "face" && d.planar && ref.planar === false) return false;
     if (GEOM_KINDS.has(ref.kind) || ref.kind === "body") {
-      if (!this.baseState.bodies.has(ref.body)) return false; // body only exists in the preview
+      // body only exists in the preview; mesh-like bodies only where the row allows them (meshBodies: true)
+      const mesh = d.meshBodies && ref.kind === "body" && this.baseState.meshBodies && this.baseState.meshBodies.has(ref.body);
+      if (!this.baseState.bodies.has(ref.body) && !mesh) return false;
     }
     if (d.filter) { try { if (!d.filter(ref, this)) return false; } catch { return false; } }
     return true;

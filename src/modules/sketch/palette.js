@@ -41,17 +41,25 @@ const ICON = {
   slotcc: sv('<path d="M6 6.5h8a3.5 3.5 0 0 1 0 7H6a3.5 3.5 0 0 1 0-7z" stroke="#3a3a3a" stroke-width="1.3"/><circle cx="6" cy="10" r="1.4" fill="#1d6fe0"/><circle cx="14" cy="10" r="1.4" fill="#1d6fe0"/>'),
   slotov: sv('<path d="M6 6.5h8a3.5 3.5 0 0 1 0 7H6a3.5 3.5 0 0 1 0-7z" stroke="#3a3a3a" stroke-width="1.3"/><circle cx="2.5" cy="10" r="1.4" fill="#1d6fe0"/><circle cx="17.5" cy="10" r="1.4" fill="#1d6fe0"/>'),
   slotcp: sv('<path d="M6 6.5h8a3.5 3.5 0 0 1 0 7H6a3.5 3.5 0 0 1 0-7z" stroke="#3a3a3a" stroke-width="1.3"/><circle cx="10" cy="10" r="1.4" fill="#1d6fe0"/><circle cx="14" cy="10" r="1.4" fill="#1d6fe0"/>'),
+  circtt: sv('<path d="M2.5 4.5l15 0M2.5 4.5l7 13" stroke="#3a3a3a" stroke-width="1.2"/><circle cx="9.6" cy="9.6" r="4.4" stroke="#3a3a3a" stroke-width="1.3"/>'),
+  circ3t: sv('<path d="M2 4h16M2.6 4l7.4 14M17.4 4L10 18" stroke="#3a3a3a" stroke-width="1.1"/><circle cx="10" cy="8.7" r="3.6" stroke="#3a3a3a" stroke-width="1.3"/>'),
+  slota3: sv('<path d="M3.5 13.5a7 7 0 0 1 13 0" stroke="#9a9a9a" stroke-width="1" stroke-dasharray="1.6 1.3"/><path d="M1.6 14.2a8.8 8.8 0 0 1 16.8 0a1.9 1.9 0 0 1-3.6 0.6a5.2 5.2 0 0 0-9.6 0a1.9 1.9 0 0 1-3.6-0.6z" stroke="#3a3a3a" stroke-width="1.2"/><circle cx="10" cy="6.5" r="1.3" fill="#1d6fe0"/>'),
+  slotac: sv('<path d="M1.6 14.2a8.8 8.8 0 0 1 16.8 0a1.9 1.9 0 0 1-3.6 0.6a5.2 5.2 0 0 0-9.6 0a1.9 1.9 0 0 1-3.6-0.6z" stroke="#3a3a3a" stroke-width="1.2"/><circle cx="10" cy="15.5" r="1.3" fill="#1d6fe0"/><circle cx="3.4" cy="14.4" r="1.3" fill="#1d6fe0"/>'),
+  deg3: sv('<path d="M2.5 15C5 4 8 4 10 10s5 6 7.5-5" stroke="#3a3a3a" stroke-width="1.2"/><text x="14" y="18.5" font-size="7" font-family="sans-serif" fill="#3a3a3a" stroke="none">3</text>'),
+  deg5: sv('<path d="M2.5 15C4 6 6 4 8 9s3 7 5 2 3-6 4.5-6" stroke="#3a3a3a" stroke-width="1.2"/><text x="14" y="18.5" font-size="7" font-family="sans-serif" fill="#3a3a3a" stroke="none">5</text>'),
 };
 
 /** Feature Options rows: tool families with their variants (icons switch the active tool). */
 const FAMILIES = [
   { label: "Rectangle", tools: [["ShapeRectangleTwoPoint", "2-Point Rectangle", "rect2"], ["ShapeRectangleThreePoint", "3-Point Rectangle", "rect3"], ["ShapeRectangleCenter", "Center Rectangle", "rectc"]] },
-  { label: "Circle", tools: [["CircleCenterRadius", "Center Diameter Circle", "circ"], ["CircleTwoPoint", "2-Point Circle", "circ2"], ["CircleThreePoint", "3-Point Circle", "circ3"]] },
+  { label: "Circle", tools: [["CircleCenterRadius", "Center Diameter Circle", "circ"], ["CircleTwoPoint", "2-Point Circle", "circ2"], ["CircleThreePoint", "3-Point Circle", "circ3"], ["CircleTanTanRadius", "2-Tangent Circle", "circtt"], ["CircleThreeTangent", "3-Tangent Circle", "circ3t"]] },
   { label: "Arc", tools: [["ArcThreePoint", "3-Point Arc", "arc3"], ["ArcCenterTwoPoint", "Center Point Arc", "arcc"], ["ArcTangent", "Tangent Arc", "arct"]] },
   { label: "Polygon", tools: [["ShapePolygonCircumscribed", "Circumscribed Polygon", "polyc"], ["ShapePolygonInscribed", "Inscribed Polygon", "polyi"], ["ShapePolygonEdge", "Edge Polygon", "polye"]] },
-  { label: "Slot", tools: [["ShapeSlotCenterToCenter", "Center to Center Slot", "slotcc"], ["ShapeSlotOverall", "Overall Slot", "slotov"], ["ShapeSlotCenterPoint", "Center Point Slot", "slotcp"]] },
+  { label: "Slot", tools: [["ShapeSlotCenterToCenter", "Center to Center Slot", "slotcc"], ["ShapeSlotOverall", "Overall Slot", "slotov"], ["ShapeSlotCenterPoint", "Center Point Slot", "slotcp"], ["ShapeArcSlotThreePoint", "Three Point Arc Slot", "slota3"], ["ShapeArcSlotCenterTwoPoint", "Center Point Arc Slot", "slotac"]] },
 ];
-const familyOf = (id) => FAMILIES.find((f) => f.tools.some((t) => t[0] === id)) || null;
+// Control Point Spline: Spline Degree (Degree 3 / Degree 5), Fusion's FusionDrawCVSplineDegree row
+const DEGREE = { label: "Spline Degree", tools: [["deg:3", "Degree 3", "deg3"], ["deg:5", "Degree 5", "deg5"]] };
+const familyOf = (id) => (id === "DrawCVMSpline3D" ? DEGREE : FAMILIES.find((f) => f.tools.some((t) => t[0] === id)) || null);
 
 let EL = null;
 
@@ -111,7 +119,7 @@ export function initPalette() {
   el.querySelectorAll(".sk-pal-ghead").forEach((g) => g.addEventListener("click", (ev) => { ev.currentTarget.parentNode.classList.toggle("open"); }));
   el.querySelector('[data-act="under"]').addEventListener("click", () => findUnderConstrained());
   el.querySelector('[data-act="compute"]').addEventListener("click", () => computeSketch());
-  el.querySelector('[data-act="autoconstrain"]').addEventListener("click", () => ST.app.toast("AutoConstrain is not available in this recreation.", "info", 2200));
+  el.querySelector('[data-act="autoconstrain"]').addEventListener("click", () => ST.app.commands.run("SketchAutoConstraintAndDimCmd"));
   el.querySelectorAll("input[data-opt]").forEach((cb) => cb.addEventListener("change", () => (cb.dataset.opt === "grid" || cb.dataset.opt === "snap" ? setGridOpt(cb.dataset.opt, cb.checked) : setOpt(cb.dataset.opt, cb.checked))));
   ST.app.on("viewport-grid", () => sync());
   el.querySelector('[data-opt-btn="construction"]').addEventListener("click", () => ST.app.commands.run("SketchConstructionCmd"));
@@ -119,7 +127,9 @@ export function initPalette() {
   el.querySelector(".sk-finish").addEventListener("click", () => ST.app.commands.run("SketchStop"));
   el.querySelector(".sk-pal-modes").addEventListener("click", (ev) => {
     const b = ev.target.closest("[data-mode]");
-    if (b && !b.classList.contains("on")) ST.app.commands.run(b.dataset.mode);
+    if (!b || b.classList.contains("on")) return;
+    if (b.dataset.mode.startsWith("deg:")) { setOpt("splineDegree", Number(b.dataset.mode.slice(4))); if (ST.tool && ST.tool.refresh) ST.tool.refresh(); return; }
+    ST.app.commands.run(b.dataset.mode);
   });
   onLocal((type) => { if (type === "opts" || type === "rendered" || type === "tool") sync(); });
   window.addEventListener("resize", () => place());
@@ -165,9 +175,10 @@ export function sync() {
     const sig = fam.tools.map((t) => t[0]).join(",");
     if (modes.dataset.sig !== sig) {
       modes.dataset.sig = sig;
-      modes.innerHTML = fam.tools.map(([id, label, ic]) => `<button class="sk-pal-icon sk-pal-mode" data-mode="${id}" data-cmd="${id}" title="${label}">${ICON[ic]}</button>`).join("");
+      modes.innerHTML = fam.tools.map(([id, label, ic]) => `<button class="sk-pal-icon sk-pal-mode" data-mode="${id}"${id.startsWith("deg:") ? "" : ` data-cmd="${id}"`} title="${label}">${ICON[ic]}</button>`).join("");
     }
-    modes.querySelectorAll("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === tool));
+    const on = fam === DEGREE ? `deg:${ST.opts.splineDegree === 5 ? 5 : 3}` : tool;
+    modes.querySelectorAll("[data-mode]").forEach((b) => b.classList.toggle("on", b.dataset.mode === on));
   }
 }
 

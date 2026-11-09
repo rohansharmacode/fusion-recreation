@@ -11,7 +11,7 @@
 .pmi-tab.on { color: #111; border-bottom-color: #3a8de4; font-weight: 600; }
 
 /* label + control lines inside custom rows */
-.pmi-lrow { display: grid; grid-template-columns: var(--dlg-label-w) var(--dlg-ctl-w); align-items: center; min-height: 29px; }
+.pmi-lrow { display: grid; grid-template-columns: var(--dlg-label-w) var(--dlg-ctl-w); align-items: center; min-height: 29px; padding: 0 33px 0 9px; }
 .pmi-lrow .dlg-ctl { display: flex; align-items: center; }
 
 /* Change annotation plane: ‹ n / m › */
@@ -26,7 +26,7 @@
 .pmi-ibtn:disabled { opacity: 0.35; cursor: default; border-color: transparent; background: transparent; }
 
 /* Text box */
-.pmi-textbox { display: flex; flex-direction: column; gap: 4px; padding: 3px 0 4px; }
+.pmi-textbox { display: flex; flex-direction: column; gap: 4px; padding: 3px 33px 4px 9px; }
 .pmi-ta {
   width: 100%; box-sizing: border-box; min-height: 54px; resize: vertical; padding: 4px 5px;
   border: 1px solid #dcdcdc; border-radius: 1px; font: 12.5px/1.35 Arial, "Helvetica Neue", Helvetica, sans-serif; color: #111; background: #fff;
@@ -42,7 +42,7 @@
 .pmi-symdd { cursor: pointer; }
 
 /* feature control frame preview */
-.pmi-fcf-preview { display: flex; align-items: center; justify-content: flex-start; min-height: 30px; padding: 4px 2px 6px; overflow: hidden; }
+.pmi-fcf-preview { display: flex; align-items: center; justify-content: flex-start; min-height: 30px; padding: 4px 33px 6px 9px; overflow: hidden; }
 .pmi-fcf-preview img { display: block; max-width: 100%; height: auto; }
 .pmi-fcf-empty { color: #8a8a8a; font-size: 12px; }
 

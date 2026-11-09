@@ -203,8 +203,8 @@ export function installOpacity(app) {
   const orig = bl.material.bind(bl);
   const cache = new Map();
   bl._brOpacity = true;
-  bl.material = (meta, cc) => {
-    const m = orig(meta, cc);
+  bl.material = (meta, cc, variant) => {
+    const m = orig(meta, cc, variant);
     const op = meta && meta.opacity != null ? Number(meta.opacity) : 1;
     if (!(op >= 0 && op < 1) || !m || typeof m.clone !== "function") return m;
     const k = `${m.uuid}|${op}`;

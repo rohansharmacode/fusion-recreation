@@ -63,6 +63,15 @@ function sketchCurveWorld(sk, id, pl, n = 64) {
   return S.curvePolyline(sk, id, n).map((q) => K().toWorld(pl, q[0], q[1]));
 }
 
+/** At least n segments: straight pieces become curved once projected onto a surface. */
+function densify(P, n) {
+  if (P.length < 2 || P.length > n) return P;
+  const k = Math.ceil(n / (P.length - 1));
+  const out = [P[0]];
+  for (let i = 1; i < P.length; i++) for (let j = 1; j <= k; j++) out.push(K().V.add(P[i - 1], K().V.mul(K().V.sub(P[i], P[i - 1]), j / k)));
+  return out;
+}
+
 function finishSel(dlg) { endLive(); void dlg; }
 
 // ---------------------------------------------------------------------------
@@ -211,7 +220,7 @@ function curvesToProject(dlg) {
   const pl = plane();
   const polys = [];
   for (const r of dlg.values.curves || []) {
-    if (r.kind === "sketchCurve" && sk.curves[r.curve]) polys.push(sketchCurveWorld(sk, r.curve, pl));
+    if (r.kind === "sketchCurve" && sk.curves[r.curve]) polys.push(densify(sketchCurveWorld(sk, r.curve, pl), 64));
     else if (r.kind === "edge") { const parts = shapesOf(dlg, [r]); try { for (const it of parts) polys.push(sampleEdge(it.shape, 64)); } finally { free(parts); } }
     else if (r.kind === "vertex") polys.push([r.p]);
   }

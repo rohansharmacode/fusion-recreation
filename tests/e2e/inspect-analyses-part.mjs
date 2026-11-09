@@ -150,9 +150,9 @@ export async function analysesPart(t) {
 
   // ------------------------------------------------------------- browser: Analysis folder, Edit, eye
   t.step("browser Analysis folder: expand, right-click Draft1 > Edit Draft Analysis, change the angle, OK");
-  await t.click('#browser-host [data-node="analysis:root"] .br-twisty', { timeout: 1500 });
-  await t.settle(200);
   const rowSel = `#browser-host [data-node="analysis:${draft && draft.id}"]`;
+  if (!(await t.visible(rowSel))) await t.click('#browser-host [data-node="analysis:root"] .br-twisty', { timeout: 1500 });
+  await t.settle(200);
   t.check("Draft1 row (with its own icon) in the browser", await t.visible(rowSel) && (await t.app((s) => !!document.querySelector(s + " .br-icon svg"), rowSel)));
   await t.click(rowSel, { button: "right" });
   await t.settle(200);

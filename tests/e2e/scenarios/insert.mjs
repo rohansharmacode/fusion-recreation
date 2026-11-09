@@ -2,7 +2,7 @@
 // export through app.download), INSERT > Canvas (tiny generated PNG through the dialog's file input,
 // placed on the box's top face, rendered as a textured plane, Canvases folder + eye, edit, undo,
 // document round trip), INSERT > Insert Mesh (generated binary + ASCII STL, Move To Ground, unit type,
-// Mesh Bodies folder, canvas pick + Delete + undo).
+// mesh body (timeline feature) in the Bodies folder, canvas pick + Delete + undo).
 import zlib from "node:zlib";
 import { defineScenario, mainIfDirect, apiBox, near } from "../lib.mjs";
 
@@ -197,7 +197,11 @@ const scenario = defineScenario({
     const unit0 = await t.app(() => window.app.ui.dialog.current.values.units);
     t.check("Unit Type defaults to the document units (mm)", unit0 === "mm", unit0);
     await t.page.setInputFiles('.dlg[data-dialog="ParaMeshInsertAlignCommand"] input[type=file][data-input="meshFile"]', { name: "cube.stl", mimeType: "model/stl", buffer: binarySTL(cubeTris([40, -5, 5], 10)) });
-    t.check("STL parsed (12 triangles) and previewed", await t.waitFor(() => window.app.ui.insert.view.objects().meshes.includes("__preview") && /cube\.stl/.test(document.querySelector('.dlg [data-row="file"]').textContent), { timeout: 3000 }));
+    // Insert Mesh makes a real mesh body: a `mesh` timeline feature evaluated into app.result.state.meshBodies
+    t.check("STL parsed (12 triangles) and previewed", await t.waitFor(() => {
+      const a = window.app, st = a.result && a.result.state;
+      return a.previewing && !!st.meshBodies && [...st.meshBodies.values()].some((b) => a.M.meshOps.triCount(b.mesh) === 12) && /cube\.stl/.test(document.querySelector('.dlg [data-row="file"]').textContent);
+    }, { timeout: 3000 }));
     await t.click('.dlg[data-dialog="ParaMeshInsertAlignCommand"] [data-action="ground"]');
     await t.settle(150);
     const tz = await t.app(() => window.app.ui.dialog.current.values.tz);
@@ -205,18 +209,17 @@ const scenario = defineScenario({
     await t.shot("mesh-dialog");
     await t.click('.dlg[data-dialog="ParaMeshInsertAlignCommand"] [data-action="ok"]');
     await t.settle(250);
-    const mb = await t.app(() => { const m = (window.app.doc.meshes || [])[0]; return m ? { n: window.app.doc.meshes.length, id: m.id, name: m.name, tris: m.tris, tz: m.tz, fmt: m.format } : null; });
-    t.require("mesh body stored in the document", mb && mb.n === 1, JSON.stringify(mb));
-    t.check("named after the file, 12 triangles, tz -5", mb.name === "cube" && mb.tris === 12 && mb.tz === -5 && mb.fmt === "stl", JSON.stringify(mb));
-    t.check("browser: Mesh Bodies folder with the mesh body", await t.waitFor(() => !!document.querySelector('[data-node="meshbodies:root"]') && /cube/.test((document.querySelector('[data-node="meshbody:mb1"]') || {}).textContent || ""), { timeout: 1500 }));
-    await t.click('[data-node="meshbodies:root"] .br-twisty');
-    const wb = await t.app(() => {
-      const o = window.app.ui.insert.view.meshObject("mb1");
-      if (!o) return null;
-      o.mesh.geometry.computeBoundingBox();
-      const b = o.mesh.geometry.boundingBox.clone().applyMatrix4(o.mesh.matrix);
-      return [b.min.toArray(), b.max.toArray()];
+    const mb = await t.app(() => {
+      const a = window.app, fs = a.doc.features.filter((f) => f.type === "mesh");
+      const f = fs[0];
+      return f ? { n: fs.length, id: f.newBody, name: (a.doc.bodies[f.newBody] || {}).name, kind: a.bodyKind(f.newBody), tris: f.tris, tz: f.tz, fmt: f.format } : null;
     });
+    t.require("mesh feature + mesh body in the document", mb && mb.n === 1 && mb.kind === "mesh", JSON.stringify(mb));
+    t.check("named after the file, 12 triangles, tz -5", mb.name === "cube" && mb.tris === 12 && mb.tz === -5 && mb.fmt === "stl", JSON.stringify(mb));
+    const meshRow = `[data-node="body:${mb.id}"]`;
+    if (!(await t.visible(meshRow))) await t.click('[data-node="bodies:root"] .br-twisty', { timeout: 1200 });
+    t.check("browser: the mesh body is in the Bodies folder", await t.waitFor((s) => /cube/.test((document.querySelector(s) || {}).textContent || ""), { timeout: 1500, arg: meshRow }));
+    const wb = await t.app((id) => { const b = window.app.M.bodyBBox(window.app.result.state, id); return b ? [b.min, b.max] : null; }, mb.id);
     t.check("rendered mesh spans x 40..50, z 0..10 (grounded)", wb && near(wb[0][0], 40, 1e-4) && near(wb[1][0], 50, 1e-4) && near(wb[0][2], 0, 1e-4) && near(wb[1][2], 10, 1e-4), JSON.stringify(wb));
     await t.app(() => window.app.viewport.fit({ animate: false }));
     await t.cameraStable(2000);
@@ -230,42 +233,42 @@ const scenario = defineScenario({
     await t.canvasClick(mp.x, mp.y);
     await t.settle(150);
     const ms = await t.app(() => window.app.selection.items.map((r) => r.kind + ":" + (r.id || r.body)));
-    t.check("canvas click selects the mesh body", ms.join() === "meshBody:mb1", JSON.stringify(ms));
-    t.check("browser row highlighted", await t.app(() => document.querySelector('[data-node="meshbody:mb1"]').classList.contains("sel")));
+    t.check("canvas click selects the mesh body", ms.join() === `body:${mb.id}`, JSON.stringify(ms));
+    t.check("browser row highlighted", await t.app((s) => document.querySelector(s).classList.contains("sel"), meshRow));
     await t.key("Delete");
     await t.settle(150);
-    t.check("Delete removes the mesh body", await t.app(() => (window.app.doc.meshes || []).length === 0 && !document.querySelector('[data-node="meshbody:mb1"]')));
+    const alive = (id) => !!window.app.result.state.meshBodies.get(id);
+    t.check("Delete removes the mesh body", await t.waitFor((a) => !window.app.result.state.meshBodies.get(a[0]) && !document.querySelector(a[1]), { timeout: 1500, arg: [mb.id, meshRow] }));
     await t.key("Control+z");
     await t.settle(200);
-    t.check("undo brings it back", await t.app(() => (window.app.doc.meshes || []).length === 1 && window.app.ui.insert.view.objects().meshes.includes("mb1")));
+    t.check("undo brings it back", await t.app(alive, mb.id));
 
     t.step("ASCII STL in centimetres");
     await t.escapeAll();
     await t.app(() => window.app.commands.run("ParaMeshInsertAlignCommand"));
     t.require("INSERT MESH dialog open", await t.waitFor('.dlg[data-dialog="ParaMeshInsertAlignCommand"]', { timeout: 2000 }));
     await t.page.setInputFiles('.dlg[data-dialog="ParaMeshInsertAlignCommand"] input[type=file][data-input="meshFile"]', { name: "small.stl", mimeType: "model/stl", buffer: asciiSTL(cubeTris([-8, -1, 0], 1)) });
-    await t.waitFor(() => window.app.ui.insert.view.objects().meshes.includes("__preview"), { timeout: 3000 });
+    await t.waitFor(() => window.app.previewing && window.app.result.state.meshBodies.size === 2, { timeout: 3000 });
     await t.click('.dlg[data-dialog="ParaMeshInsertAlignCommand"] [data-input="units"]');
     await t.click('.dlg-dd-menu [data-option="cm"]');
     await t.settle(150);
     await t.click('.dlg[data-dialog="ParaMeshInsertAlignCommand"] [data-action="ok"]');
     await t.settle(250);
     const m2 = await t.app(() => {
-      const m = (window.app.doc.meshes || []).find((x) => x.name === "small");
-      const o = m && window.app.ui.insert.view.meshObject(m.id);
-      if (!o) return null;
-      o.mesh.geometry.computeBoundingBox();
-      const b = o.mesh.geometry.boundingBox.clone().applyMatrix4(o.mesh.matrix);
-      return { units: m.units, tris: m.tris, size: b.max.x - b.min.x, minx: b.min.x };
+      const a = window.app;
+      const m = a.doc.features.find((f) => f.type === "mesh" && (a.doc.bodies[f.newBody] || {}).name === "small");
+      const b = m && a.M.bodyBBox(a.result.state, m.newBody);
+      if (!b) return null;
+      return { units: m.units, tris: m.tris, size: b.max[0] - b.min[0], minx: b.min[0] };
     });
     t.check("ASCII STL parsed, 1 cm cube -> 10 mm at x -80", m2 && m2.units === "cm" && m2.tris === 12 && near(m2.size, 10, 1e-4) && near(m2.minx, -80, 1e-4), JSON.stringify(m2));
 
-    t.step("BOM ignores mesh bodies; Mesh Bodies folder eye");
+    t.step("BOM ignores mesh bodies; the mesh body's eye");
     const bomN = await t.app(() => window.app.ui.insert.bom().rows.length);
     t.check("BOM still lists only the solid body", bomN === 1, String(bomN));
-    await t.click('[data-node="meshbodies:root"] .br-eye');
+    await t.click(`${meshRow} .br-eye`);
     await t.settle(150);
-    t.check("folder eye hides every mesh body", await t.app(() => window.app.doc.meshes.every((m) => m.visible === false) && window.app.ui.insert.view.objects().meshes.length === 0));
+    t.check("row eye hides the mesh body", await t.app((id) => window.app.doc.bodies[id].visible === false && !window.app.viewport.groups.bodies.getObjectByName(`body:${id}`), mb.id));
     await t.app(() => { if (window.app.__origDownload) window.app.download = window.app.__origDownload; });
     await t.shot("final");
 

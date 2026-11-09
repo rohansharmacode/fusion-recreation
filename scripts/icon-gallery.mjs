@@ -27,7 +27,8 @@ if (typeof args.big === "string") {
   const file = path.join(outDir, "big.html");
   fs.writeFileSync(file, `<!doctype html><html><body style="background:#fff;margin:4px;display:flex;gap:8px">${ids.map((id) => icon(id, { size: 256 })).join("")}</body></html>`);
   const { chromium } = await import("playwright-core");
-  const browser = await chromium.launch({ channel: "msedge", headless: true });
+  const { browserOptions } = await import("./browser.mjs");
+  const browser = await chromium.launch(browserOptions({ headless: true }));
   const page = await browser.newPage({ viewport: { width: 266 * ids.length, height: 266 } });
   await page.goto(pathToFileURL(file).href);
   await page.screenshot({ path: path.join(shotDir, "big.png") });
@@ -142,7 +143,8 @@ if (problems.length) console.log(problems.join("\n"));
 
 if (!args["no-shots"]) {
   const { chromium } = await import("playwright-core");
-  const browser = await chromium.launch({ channel: "msedge", headless: true });
+  const { browserOptions } = await import("./browser.mjs");
+  const browser = await chromium.launch(browserOptions({ headless: true }));
   const page = await browser.newPage({ viewport: { width: 1200, height: 900 }, deviceScaleFactor: Number(args.dsf) || 1.5 });
   const errs = [];
   page.on("pageerror", (e) => errs.push(e.message));

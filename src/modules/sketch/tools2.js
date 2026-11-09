@@ -4,6 +4,7 @@ import { ST, vp, activeData, mutateSketch, projector, cursorOnPlane, setOpt } fr
 import { Tool, SeqTool, rp, addDim, runHistory, endTool, circlePoly, arcPoly } from "./tools.js";
 import * as HUD from "./hud.js";
 import { setToolPreview, clearToolPreview, setSnapMark, clearHudDims } from "./render.js";
+import { showLive as showLiveSketch, endLive as endLiveSketch } from "./dlgutil.js";
 
 const TAU = Math.PI * 2;
 const D2R = Math.PI / 180;
@@ -497,3 +498,35 @@ export class BreakTool extends Tool {
 }
 
 export { clearHudDims };
+
+// ---------------------------------------------------------------------------
+// Edit Conic Curve (double-click a conic): Rho
+// ---------------------------------------------------------------------------
+export function openEditConic(id) {
+  const A = ST.app;
+  const f = A.feature(ST.sketchId);
+  const cv0 = f && f.sk.curves[id];
+  if (!cv0 || cv0.type !== "conic") return null;
+  const live = (rho) => {
+    const w = A.S.cloneSketch(f.sk);
+    w.curves[id].rho = rho;
+    showLiveSketch(w);
+  };
+  return A.ui.dialog.open({
+    id: "ConicCurveCmd",
+    title: "Edit Conic Curve",
+    icon: "ConicCurveCmd",
+    help: "Changes the Rho value of the conic curve.",
+    preview: false,
+    noFeature: true,
+    labelWidth: 60,
+    rows: [{ id: "rho", type: "value", label: "Rho", kind: "none", default: String(cv0.rho), positive: true, step: 0.05 }],
+    validate: (d) => { const v = d.num("rho"); return v > 0 && v < 1 ? null : "Invalid Input. Rho value for a conic curve must be between 0 and 1"; },
+    afterPreview(d) { const v = d.num("rho"); if (v > 0 && v < 1) live(v); },
+    commit(fe, d) {
+      const v = d.num("rho");
+      return mutateSketch("Edit Conic Curve", (sk) => { if (sk.curves[id]) sk.curves[id].rho = v; });
+    },
+    onClose() { endLiveSketch(); },
+  });
+}

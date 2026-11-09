@@ -2,9 +2,10 @@
 import { chromium } from "playwright-core";
 import { build } from "../../../scripts/build.mjs";
 import { serve } from "../../../scripts/serve.mjs";
+import { browserOptions } from "../../../scripts/browser.mjs";
 await build({ out: "build/icons", only: "viewport,sketch,dialogs,inspect,shell,browser,timeline,menus" });
 const server = await serve({ dir: "build/icons", port: 5313 });
-const browser = await chromium.launch({ channel: "msedge", headless: true, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+const browser = await chromium.launch(browserOptions({ headless: true, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] }));
 const page = await browser.newPage({ viewport: { width: 1600, height: 900 }, deviceScaleFactor: 2 });
 const errs = [];
 page.on("pageerror", (e) => errs.push(e.message));

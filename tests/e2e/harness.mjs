@@ -1,4 +1,5 @@
-// Shared headless-browser harness (playwright-core driving the installed Microsoft Edge).
+// Shared headless-browser harness (playwright-core driving the installed Microsoft Edge;
+// playwright-core Chromium off Windows or with QA_BROWSER=chromium, see scripts/browser.mjs).
 //
 //   import { launch } from "./harness.mjs";
 //   const h = await launch({ only: "viewport,sketch", outDir: "build/e2e-me", port: 5301, shots: "tests/e2e/out/me" });
@@ -17,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { build } from "../../scripts/build.mjs";
 import { serve } from "../../scripts/serve.mjs";
+import { browserOptions } from "../../scripts/browser.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -26,7 +28,7 @@ export async function launch(opts = {}) {
   const shotsDir = path.resolve(root, opts.shots || "tests/e2e/out");
   if (opts.build !== false) await build({ out: outDir, only: opts.only, release: !!opts.release });
   const server = await serve({ dir: outDir, port });
-  const browser = await chromium.launch({ channel: "msedge", headless: opts.headless !== false, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
+  const browser = await chromium.launch(browserOptions({ headless: opts.headless !== false, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] }));
   const page = await browser.newPage({ viewport: { width: opts.width || 1600, height: opts.height || 900 } });
   const errors = [];
   page.on("console", (m) => { if (m.type() === "error") errors.push(`console: ${m.text()}`); });

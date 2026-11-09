@@ -473,16 +473,17 @@ function coneAngle(fo, cyl) {
 }
 
 function countMatching(T, cyl, data) {
-  let n = 0;
+  // one per axis: OCCT may split a cylinder into several faces (seam halves)
+  const axes = [];
   T.faces.forEach((f) => {
     if (f.type !== "CYLINDRE" || !f.a || Math.abs(f.r - cyl.r) > 1e-4) return;
     if (Math.abs(Math.abs(V.dot(V.norm(f.a), cyl.a)) - 1) > 1e-6) return;
     const wc = V.sub(f.c, f.ao), rc = V.sub(wc, V.mul(f.a, V.dot(wc, f.a)));
     const internal = V.dot(rc, f.n) < 0;
     if (internal !== (data.kind === "hole")) return;
-    n++;
+    if (!axes.some((o) => axisDist(o, f.ao, cyl.a) < 1e-4)) axes.push(f.ao);
   });
-  return Math.max(1, n);
+  return Math.max(1, axes.length);
 }
 
 /** Thread feature data on a cylinder: {feature, designation, tclass, size, threadType, left, length, full, pitch} or null. */

@@ -74,6 +74,13 @@ npm run e2e            # 20 QA scenarios in headless Edge (tests/e2e/scenarios; 
 Requirements: Node 18 or newer. The e2e and verify scripts drive the installed **Microsoft Edge**
 through playwright-core (`channel: "msedge"`).
 
+### Testing on Linux (or without Edge)
+
+Off Windows, the e2e and verify scripts launch playwright-core's own Chromium (see `scripts/browser.mjs`).
+Install it once with `npx playwright-core install --with-deps chromium` (`npx playwright install --with-deps chromium`
+also works if its version matches playwright-core). Set `QA_BROWSER=chromium` to use Chromium on Windows too, and
+`QA_CHROMIUM_PATH=/path/to/chrome` to use a specific Chromium binary.
+
 ## Release checklist
 
 1. `npm ci`

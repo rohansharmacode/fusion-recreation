@@ -121,6 +121,18 @@ export function extendAndConstrain(sk, id, q) {
 }
 
 // ---------------------------------------------------------------------------
+// free-form curves (splines, ellipses, conics) offset as fit point splines; lines / arcs / circles as chains
+const FREEFORM = new Set(["spline", "ellipse", "earc", "cvspline", "conic"]);
+function offsetAny(S, sk, ids, d) {
+  const free = ids.filter((id) => sk.curves[id] && FREEFORM.has(sk.curves[id].type));
+  const rest = ids.filter((id) => !free.includes(id));
+  const curves = [];
+  for (const id of free) { const s = S.offsetFreeform(sk, id, d); if (s) curves.push(s); }
+  const res = rest.length ? S.offsetChain(sk, rest, d) : null;
+  if (res) curves.push(...res.curves);
+  return curves.length ? { curves, firstLine: res ? res.firstLine : null } : null;
+}
+
 export class OffsetTool extends Tool {
   constructor() { super("Offset", "Offset"); this.ids = null; }
   prompt() { return this.ids ? "Specify offset position" : "Select a curve to offset"; }
@@ -142,9 +154,11 @@ export class OffsetTool extends Tool {
     const S = ST.app.S;
     let best = Infinity;
     for (const id of this.ids) { const n = S.nearestOnCurve(sk, id, q); if (n && n.d < best) best = n.d; }
-    const rest = this.ids.filter((id) => sk.curves[id].type !== "circle");
+    const rest = this.ids.filter((id) => sk.curves[id].type !== "circle" && !FREEFORM.has(sk.curves[id].type));
+    const free = this.ids.filter((id) => FREEFORM.has(sk.curves[id].type));
     let side = 1;
-    if (rest.length) {
+    if (free.length && !rest.length) side = S.freeformSide(sk, free[0], q);
+    else if (rest.length) {
       const ch = S.orderChain(sk, rest);
       if (ch) side = S.chainSide(sk, ch, q);
     } else {
@@ -178,7 +192,7 @@ export class OffsetTool extends Tool {
     if (!r) return;
     const w = S.cloneSketch(d.sk);
     let res = null;
-    try { res = S.offsetChain(w, this.ids, r.side * r.mag); } catch { res = null; }
+    try { res = offsetAny(S, w, this.ids, r.side * r.mag); } catch { res = null; }
     setToolPreview(res ? { polys: res.curves.map((id) => S.curvePolyline(w, id, 64)) } : null);
     const proj = projector(d.plane);
     const s = proj(r.uv[0], r.uv[1]);
@@ -204,7 +218,7 @@ export class OffsetTool extends Tool {
     const expr = r.T.d && r.T.d.ok ? r.T.d.expr : fmtLen(r.mag);
     try {
       mutateSketch("Offset", (sk, f, doc) => {
-        const res = S.offsetChain(sk, ids, r.side * r.mag);
+        const res = offsetAny(S, sk, ids, r.side * r.mag);
         if (!res) throw new Error("The curves could not be offset");
         if (res.firstLine) addDim(sk, doc, "pointLine", [res.firstLine.point, res.firstLine.orig], expr, {});
         return res;
@@ -710,4 +724,4 @@ export function toggleConstruction() {
   A.toast(ST.opts.construction ? "New sketch geometry is construction geometry" : "New sketch geometry is normal geometry", "info", 1600);
 }
 
-export { isSketchRef, params, TAU };
+export { isSketchRef, params, TAU, edgeToSketch, addProjected };

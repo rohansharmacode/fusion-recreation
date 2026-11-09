@@ -124,10 +124,12 @@ export function circleThreeTan(sk, ids, q) {
     sols.push({ c: [cx, cy], r });
   }
   if (!sols.length) return null;
-  const inside = sols.filter((o) => len(sub(q, o.c)) <= o.r);
-  const pool = inside.length ? inside : sols;
-  pool.sort((a, b) => len(sub(a.c, q)) - len(sub(b.c, q)));
-  return pool[0];
+  // the circle whose tangent point on the last picked line is nearest the cursor (the pick point)
+  const l3 = L[2];
+  const foot = (o) => sub(o.c, mul(l3.n, dot(l3.n, o.c) - dot(l3.n, l3.a)));
+  const score = (o) => len(sub(foot(o), q));
+  sols.sort((a, b) => (Math.abs(score(a) - score(b)) > 1e-6 ? score(a) - score(b) : len(sub(a.c, q)) - len(sub(b.c, q))));
+  return sols[0];
 }
 
 // ---------------------------------------------------------------------------

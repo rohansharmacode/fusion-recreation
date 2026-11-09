@@ -502,13 +502,12 @@ function openSelectionFilters(app) {
   const tabs = tb.tabs ? tb.tabs() : [];
   const withSelect = (tb.spec && tb.spec.TABS || []).filter((t) => t.panels.includes("SelectPanel")).map((t) => t.id);
   if (!withSelect.includes(tb.activeTab) && tabs.includes("SolidTab")) tb.setTab("SolidTab");
-  requestAnimationFrame(() => {
+  // timers, not animation frames: frames can be slow while the canvas renders (the menu opens synchronously)
+  setTimeout(() => {
     if (!tb.openPanel("SelectPanel")) { app.toast("Selection Filters are in the SELECT panel", "info"); return; }
-    requestAnimationFrame(() => {
-      const row = document.querySelector('.sh-menu [data-menu-item="SelectionFilterCommand"]');
-      if (row) row.click();
-    });
-  });
+    const row = document.querySelector('.sh-menu [data-menu-item="SelectionFilterCommand"]');
+    if (row) row.click();
+  }, 0);
 }
 
 export function registerSelect(app) {

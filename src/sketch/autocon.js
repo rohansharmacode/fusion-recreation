@@ -105,8 +105,11 @@ export function dimensionCandidates(sk, datum, opts = {}) {
     pts.sort((a, b) => len(sub(P2(sk, a), D)) - len(sub(P2(sk, b), D)));
     for (const p of pts) {
       if (len(sub(P2(sk, p), D)) < 1e-9) { out.push({ type: "coincident", refs: [datum, p], kind: "c" }); continue; }
-      out.push({ type: "distance", refs: [datum, p], dimType: "horizontal", kind: "d", loc: true });
-      out.push({ type: "distance", refs: [datum, p], dimType: "vertical", kind: "d", loc: true });
+      // a point level with (or above) the datum gets a horizontal (vertical) constraint, not a 0 mm dimension
+      const q = P2(sk, p);
+      const tol = 1e-6 * Math.max(1, len(sub(q, D)));
+      out.push(Math.abs(q[0] - D[0]) < tol ? { type: "vertical", refs: [datum, p], kind: "c", loc: true } : { type: "distance", refs: [datum, p], dimType: "horizontal", kind: "d", loc: true });
+      out.push(Math.abs(q[1] - D[1]) < tol ? { type: "horizontal", refs: [datum, p], kind: "c", loc: true } : { type: "distance", refs: [datum, p], dimType: "vertical", kind: "d", loc: true });
     }
   }
   return out;

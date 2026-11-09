@@ -47,7 +47,8 @@ function symbolRow() {
       dd.className = "dlg-dd pmi-symdd";
       dd.tabIndex = 0;
       dd.dataset.input = "fcf_sym";
-      dd.innerHTML = '<span class="pmi-menu-ico"></span><span class="dlg-dd-text"></span><span class="dlg-dd-caret"><svg width="8" height="5" viewBox="0 0 8 5"><path d="M0 0h8L4 5z" fill="#3f3f3f"/></svg></span>';
+      dd.innerHTML = '<span class="pmi-menu-ico"></span><span class="dlg-dd-text"></span><span class="dlg-dd-caret"></span>';
+      try { dd.querySelector(".dlg-dd-caret").innerHTML = dlg.app.ui.dialog.glyph("ddCaret"); } catch { /* no caret */ }
       Object.defineProperty(dd, "value", { get: () => dlg.values.fcf_sym, set: (v) => dlg.set("fcf_sym", v, { user: true }) });
       dd.addEventListener("click", () => {
         popupMenu(dlg.app, dd, [{ value: "", label: "None", current: !dlg.values.fcf_sym, run: () => dlg.set("fcf_sym", "", { user: true }) },

@@ -16,7 +16,7 @@
 // Public API (app.ui.inspect):
 //   analyses()                 -> [{id, type, name, visible, kindLabel, icon, command}]  (doc.analyses, Fusion's "Analysis" folder;
 //                                 type: section | com | zebra | draft | curvatureMap | curvatureComb | isocurve | environmentMap |
-//                                 accessibility | minimumRadius — see README.md)
+//                                 accessibility | minimumRadius, see README.md)
 //   setAnalysisVisible(id, v)  editAnalysis(id)  removeAnalysis(id)  renameAnalysis(id, name)  openAnalysis(type, ctx)
 //   curvature(bodyId)          exact per-vertex curvature from the B-rep (curvature.js)
 //   materialBrowser            Manage Materials (MaterialCommand, materials.js): open(), libraries(), ...

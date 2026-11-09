@@ -138,7 +138,7 @@ export function hudHideField(id) {
   if (f) { f.wrap.style.left = "-9999px"; f.wrap.style.top = "-9999px"; }
 }
 
-/** {id: {dirty, text, value, ok}} — ok when the user typed a valid value. */
+/** {id: {dirty, text, value, ok}}: ok when the user typed a valid value. */
 export function hudValues() {
   const out = {};
   for (const f of H.fields) {

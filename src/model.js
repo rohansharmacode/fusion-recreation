@@ -69,10 +69,17 @@ export function nextParam(doc) {
   doc.counters.d = (doc.counters.d || 0) + 1;
   return `d${doc.counters.d}`;
 }
+/**
+ * New body id and metadata. Default names count only default-named bodies (counters.bodyName), so a mesh body
+ * named after its file does not use up "BodyN" (Fusion names the next solid Body2, not Body3).
+ */
 export function nextBody(doc, meta = {}) {
-  doc.counters.body = (doc.counters.body || 0) + 1;
-  const id = `b${doc.counters.body}`;
-  doc.bodies[id] = { name: `Body${doc.counters.body}`, visible: true, appearance: "steel-satin", material: "steel", ...meta };
+  const c = doc.counters;
+  if (c.bodyName === undefined) c.bodyName = c.body || 0; // older documents: every body took the shared counter
+  c.body = (c.body || 0) + 1;
+  const id = `b${c.body}`;
+  const name = meta.name || `Body${++c.bodyName}`;
+  doc.bodies[id] = { visible: true, appearance: "steel-satin", material: "steel", ...meta, name };
   return id;
 }
 

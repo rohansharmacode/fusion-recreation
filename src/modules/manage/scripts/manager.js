@@ -218,8 +218,9 @@ export function openScriptsManager(app, mg, opts = {}) {
   function toggleRunning(s) {
     if (host.isRunning(s.id)) { host.stop(s); renderTable(); return; }
     if (!host.canCompile()) { modals.alert({ title: "Error", kind: "error", message: esc("This page's security policy does not allow scripts to run (Content-Security-Policy without 'unsafe-eval'). Open the recreation from its normal web address to run scripts.") }); return; }
-    close();
-    mg.run(s.id);
+    // running a script closes the dialog; an add-in's Run switch just turns on (the dialog stays)
+    if (!s.isAddIn) close();
+    mg.run(s.id).then(() => { if (s.isAddIn && !handle.closed) renderTable(); });
   }
   function openLocation(s) {
     const name = `${s.name}.js`.replace(/[\\/:*?"<>|]+/g, "_");

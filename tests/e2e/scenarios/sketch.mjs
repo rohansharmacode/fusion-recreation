@@ -41,7 +41,7 @@ const sketchInfo = (t) => t.app(() => {
 const scenario = defineScenario({
   name: "sketch",
   title: "Sketch tools, HUD input, dimensions, palette",
-  timeout: 150000,
+  timeout: 480000,
   async run(t) {
     t.require("enter a sketch on XY by clicking the origin plane", await enterSketchOnXY(t));
     await t.shot("sketch-on-xy");
@@ -565,8 +565,587 @@ const scenario = defineScenario({
     t.check("the projected ellipse is a profile (area π·30·10)", proj.areas.some((x) => Math.abs(x - Math.PI * 300) < 0.05), JSON.stringify(proj.areas));
     t.check("the projected spline matches the original spline profile", proj.areas.some((x) => Math.abs(x - splArea) < 0.05), `${JSON.stringify(proj.areas)} vs ${splArea}`);
     await t.shot("projected-ellipse-spline");
+    await t.key("Escape");
+    await round7(t);
   },
 });
 
 export default scenario;
 await mainIfDirect(import.meta.url, scenario);
+
+// ---------------------------------------------------------------------------
+// Round 7: the remaining sketch commands (tangent circles, conic, arc slots, control point spline,
+// Break, Text, Sketch Scale, sketch patterns, Curvature / Polygon constraints, AutoConstrain,
+// body-geometry commands, Insert SVG / DXF), driven through the UI.
+// ---------------------------------------------------------------------------
+const R7 = {
+  /** stored sketch of the active sketch: curves, constraints, regions */
+  info: (t) => t.app(() => {
+    const a = window.app;
+    const f = a.feature(a.activeSketch);
+    const st = a.sketchState(a.activeSketch);
+    if (!f) return null;
+    return {
+      id: f.id,
+      curves: Object.entries(f.sk.curves).map(([id, c]) => ({ id, type: c.type, cons: !!c.cons, proj: !!c.proj, r: c.r, rho: c.rho, degree: c.degree, n: c.pts ? c.pts.length : 0, text: c.text })),
+      cons: f.sk.constraints.map((c) => ({ id: c.id, type: c.type, refs: c.refs, expr: c.expr })),
+      fully: !!(st && st.status && st.status.fully),
+      regions: st && st.regions ? st.regions.regions.map((r) => ({ key: r.key, area: Math.abs(r.area), curves: r.curves, c: r.centroid })) : [],
+    };
+  }),
+  run: (t, id) => t.app((id) => window.app.commands.run(id), id),
+  at: (t, u, v) => t.canvasXY([u, v, 0]),
+  async clickAt(t, u, v) { const p = await R7.at(t, u, v); await t.page.mouse.move(p.x + 4, p.y + 3, { steps: 3 }); await t.canvasClick(p.x, p.y); return p; },
+  async moveTo(t, u, v) { const p = await R7.at(t, u, v); await t.page.mouse.move(p.x, p.y, { steps: 5 }); await t.frames(2); return p; },
+  stubs: (t, ids) => t.app((ids) => ids.filter((id) => { const c = window.app.commands.get(id); return !c || c.stub; }), ids),
+};
+
+export async function round7(t) {
+  const IDS = ["CircleTanTanRadius", "CircleThreeTangent", "ConicCurveCmd", "ShapeArcSlotCenterTwoPoint", "ShapeArcSlotThreePoint", "MTextCmd", "BreakSketchCmd", "SketchScaleCmd",
+    "RectangularSketchPatternCommand", "CircularSketchPatternCommand", "IntersectCmd", "IntersectionCurve", "ProjectToSurface", "Include3DGeometry", "SketchIsoparametricCurve", "SpunProfileCmd",
+    "DrawCVMSpline3D", "SketchImportSVG", "ImportDxfFileCommand", "SketchAutoConstraintAndDimCmd", "SketchAutoConstraintAndDimFromDatumCmd", "SketchAutoConstrainAndFinish", "ConstraintSmooth", "SketchPolygonConstraintCmd"];
+  t.step("round 7: every remaining sketch command is a real command");
+  const stubs = await R7.stubs(t, IDS);
+  t.check("no sketch stubs left", stubs.length === 0, stubs.join(","));
+  await t.app(() => { if (window.app.mode === "sketch") window.app.commands.run("SketchStop"); window.app.newDocument("R7"); });
+  await t.settle(300);
+  t.require("round 7: sketch on XY", await enterSketchOnXY(t));
+
+  // ---------- tangent circles ----------
+  t.step("2-Tangent Circle and 3-Tangent Circle on a triangle");
+  await t.app(() => window.app.mutate("tri", (doc) => {
+    const S = window.app.S; const sk = doc.features.find((f) => f.id === window.app.activeSketch).sk;
+    const A = S.addPoint(sk, -45, -35), B = S.addPoint(sk, -5, -35), C = S.addPoint(sk, -25, -5);
+    return [S.addLine(sk, A, B), S.addLine(sk, B, C), S.addLine(sk, C, A)];
+  }));
+  await R7.run(t, "CircleTanTanRadius");
+  await R7.clickAt(t, -25, -35); // bottom line
+  await R7.clickAt(t, -35, -20); // left line
+  await R7.moveTo(t, -38, -32);
+  const hud2 = await t.visible(".sk-input");
+  t.check("2-Tangent Circle asks for the radius in the HUD", hud2);
+  await t.type("3");
+  await t.key("Enter");
+  await t.settle(150);
+  await t.key("Escape");
+  let I = await R7.info(t);
+  const c2 = I.curves.find((c) => c.type === "circle");
+  t.check("2-Tangent Circle: radius 3, tangent to both lines", c2 && near(c2.r, 3, 1e-3) && I.cons.filter((c) => c.type === "tangent").length === 2, JSON.stringify({ c2, cons: I.cons.map((c) => c.type) }));
+  await R7.run(t, "CircleThreeTangent");
+  await R7.clickAt(t, -15, -35);
+  await R7.clickAt(t, -15, -20); // right side
+  await R7.clickAt(t, -34, -18.5); // left side, at the incircle's tangent point
+  await t.settle(150);
+  await t.key("Escape");
+  I = await R7.info(t);
+  const inc = I.curves.filter((c) => c.type === "circle").find((c) => !near(c.r, 3, 1e-3));
+  const sideL = Math.hypot(20, 30), rIn = (0.5 * 40 * 30) / ((40 + 2 * sideL) / 2);
+  t.check(`3-Tangent Circle: the incircle (r = ${fmt(rIn, 3)})`, inc && near(inc.r, rIn, 0.02), JSON.stringify(inc));
+  await t.shot("r7-tangent-circles");
+
+  // ---------- conic ----------
+  t.step("Conic Curve: two end points, the vertex, Rho 0.3; Edit Conic Curve");
+  await R7.run(t, "ConicCurveCmd");
+  await R7.clickAt(t, 5, -35);
+  await R7.clickAt(t, 40, -35);
+  await R7.moveTo(t, 22, -12);
+  t.check("Conic Curve shows the Rho HUD", await t.visible(".sk-input"));
+  await t.type("0.3");
+  await t.key("Enter");
+  await t.settle(150);
+  await t.key("Escape");
+  I = await R7.info(t);
+  let conic = I.curves.find((c) => c.type === "conic");
+  t.check("conic curve created with Rho 0.3", conic && near(conic.rho, 0.3, 1e-6), JSON.stringify(conic));
+  if (conic) {
+    // the shoulder (highest point over the horizontal chord) is at Rho of the way from the chord midpoint to the vertex
+    const mid = await t.app((id) => { const a = window.app; const st = a.sketchState(a.activeSketch); return a.S.curvePolyline(st.sk, id, 400).reduce((m, p) => (p[1] > m[1] ? p : m)); }, conic.id);
+    const vy = await t.app((id) => { const a = window.app; const st = a.sketchState(a.activeSketch); return st.sk.points[st.sk.curves[id].v].y; }, conic.id);
+    t.check("conic shoulder at Rho of the way from the chord to the vertex", mid && near(mid[1], -35 + 0.3 * (vy + 35), 0.02), JSON.stringify({ mid, vy }));
+    const pc = await R7.at(t, mid[0], mid[1]);
+    await t.page.mouse.move(pc.x, pc.y, { steps: 3 });
+    await t.page.mouse.dblclick(pc.x, pc.y);
+    const ed = await t.waitFor('.dlg[data-dialog="ConicCurveCmd"]', { timeout: 2000 });
+    t.check("double-click a conic opens Edit Conic Curve", ed);
+    if (ed) {
+      await t.fill('.dlg[data-dialog="ConicCurveCmd"] [data-input="rho"]', "0.7");
+      await t.settle(200);
+      await t.click('.dlg[data-dialog="ConicCurveCmd"] [data-action="ok"]');
+      await t.settle(200);
+      I = await R7.info(t);
+      conic = I.curves.find((c) => c.type === "conic");
+      t.check("Edit Conic Curve changes Rho to 0.7", conic && near(conic.rho, 0.7, 1e-6), JSON.stringify(conic));
+    }
+  }
+
+  // ---------- arc slots ----------
+  t.step("Three Point Arc Slot and Center Point Arc Slot");
+  await R7.run(t, "ShapeArcSlotThreePoint");
+  await R7.clickAt(t, 5, 0);
+  await R7.clickAt(t, 40, 0);
+  await R7.clickAt(t, 22, 10);
+  await R7.moveTo(t, 22, 13);
+  await t.type("4");
+  await t.key("Enter");
+  await t.settle(150);
+  await t.key("Escape");
+  I = await R7.info(t);
+  const arcs1 = I.curves.filter((c) => c.type === "arc" && !c.cons).length;
+  t.check("Three Point Arc Slot: 4 arcs", arcs1 === 4, JSON.stringify({ arcs1, regions: I.regions.length }));
+  await R7.run(t, "ShapeArcSlotCenterTwoPoint");
+  await R7.clickAt(t, -25, 15);
+  await R7.clickAt(t, -10, 15);
+  await R7.clickAt(t, -25, 30);
+  await R7.moveTo(t, -15, 27);
+  await t.type("4");
+  await t.key("Enter");
+  await t.settle(150);
+  await t.key("Escape");
+  I = await R7.info(t);
+  const arcs2 = I.curves.filter((c) => c.type === "arc" && !c.cons).length;
+  t.check("Center Point Arc Slot: 4 more arcs", arcs2 === 8, `arcs=${arcs2}`);
+  const slotArea = (15 * Math.PI / 2) * 4 + Math.PI * 4;
+  t.check(`quarter arc slot profile area R·sweep·w + π(w/2)^2 = ${fmt(slotArea, 2)}`, I.regions.some((r) => near(r.area, slotArea, 0.05)), JSON.stringify(I.regions.map((r) => fmt(r.area, 2))));
+  await t.shot("r7-conic-slots");
+
+  // ---------- control point spline ----------
+  t.step("Control Point Spline, Spline Degree in the palette");
+  await R7.run(t, "DrawCVMSpline3D");
+  await t.settle(100);
+  const degRow = await t.app(() => document.querySelector(".sk-palette [data-group=feature]")?.innerText || "");
+  t.check("palette shows Spline Degree while drawing", /Spline Degree/.test(degRow), degRow);
+  for (const [u, v] of [[5, 20], [15, 35], [28, 18], [40, 35]]) await R7.clickAt(t, u, v);
+  await t.key("Enter");
+  await t.settle(150);
+  await t.key("Escape");
+  I = await R7.info(t);
+  const cvs = I.curves.find((c) => c.type === "cvspline");
+  t.check("control point spline with 4 control points, degree 3", cvs && cvs.n === 4 && cvs.degree === 3, JSON.stringify(cvs));
+  await t.shot("r7-cvspline");
+
+  // ---------- Curvature (G2) between the control point spline and a line ----------
+  t.step("Curvature constraint: line chained to the control point spline end");
+  const g2 = await t.app(() => {
+    const a = window.app;
+    const f = a.feature(a.activeSketch);
+    const cv = Object.entries(f.sk.curves).find(([, c]) => c.type === "cvspline");
+    let lid = null;
+    a.mutate("line", (doc) => {
+      const sk = doc.features.find((x) => x.id === a.activeSketch).sk;
+      const e = cv[1].pts[cv[1].pts.length - 1];
+      const q = a.S.addPoint(sk, 47, 35);
+      lid = a.S.addLine(sk, e, q);
+    });
+    return { spline: cv[0], line: lid };
+  });
+  await t.app((r) => window.app.selection.set([{ kind: "sketchCurve", sketch: window.app.activeSketch, curve: r.spline }, { kind: "sketchCurve", sketch: window.app.activeSketch, curve: r.line }]), g2);
+  await R7.run(t, "ConstraintSmooth");
+  await t.settle(200);
+  I = await R7.info(t);
+  t.check("Curvature constraint added", I.cons.some((c) => c.type === "smooth"), I.cons.map((c) => c.type).join(","));
+  const k = await t.app((r) => {
+    const a = window.app; const st = a.sketchState(a.activeSketch);
+    const cv = st.sk.curves[r.spline]; const e = cv.pts[cv.pts.length - 1];
+    return { k: a.S.curvatureToward(st.sk, r.spline, e), ok: st.status && st.status.ok !== false };
+  }, g2);
+  t.check("spline curvature at the join with the line is 0 (G2)", k && Math.abs(k.k) < 1e-4, JSON.stringify(k));
+
+  // ---------- Break ----------
+  t.step("Break: a line across the triangle breaks into three pieces");
+  const nLines0 = I.curves.filter((c) => c.type === "line").length;
+  await t.app(() => window.app.mutate("cross", (doc) => {
+    const a = window.app; const sk = doc.features.find((x) => x.id === a.activeSketch).sk;
+    a.S.addLine(sk, a.S.addPoint(sk, -50, -20), a.S.addPoint(sk, 0, -20));
+  }));
+  await R7.run(t, "BreakSketchCmd");
+  await R7.moveTo(t, -25, -20);
+  await R7.clickAt(t, -25, -20);
+  await t.key("Escape");
+  I = await R7.info(t);
+  t.check("Break splits the crossing line (2 more lines)", I.curves.filter((c) => c.type === "line").length === nLines0 + 3, `${nLines0} -> ${I.curves.filter((c) => c.type === "line").length}`);
+  await t.shot("r7-g2-break");
+  await t.app(() => window.app.commands.run("SketchStop"));
+  await t.settle(200);
+
+  // ---------- polygon constraint, sketch scale, patterns in a new sketch ----------
+  t.step("Polygon constraint on a hexagon, Sketch Scale, Rectangular / Circular Pattern");
+  t.require("sketch 2 on XY", await enterSketchOnXY(t));
+  const hex = await t.app(() => {
+    const a = window.app; let ids = null;
+    a.mutate("hex", (doc) => {
+      const sk = doc.features.find((x) => x.id === a.activeSketch).sk;
+      const P = []; for (let i = 0; i < 6; i++) P.push(a.S.addPoint(sk, -25 + 10 * Math.cos(i * Math.PI / 3), 10 * Math.sin(i * Math.PI / 3)));
+      ids = P.map((p, i) => a.S.addLine(sk, p, P[(i + 1) % 6]));
+      a.S.addCircle(sk, a.S.addPoint(sk, 20, 0), 4);
+    });
+    return ids;
+  });
+  await t.app((id) => window.app.selection.set([{ kind: "sketchCurve", sketch: window.app.activeSketch, curve: id }]), hex[0]);
+  await R7.run(t, "SketchPolygonConstraintCmd");
+  await t.settle(200);
+  // move one vertex away: the solver keeps the hexagon regular
+  await t.app((ids) => window.app.mutate("drag", (doc) => { const sk = doc.features.find((x) => x.id === window.app.activeSketch).sk; const p = sk.points[sk.curves[ids[1]].p2]; p.x += 3; p.y += 1; }), hex);
+  const reg = await t.app((ids) => {
+    const a = window.app; const st = a.sketchState(a.activeSketch);
+    const L = ids.map((id) => { const c = st.sk.curves[id]; const p = st.sk.points[c.p1], q = st.sk.points[c.p2]; return Math.hypot(q.x - p.x, q.y - p.y); });
+    return { has: a.feature(a.activeSketch).sk.constraints.some((c) => c.type === "polygon"), spread: Math.max(...L) - Math.min(...L) };
+  }, hex);
+  t.check("Polygon constraint makes the six sides equal (regular hexagon)", reg.has && reg.spread < 1e-4, JSON.stringify(reg));
+
+  I = await R7.info(t);
+  const circ = I.curves.find((c) => c.type === "circle");
+  const cpt = await t.app((id) => window.app.feature(window.app.activeSketch).sk.curves[id].c, circ.id);
+  await t.app(({ id, p }) => window.app.selection.set([{ kind: "sketchCurve", sketch: window.app.activeSketch, curve: id }]), { id: circ.id, p: cpt });
+  await R7.run(t, "SketchScaleCmd");
+  const dS = await t.waitFor('.dlg[data-dialog="SketchScaleCmd"]', { timeout: 2000 });
+  t.check("Sketch Scale dialog opens (Entities, Point, Scale Factor)", dS && await t.app(() => ["entities", "point", "factor"].every((k) => document.querySelector(`.dlg[data-dialog="SketchScaleCmd"] [data-input="${k}"]`))));
+  if (dS) {
+    await t.app((p) => window.app.ui.dialog.current.pickRef("point", { kind: "sketchPoint", sketch: window.app.activeSketch, point: p }), cpt);
+    await t.fill('.dlg[data-dialog="SketchScaleCmd"] [data-input="factor"]', "1.5");
+    await t.settle(300);
+    await t.click('.dlg[data-dialog="SketchScaleCmd"] [data-action="ok"]');
+    await t.settle(200);
+    I = await R7.info(t);
+    t.check("Sketch Scale 1.5 about the centre: r 4 -> 6", near(I.curves.find((c) => c.id === circ.id).r, 6, 1e-6), JSON.stringify(I.curves.find((c) => c.id === circ.id)));
+  }
+
+  await t.app((id) => window.app.selection.set([{ kind: "sketchCurve", sketch: window.app.activeSketch, curve: id }]), circ.id);
+  await R7.run(t, "RectangularSketchPatternCommand");
+  const dR = await t.waitFor('.dlg[data-dialog="RectangularSketchPatternCommand"]', { timeout: 2000 });
+  t.check("Rectangular Pattern dialog opens with the circle", dR);
+  if (dR) {
+    const txt = await t.app(() => document.querySelector('.dlg[data-dialog="RectangularSketchPatternCommand"]').innerText);
+    t.check("dialog rows: Objects, Directions, Distance Type, Quantity, Distance, Direction Type, Suppress", ["Objects", "Directions", "Distance Type", "Quantity", "Distance", "Direction Type", "Suppress"].every((w) => txt.includes(w)), txt.replace(/\s+/g, " ").slice(0, 160));
+    await t.fill('.dlg[data-dialog="RectangularSketchPatternCommand"] [data-input="distType"]', "spacing").catch(() => {});
+    await t.app(() => { const d = window.app.ui.dialog.current; d.set("distType", "spacing", { user: true }); d.set("q1", "3", { user: true }); d.set("q2", "2", { user: true }); d.set("d1", "15 mm", { user: true }); d.set("d2", "14 mm", { user: true }); });
+    await t.settle(400);
+    await t.shot("r7-rpattern-preview");
+    await t.click('.dlg[data-dialog="RectangularSketchPatternCommand"] [data-action="ok"]');
+    await t.settle(300);
+    I = await R7.info(t);
+    t.check("3 x 2 pattern: 5 circle copies, one rpattern constraint", I.curves.filter((c) => c.type === "circle").length === 6 && I.cons.filter((c) => c.type === "rpattern").length === 1, JSON.stringify(I.curves.map((c) => c.type)));
+    // the copies follow the source: change the source radius
+    await t.app((id) => window.app.mutate("r", (doc) => { doc.features.find((x) => x.id === window.app.activeSketch).sk.curves[id].r = 5; }), circ.id);
+    const rs = await t.app(() => { const st = window.app.sketchState(window.app.activeSketch); return Object.values(st.sk.curves).filter((c) => c.type === "circle").map((c) => c.r); });
+    t.check("pattern copies follow the source size", rs.every((r) => near(r, 5, 1e-3)), JSON.stringify(rs));
+    // Edit Pattern: double-click the pattern glyph
+    const gl = await t.app(() => { const e = [...document.querySelectorAll(".sk-glyph, [data-cid]")].find((x) => /Rectangular Pattern/.test(x.title || x.getAttribute("aria-label") || "")); if (!e) return null; const b = e.getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; });
+    t.check("the pattern shows a constraint glyph", !!gl);
+    if (gl) {
+      await t.page.mouse.dblclick(gl.x, gl.y);
+      const ee = await t.waitFor('.dlg[data-dialog="RectangularSketchPatternCommand"]', { timeout: 2000 });
+      t.check("double-click the pattern glyph: Edit Rectangular Pattern", ee && /EDIT RECTANGULAR PATTERN/i.test(await t.app(() => document.querySelector('.dlg[data-dialog="RectangularSketchPatternCommand"]').innerText)));
+      if (ee) {
+        await t.app(() => window.app.ui.dialog.current.set("q1", "2", { user: true }));
+        await t.settle(300);
+        await t.click('.dlg[data-dialog="RectangularSketchPatternCommand"] [data-action="ok"]');
+        await t.settle(300);
+        I = await R7.info(t);
+        t.check("edited pattern 2 x 2: 4 circles", I.curves.filter((c) => c.type === "circle").length === 4, `${I.curves.filter((c) => c.type === "circle").length}`);
+      }
+    }
+  }
+  // circular pattern of the hexagon about the origin
+  await t.app((ids) => window.app.selection.set(ids.map((id) => ({ kind: "sketchCurve", sketch: window.app.activeSketch, curve: id }))), hex);
+  await R7.run(t, "CircularSketchPatternCommand");
+  const dC = await t.waitFor('.dlg[data-dialog="CircularSketchPatternCommand"]', { timeout: 2000 });
+  t.check("Circular Pattern dialog opens", dC);
+  if (dC) {
+    await t.app(() => { const d = window.app.ui.dialog.current; d.pickRef("center", { kind: "sketchPoint", sketch: window.app.activeSketch, point: "o" }); d.set("q", "3", { user: true }); });
+    await t.settle(400);
+    await t.click('.dlg[data-dialog="CircularSketchPatternCommand"] [data-action="ok"]');
+    await t.settle(300);
+    I = await R7.info(t);
+    t.check("circular pattern x3 of the hexagon: 18 lines", I.curves.filter((c) => c.type === "line").length === 18 && I.cons.some((c) => c.type === "cpattern"), `${I.curves.filter((c) => c.type === "line").length}`);
+  }
+  await t.shot("r7-patterns");
+  // undo / redo of the circular pattern
+  await t.app(() => window.app.commands.run("Undo"));
+  await t.settle(200);
+  const afterUndo = (await R7.info(t)).curves.filter((c) => c.type === "line").length;
+  await t.app(() => window.app.commands.run("Redo"));
+  await t.settle(200);
+  const afterRedo = (await R7.info(t)).curves.filter((c) => c.type === "line").length;
+  t.check("Undo / Redo of the circular pattern", afterUndo === 6 && afterRedo === 18, `${afterUndo} / ${afterRedo}`);
+
+  // ---------- AutoConstrain ----------
+  t.step("AutoConstrain fully constrains a free rectangle");
+  await t.app(() => window.app.commands.run("SketchStop"));
+  t.require("sketch 3 on XY", await enterSketchOnXY(t));
+  await t.app(() => window.app.mutate("rect", (doc) => {
+    const a = window.app; const sk = doc.features.find((x) => x.id === a.activeSketch).sk;
+    const P = [[5, 5], [35, 5.4], [35.2, 25], [5, 25]].map(([x, y]) => a.S.addPoint(sk, x, y));
+    P.forEach((p, i) => a.S.addLine(sk, p, P[(i + 1) % 4]));
+  }));
+  await t.click('.sk-palette [data-act="autoconstrain"]').catch(() => R7.run(t, "SketchAutoConstraintAndDimCmd"));
+  const dA = await t.waitFor('.dlg[data-dialog="SketchAutoConstraintAndDimCmd"]', { timeout: 4000 });
+  t.check("AutoConstrain dialog opens from the Sketch Palette", dA);
+  if (dA) {
+    await t.settle(500);
+    const tiles = await t.app(() => document.querySelectorAll(".dlg .sk-ac-tile").length);
+    t.check("AutoConstrain shows result tiles", tiles >= 1, `tiles=${tiles}`);
+    await t.click('.dlg[data-dialog="SketchAutoConstraintAndDimCmd"] [data-action="ok"]');
+    await t.settle(300);
+    I = await R7.info(t);
+    t.check("AutoConstrain result: the rectangle is fully constrained", I.fully, JSON.stringify(I.cons.map((c) => c.type)));
+  }
+
+  // ---------- Text ----------
+  t.step("Text: frame, type, font, Extrude the glyph profiles; Edit Text; Text On Path");
+  await t.app(() => window.app.commands.run("SketchStop"));
+  t.require("sketch 4 on XY", await enterSketchOnXY(t));
+  await R7.run(t, "MTextCmd");
+  const dT = await t.waitFor('.dlg[data-dialog="MTextCmd"]', { timeout: 2000 });
+  t.check("Text dialog opens", dT);
+  if (dT) {
+    const txt = await t.app(() => document.querySelector('.dlg[data-dialog="MTextCmd"]').innerText);
+    t.check("Text dialog rows: Type, Height, Character Spacing, Font, Text style, Alignment, Angle, Flip", ["Height", "Character Spacing", "Font", "Text style", "Alignment", "Angle", "Flip"].every((w) => txt.includes(w)), txt.replace(/\s+/g, " ").slice(0, 200));
+    await R7.clickAt(t, -40, -10);
+    await R7.clickAt(t, 10, 10);
+    await t.fill('.dlg[data-dialog="MTextCmd"] [data-input="height"]', "12 mm");
+    await t.app(() => { const ta = document.querySelector(".dlg textarea.sk-textarea"); ta.focus(); });
+    await t.type("FO");
+    await t.app(() => { const ta = document.querySelector(".dlg textarea.sk-textarea"); ta.blur(); });
+    await t.waitFor(() => !!window.app.ui.sketch && document.querySelector('.dlg[data-dialog="MTextCmd"] [data-action="ok"]:not([disabled])'), { timeout: 5000 });
+    await t.settle(500);
+    await t.shot("r7-text-preview");
+    await t.click('.dlg[data-dialog="MTextCmd"] [data-action="ok"]');
+    await t.settle(400);
+  }
+  I = await R7.info(t);
+  const tx = I.curves.find((c) => c.type === "text");
+  t.check("text curve created with the typed text", tx && tx.text === "FO", JSON.stringify(tx));
+  // F = 1 profile, O = 1 profile with a hole
+  const tReg = I.regions.filter((r) => r.curves.includes(tx && tx.id));
+  t.check("text glyph outlines are profiles (F, O)", tReg.length === 2, JSON.stringify(tReg.map((r) => fmt(r.area, 1))));
+  const tArea = tReg.reduce((s, r) => s + r.area, 0);
+  // Edit Text by double-click
+  if (tx) {
+    const tp = await t.app((id) => { const a = window.app; const st = a.sketchState(a.activeSketch); const pl = a.S.curvePolylines(a.S, st.sk, id, 32); const p = pl[0][0]; const r = a.viewport.canvas.getBoundingClientRect(); const s = a.viewport.toScreen([p[0], p[1], 0]); return { x: r.left + s[0], y: r.top + s[1] }; }, tx.id);
+    await t.page.mouse.move(tp.x, tp.y, { steps: 3 });
+    await t.page.mouse.dblclick(tp.x, tp.y);
+    const eT = await t.waitFor('.dlg[data-dialog="MTextCmd"]', { timeout: 2000 });
+    t.check("double-click the text opens Edit Text", eT && /EDIT TEXT/i.test(await t.app(() => document.querySelector('.dlg[data-dialog="MTextCmd"]').innerText)));
+    if (eT) {
+      await t.app(() => { const d = window.app.ui.dialog.current; d.set("bold", true, { user: true }); });
+      await t.settle(600);
+      await t.click('.dlg[data-dialog="MTextCmd"] [data-action="ok"]');
+      await t.settle(400);
+      const bold = await t.app((id) => { const a = window.app; const c = a.feature(a.activeSketch).sk.curves[id]; return !!c.bold; }, tx.id);
+      t.check("Edit Text: Bold applied", bold);
+    }
+  }
+  await t.app(() => window.app.commands.run("SketchStop"));
+  await t.settle(200);
+  const tRefs = await t.app((sid) => { const a = window.app; const st = a.sketchState(sid); return st.regions.regions.map((r) => ({ kind: "profile", sketch: sid, key: r.key, c: r.centroid })); }, I.id);
+  const tA2 = await t.app((sid) => window.app.sketchState(sid).regions.regions.reduce((s, r) => s + Math.abs(r.area), 0), I.id);
+  await t.app((refs) => window.app.commands.run("Extrude", { preselect: refs }), tRefs);
+  if (await t.waitFor('.dlg[data-dialog="Extrude"]', { timeout: 3000 })) {
+    await t.fill('.dlg[data-dialog="Extrude"] [data-input="distance"]', "3 mm");
+    await t.settle(400);
+    await t.click('.dlg[data-dialog="Extrude"] [data-action="ok"]');
+    await t.waitFor(() => !document.querySelector('.dlg[data-dialog="Extrude"]'), { timeout: 4000 });
+  }
+  const sT = await t.state();
+  t.check(`Extrude works on text (volume = glyph area x 3 = ${fmt(tA2 * 3)})`, sT.features.some((f) => f.type === "extrude" && f.ok) && near(sT.volume, tA2 * 3, tA2 * 3 * 0.01), `volume=${fmt(sT.volume)} area=${fmt(tArea)}`);
+  await t.shot("r7-text-extruded");
+
+  // text on path
+  t.require("sketch 5 on XY", await enterSketchOnXY(t));
+  await t.app(() => { const a = window.app; a.mutate("arc", (doc) => { const sk = doc.features.find((x) => x.id === a.activeSketch).sk; a.S.addArc(sk, a.S.addPoint(sk, 0, -50), a.S.addPoint(sk, 40, -50), a.S.addPoint(sk, -40, -50)); }); });
+  const pathId = await t.app(() => Object.entries(window.app.feature(window.app.activeSketch).sk.curves).find(([, c]) => c.type === "arc")[0]);
+  await R7.run(t, "MTextCmd");
+  if (await t.waitFor('.dlg[data-dialog="MTextCmd"]', { timeout: 2000 })) {
+    await t.app((pid) => { const d = window.app.ui.dialog.current; d.set("type", "path", { user: true }); d.pickRef("path", { kind: "sketchCurve", sketch: window.app.activeSketch, curve: pid }); d.set("text", "ARC", { user: true }); d.set("fit", true, { user: true }); }, pathId);
+    await t.settle(800);
+    await t.click('.dlg[data-dialog="MTextCmd"] [data-action="ok"]');
+    await t.settle(400);
+  }
+  I = await R7.info(t);
+  const tp2 = I.curves.find((c) => c.type === "text");
+  t.check("Text On Path (Fit to Path) creates text along the arc", tp2 && tp2.text === "ARC", JSON.stringify(tp2));
+  const onArc = await t.app((id) => { const a = window.app; const st = a.sketchState(a.activeSketch); const pl = a.S.curvePolylines(a.S, st.sk, id, 16).flat(); const r = pl.map((p) => Math.hypot(p[0], p[1] + 50)); return { min: Math.min(...r), max: Math.max(...r), n: pl.length }; }, tp2 && tp2.id);
+  t.check("the glyphs sit above the arc (radius 40 .. 40 + height)", onArc && onArc.min > 39 && onArc.max < 47, JSON.stringify(onArc));
+  await t.shot("r7-text-on-path");
+  await t.app(() => window.app.commands.run("SketchStop"));
+
+  // save / open round trip of every new curve type
+  t.step("save / open round trip of the round-7 sketches");
+  const rt7 = await t.app(() => {
+    const a = window.app;
+    const json = JSON.stringify(a.doc);
+    a.loadDocument(JSON.parse(json));
+    const r = a.result;
+    const types = new Set();
+    for (const f of a.doc.features) if (f.type === "sketch") for (const c of Object.values(f.sk.curves)) types.add(c.type);
+    return { ok: Object.values(r.results).every((x) => x.ok), types: [...types], bodies: a.bodies().length };
+  });
+  t.check("reopened document evaluates with conic, cvspline, text and the text body", rt7.ok && ["conic", "cvspline", "text"].every((x) => rt7.types.includes(x)) && rt7.bodies >= 1, JSON.stringify(rt7));
+
+  // ---------- commands that use body geometry ----------
+  t.step("Intersect, Spun Profile, Include 3D Geometry, Project to Surface, Intersection Curve, Isoparametric Curve");
+  const geo = await t.app(() => {
+    const a = window.app;
+    a.addFeature({ type: "cylinder", plane: { kind: "origin", name: "XY" }, center: [60, 0], diameter: "20 mm", height: "30 mm", operation: "new" });
+    const cyl = a.bodies().find((b) => Math.abs(b.shape.boundingBox.center[0] - 60) < 1e-6);
+    const faces = cyl.shape.faces.map((f, index) => ({ index, t: f.geomType }));
+    const side = faces.find((f) => f.t === "CYLINDRE");
+    const topEdge = cyl.shape.edges.map((e, index) => { const m = e.pointAt(0.5); return { index, t: e.geomType, z: e.startPoint.z, m: [m.x, m.y, m.z] }; }).find((e) => e.t === "CIRCLE" && e.z > 29);
+    const f = a.addFeature({ type: "sketch", plane: { o: [0, 0, 0], x: [1, 0, 0], n: [0, -1, 0] }, planeRef: { kind: "origin", name: "XZ" }, sk: a.S.newSketch(), visible: true }, "Create Sketch");
+    a.ui.sketch.edit(f.id);
+    return { body: cyl.id, side: side && side.index, top: topEdge && topEdge.index, topP: topEdge && topEdge.m, sketch: f.id };
+  });
+  await t.waitFor(() => window.app.mode === "sketch", { timeout: 4000 });
+  await t.settle(400);
+  const projCount = async () => (await R7.info(t)).curves.filter((c) => c.proj).length;
+  const dlgOk = async (id) => { await t.settle(400); await t.click(`.dlg[data-dialog="${id}"] [data-action="ok"]`); await t.settle(500); };
+  // Intersect
+  await R7.run(t, "IntersectCmd");
+  if (await t.waitFor('.dlg[data-dialog="IntersectCmd"]', { timeout: 2000 })) {
+    await t.app((b) => window.app.ui.dialog.current.pickRef("geometry", { kind: "body", body: b }), geo.body);
+    await dlgOk("IntersectCmd");
+  }
+  I = await R7.info(t);
+  t.check("Intersect: the cylinder section on XZ (projected curves, a 20 x 30 profile)", I.curves.filter((c) => c.proj).length >= 4 && I.regions.some((r) => near(r.area, 600, 0.5)), JSON.stringify({ n: I.curves.filter((c) => c.proj).length, areas: I.regions.map((r) => fmt(r.area)) }));
+  // Spun Profile around Z
+  const n0 = await projCount();
+  await R7.run(t, "SpunProfileCmd");
+  if (await t.waitFor('.dlg[data-dialog="SpunProfileCmd"]', { timeout: 2000 })) {
+    await t.app((b) => { const d = window.app.ui.dialog.current; d.pickRef("entities", { kind: "body", body: b }); d.pickRef("axis", { kind: "originAxis", name: "Z" }); }, geo.body);
+    await dlgOk("SpunProfileCmd");
+  }
+  I = await R7.info(t);
+  // the lathe outline: from the projected axis out to the largest radius (70) over the height (30)
+  t.check("Spun Profile around Z: the turned outline (axis to r 70, 30 high)", (await projCount()) > n0 && I.regions.some((r) => near(r.area, 2100, 1)), JSON.stringify(I.regions.map((r) => [fmt(r.area), fmt(r.c[0])])));
+  // Include 3D Geometry: the top circular edge
+  await R7.run(t, "Include3DGeometry");
+  if (await t.waitFor('.dlg[data-dialog="Include3DGeometry"]', { timeout: 2000 })) {
+    await t.app((g) => window.app.ui.dialog.current.pickRef("objects", { kind: "edge", body: g.body, index: g.top, p: g.topP }), geo);
+    await dlgOk("Include3DGeometry");
+  }
+  const c3 = await t.app(() => { const a = window.app; return Object.values(a.feature(a.activeSketch).sk.curves).filter((c) => c.type === "c3d").map((c) => c.pts3); });
+  const onTop = c3.length && c3[0].every((p) => near(Math.hypot(p[0] - 60, p[2]), 10, 0.05) && near(p[1], 30, 0.05));
+  t.check("Include 3D Geometry: the top edge as a 3D sketch curve (arc r 10 at z 30)", c3.length === 1 && c3[0].length > 8 && onTop, JSON.stringify(c3.map((p) => p.length)));
+  // a sketch line in front of the cylinder for Project to Surface / Intersection Curve
+  const lineId = await t.app(() => { const a = window.app; return a.mutate("line", (doc) => { const sk = doc.features.find((x) => x.id === a.activeSketch).sk; return a.S.addLine(sk, a.S.addPoint(sk, 54, 15), a.S.addPoint(sk, 66, 15)); }); });
+  const nC3 = async () => t.app(() => { const a = window.app; return Object.values(a.feature(a.activeSketch).sk.curves).filter((c) => c.type === "c3d").length; });
+  await R7.run(t, "ProjectToSurface");
+  if (await t.waitFor('.dlg[data-dialog="ProjectToSurface"]', { timeout: 2000 })) {
+    await t.app((g) => { const d = window.app.ui.dialog.current; d.pickRef("faces", { kind: "face", body: g.body, index: g.side, p: [60, -10, 15], n: [0, -1, 0] }); d.pickRef("curves", { kind: "sketchCurve", sketch: window.app.activeSketch, curve: g.line }); }, { ...geo, line: lineId });
+    await dlgOk("ProjectToSurface");
+  }
+  const p2s = await t.app(() => { const a = window.app; const cs = Object.values(a.feature(a.activeSketch).sk.curves).filter((c) => c.type === "c3d"); const last = cs[cs.length - 1]; return { n: cs.length, r: last ? last.pts3.map((p) => Math.hypot(p[0] - 60, -p[2])) : [] }; });
+  // sketch (u, v, w) on XZ: u = x, v = z, w along -y; the cylinder axis is x = 60, y = 0
+  t.check("Project to Surface: a 3D curve on the cylinder face", p2s.n === 2 && p2s.r.length > 2 && p2s.r.every((r) => near(r, 10, 0.1)), JSON.stringify({ n: p2s.n, r: p2s.r.slice(0, 4).map((x) => fmt(x, 3)) }));
+  await R7.run(t, "IntersectionCurve");
+  if (await t.waitFor('.dlg[data-dialog="IntersectionCurve"]', { timeout: 2000 })) {
+    await t.app((g) => { const d = window.app.ui.dialog.current; d.pickRef("curves", { kind: "sketchCurve", sketch: window.app.activeSketch, curve: g.line }); d.pickRef("faces", { kind: "face", body: g.body, index: g.side, p: [60, -10, 15], n: [0, -1, 0] }); }, { ...geo, line: lineId });
+    await dlgOk("IntersectionCurve");
+  }
+  t.check("Intersection Curve: one more 3D curve", (await nC3()) === 3, `${await nC3()}`);
+  await R7.run(t, "SketchIsoparametricCurve");
+  if (await t.waitFor('.dlg[data-dialog="SketchIsoparametricCurve"]', { timeout: 2000 })) {
+    await t.app((g) => { const d = window.app.ui.dialog.current; d.pickRef("face", { kind: "face", body: g.body, index: g.side, p: [60, -10, 15], n: [0, -1, 0] }); }, geo);
+    await dlgOk("SketchIsoparametricCurve");
+  }
+  t.check("Isoparametric Curve: a 3D curve along the face", (await nC3()) >= 4, `${await nC3()}`);
+  await t.shot("r7-body-geometry");
+  await t.app(() => window.app.commands.run("SketchStop"));
+  await t.settle(200);
+
+  // ---------- Insert SVG / Insert DXF ----------
+  t.step("Insert SVG and Insert DXF from the model environment");
+  const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="40mm" height="20mm" viewBox="0 0 40 20"><rect x="0" y="0" width="40" height="20" fill="none" stroke="#000"/><circle cx="20" cy="10" r="5"/></svg>';
+  const DXF = ["0", "SECTION", "2", "ENTITIES",
+    ...[[0, 0, 30, 0], [30, 0, 30, 30], [30, 30, 0, 30], [0, 30, 0, 0]].flatMap(([x1, y1, x2, y2]) => ["0", "LINE", "8", "0", "10", String(x1), "20", String(y1), "30", "0", "11", String(x2), "21", String(y2), "31", "0"]),
+    "0", "CIRCLE", "8", "HOLES", "10", "15", "20", "15", "30", "0", "40", "5", "0", "ENDSEC", "0", "EOF"].join("\n");
+  const insert = async (cmd, name, text, mime) => {
+    const before = await t.app(() => window.app.doc.features.filter((f) => f.type === "sketch").length);
+    await R7.run(t, cmd);
+    if (!(await t.waitFor(`.dlg[data-dialog="${cmd}"]`, { timeout: 2000 }))) return null;
+    await t.app(() => window.app.ui.dialog.current.pickRef("plane", { kind: "originPlane", name: "XY" }));
+    const [fc] = await Promise.all([t.page.waitForEvent("filechooser", { timeout: 4000 }), t.click(`.dlg[data-dialog="${cmd}"] [data-input="file"]`)]);
+    await fc.setFiles({ name, mimeType: mime, buffer: Buffer.from(text) });
+    await t.settle(500);
+    await t.app((c) => window.app.ui.dialog.current.set("dx", "-100 mm", { user: true }), cmd);
+    await dlgOk(cmd);
+    return t.app((n0) => {
+      const a = window.app;
+      const sks = a.doc.features.filter((f) => f.type === "sketch");
+      const f = sks[sks.length - 1];
+      const st = a.sketchState(f.id);
+      return { added: sks.length - n0, id: f.id, types: Object.values(f.sk.curves).map((c) => c.type), areas: st.regions.regions.map((r) => Math.abs(r.area)), tl: !!document.querySelector(`[data-feature="${f.id}"]`) };
+    }, before);
+  };
+  const sv = await insert("SketchImportSVG", "shape.svg", SVG, "image/svg+xml");
+  t.check("Insert SVG makes a new sketch with the rectangle and the circle", sv && sv.added === 1 && sv.types.filter((x) => x === "line").length === 4 && sv.types.includes("circle"), JSON.stringify(sv));
+  t.check("SVG profiles: 800 - 25π and 25π", sv && sv.areas.some((x) => near(x, 800 - 25 * Math.PI, 0.05)) && sv.areas.some((x) => near(x, 25 * Math.PI, 0.05)), JSON.stringify(sv && sv.areas));
+  t.check("the SVG sketch has a timeline entry", sv && sv.tl);
+  const dx = await insert("ImportDxfFileCommand", "plate.dxf", DXF, "application/dxf");
+  t.check("Insert DXF makes a new sketch with 4 lines and a circle", dx && dx.added === 1 && dx.types.filter((x) => x === "line").length === 4 && dx.types.includes("circle"), JSON.stringify(dx));
+  t.check("DXF profiles: 900 - 25π and 25π", dx && dx.areas.some((x) => near(x, 900 - 25 * Math.PI, 0.05)), JSON.stringify(dx && dx.areas));
+  await t.app(() => window.app.commands.run("Undo"));
+  await t.settle(200);
+  t.check("Undo removes the DXF sketch", await t.app((id) => !window.app.feature(id), dx && dx.id));
+  await t.shot("r7-insert-svg-dxf");
+
+  // ---------- Offset of an ellipse / spline, tangent handles ----------
+  t.step("Offset an ellipse; Activate / Deactivate Tangent handle on a fit point");
+  t.require("sketch on XY for offset / handles", await enterSketchOnXY(t));
+  const ff = await t.app(() => {
+    const a = window.app; let r = null;
+    a.mutate("ff", (doc) => {
+      const sk = doc.features.find((x) => x.id === a.activeSketch).sk;
+      const e = a.S.addEllipse(sk, a.S.addPoint(sk, 20, 0), a.S.addPoint(sk, 35, 0), a.S.addPoint(sk, 20, 8), false, { axes: false });
+      const P = [[-40, 0], [-25, 15], [-10, 0]].map(([x, y]) => a.S.addPoint(sk, x, y));
+      r = { ell: e.curve, spl: a.S.addSpline(sk, P), mid: P[1] };
+    });
+    return r;
+  });
+  await R7.run(t, "Offset");
+  await R7.clickAt(t, 35, 0);
+  await R7.moveTo(t, 40, 0);
+  await t.type("3");
+  await t.key("Enter");
+  await t.settle(200);
+  await t.key("Escape");
+  I = await R7.info(t);
+  const offSpl = I.curves.filter((c) => c.type === "spline" && c.id !== ff.spl);
+  t.check("Offset of the ellipse: a closed spline outside it", offSpl.length === 1 && I.regions.length >= 2, JSON.stringify({ off: offSpl, regions: I.regions.map((r) => fmt(r.area)) }));
+  const ring = I.regions.map((r) => r.area).sort((x, y) => x - y);
+  // area between a convex curve and its offset by d: perimeter * d + π d^2 (Ramanujan's ellipse perimeter)
+  const perim = Math.PI * (3 * (15 + 8) - Math.sqrt((3 * 15 + 8) * (15 + 3 * 8)));
+  const expRing = perim * 3 + Math.PI * 9;
+  t.check(`ring between the ellipse and its offset = P·d + πd² (${fmt(expRing)})`, ring.some((x) => near(x, expRing, expRing * 0.01)), JSON.stringify(ring.map((x) => fmt(x))));
+
+  const der = () => t.app((r) => { const a = window.app; const st = a.sketchState(a.activeSketch); const g = a.S.curveGeom(st.sk, r.spl); return g.fit.m[1]; }, ff);
+  const d0 = await der();
+  await t.app((r) => window.app.selection.set([{ kind: "sketchPoint", sketch: window.app.activeSketch, point: r.mid }]), ff);
+  const mp = await R7.at(t, -25, 15);
+  await t.page.mouse.move(mp.x, mp.y, { steps: 3 });
+  await t.page.mouse.click(mp.x, mp.y, { button: "right" });
+  const mm = await t.waitFor('.mm-root .mm-overflow [data-cmd="AddTangentHandle"]', { timeout: 3000 });
+  t.check("right-click a fit point offers Activate Tangent handle", mm);
+  if (mm) await t.click('.mm-root .mm-overflow [data-cmd="AddTangentHandle"]');
+  else await R7.run(t, "AddTangentHandle");
+  await t.settle(200);
+  const hs = await t.app((r) => { const a = window.app; const f = a.feature(a.activeSketch); const cv = f.sk.curves[r.spl]; const l = cv.hd && f.sk.curves[cv.hd[1]]; return { line: !!l && l.cons, hs: cv.hs && cv.hs[1] }; }, ff);
+  const d1 = await der();
+  t.check("the tangent handle is a construction line; the spline keeps its shape", hs.line && near(d1[0], d0[0], 1e-6) && near(d1[1], d0[1], 1e-6), JSON.stringify({ hs, d0, d1 }));
+  // turn the handle 30 degrees up: the spline's tangent at the fit point follows
+  await t.app((r) => window.app.mutate("turn", (doc) => {
+    const sk = doc.features.find((x) => x.id === window.app.activeSketch).sk; const l = sk.curves[sk.curves[r.spl].hd[1]];
+    const p = sk.points[l.p1], q = sk.points[l.p2]; const L = Math.hypot(q.x - p.x, q.y - p.y);
+    q.x = p.x + L * Math.cos(Math.PI / 6); q.y = p.y + L * Math.sin(Math.PI / 6);
+  }), ff);
+  const d2 = await der();
+  t.check("turning the handle turns the spline tangent (30 deg)", near(Math.atan2(d2[1], d2[0]) * 180 / Math.PI, 30, 0.01), JSON.stringify(d2));
+  await t.app((r) => window.app.selection.set([{ kind: "sketchPoint", sketch: window.app.activeSketch, point: r.mid }]), ff);
+  await R7.run(t, "DeleteTangentCommand");
+  await t.settle(200);
+  const gone = await t.app((r) => { const a = window.app; const f = a.feature(a.activeSketch); const cv = f.sk.curves[r.spl]; return !(cv.hd && cv.hd[1]) && Object.values(f.sk.curves).filter((c) => c.type === "line").length === 0; }, ff);
+  const d3 = await der();
+  t.check("Deactivate Tangent Handle removes the handle and frees the tangent", gone && near(d3[0], d0[0], 1e-6) && near(d3[1], d0[1], 1e-6), JSON.stringify(d3));
+  await t.shot("r7-offset-handles");
+  await t.app(() => window.app.commands.run("SketchStop"));
+}

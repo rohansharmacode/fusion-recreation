@@ -3,13 +3,15 @@
 // Fusion computes the proposals with a cloud-free solver too; here src/sketch/autocon.js proposes
 // constraints and dimensions locally. Result tiles show Constraints / Dimensions / Status; the active
 // tile has the quantity slider (- / +), Modify Geometry + Tolerance and More > Set datum / Refresh.
-import { ST, mutateSketch, params, activeData, fmtLen, fmtAng } from "./ctx.js";
+import { ST, mutateSketch, params, activeData } from "./ctx.js";
 import { showLive, endLive, storedSketch, pointOfActive } from "./dlgutil.js";
 import { autoConstrainResults } from "../../sketch/autocon.js";
 import { finishSketch } from "./env.js";
 import { closeEdit } from "./dimension.js";
 
-const fmt = (v, k) => (k === "angle" ? fmtAng(v) : fmtLen(v));
+// measured values keep 6 decimals so applying a result does not move the geometry (labels still show the
+// document precision); trailing zeros are dropped ("30 mm", "30.016662 mm")
+const fmt = (v, k) => `${Number(v.toFixed(6))} ${k === "angle" ? "deg" : "mm"}`;
 
 function generate(state, more = false) {
   const sk = storedSketch();

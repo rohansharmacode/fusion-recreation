@@ -41,7 +41,7 @@ export function createToolbox(app, opts = {}) {
     if (ws !== "FusionSolidEnvironment") { const w = (app.workspaceList ? app.workspaceList() : []).find((x) => x.id === ws); return w ? w.label : "Design"; }
     if (app.mode === "sketch") return "Sketch";
     const env = app.environment;
-    if (env && env.label) return String(env.title || env.label).toLowerCase().replace(/w/g, (c) => c.toUpperCase());
+    if (env && env.label) return String(env.title || env.label).toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
     return "Design";
   }
 

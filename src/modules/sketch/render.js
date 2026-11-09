@@ -141,7 +141,10 @@ function curveClass(sk, id, status, fixed) {
   const cv = sk.curves[id];
   if (cv.proj) return "proj";
   if (cv.cons) return "cons";
-  if (fixed.has(id) || (cv.type !== "point" && ST.app.S.curvePoints(cv).every((p) => fixed.has(p) || (sk.points[p] && sk.points[p].fixed && !sk.points[p].origin)))) return "fixed";
+  // text on a path takes the colour of its path
+  if (cv.type === "text" && cv.mode === "path" && sk.curves[cv.path] && cv.path !== id) return curveClass(sk, cv.path, status, fixed);
+  const pts = ST.app.S.curvePoints(cv);
+  if (fixed.has(id) || (cv.type !== "point" && pts.length && pts.every((p) => fixed.has(p) || (sk.points[p] && sk.points[p].fixed && !sk.points[p].origin)))) return "fixed";
   if (status && status.constrained && status.constrained[id]) return "done";
   return "free";
 }

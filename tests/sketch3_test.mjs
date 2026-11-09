@@ -262,5 +262,31 @@ const regs = (sk) => S.regions(sk).regions;
   check("broken pieces solve (collinear)", solve(sk).ok);
 }
 
+// ---------- AutoConstrain ----------
+{
+  const { autoConstrainResults } = await import("../src/sketch/autocon.js");
+  const sk = S.newSketch();
+  const Q = [[0, 0], [30, 1], [30, 20], [0, 20]].map(([x, y]) => S.addPoint(sk, x, y));
+  Q.forEach((p, i) => S.addLine(sk, p, Q[(i + 1) % 4]));
+  S.addCircle(sk, S.addPoint(sk, 50, 0), 4);
+  const rs = autoConstrainResults(sk, P, { fmt: (v, k) => `${Number(v.toFixed(6))} ${k === "angle" ? "deg" : "mm"}` });
+  check("AutoConstrain: every result fully constrains a quad + a circle level with the origin", rs.length >= 1 && rs.every((r) => r.fully), rs.map((r) => r.items.length).join(","));
+  check("a point level with the datum gets a horizontal constraint (no 0 mm dimension)", rs[0].items.some((i) => i.type === "horizontal" && i.refs.length === 2) && !rs[0].items.some((i) => /^0\.0+ mm$/.test(i.expr || "")));
+  const w = S.cloneSketch(sk);
+  for (const it of rs[0].items) { const { kind, late, loc, type, refs, ...rest } = it; void kind; void late; void loc; S.addConstraint(w, type, refs, rest); }
+  const st = solve(w);
+  check("applied AutoConstrain result solves with no free degrees of freedom", st.ok && st.nullity === 0 && near(w.points[Q[1]].y, 1, 1e-4), `ok=${st.ok} nullity=${st.nullity} y=${w.points[Q[1]].y}`);
+}
+
+// ---------- 3-tangent circle picked on the third line ----------
+{
+  const sk = S.newSketch();
+  const A = S.addPoint(sk, -45, -35), B = S.addPoint(sk, -5, -35), C = S.addPoint(sk, -25, -5);
+  const l = [S.addLine(sk, A, B), S.addLine(sk, B, C), S.addLine(sk, C, A)];
+  const t = S.circleThreeTan(sk, l, [-33.9, -18.4]);
+  const rIn = (0.5 * 40 * 30) / ((40 + 2 * Math.hypot(20, 30)) / 2);
+  check("3-tangent circle: a pick on the third line at the incircle's touch point gives the incircle", t && near(t.r, rIn, 1e-9), t ? t.r.toFixed(4) : "");
+}
+
 console.log(fails ? `\n${fails} FAILED, ${passes} passed` : `\nall ${passes} passed`);
 process.exit(fails ? 1 : 0);

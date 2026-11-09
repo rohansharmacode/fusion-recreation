@@ -1,5 +1,6 @@
 // Geometry / reference helpers shared by the command dialogs.
 import * as K from "../../kernel.js";
+import { bbox as meshBBox } from "../../meshdata.js";
 import { regionInteriorPoint, pointInPoly } from "../../sketch/regions.js";
 
 export const V = K.V;
@@ -141,7 +142,9 @@ export function bodiesCenter(state, ids) {
   let mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
   for (const id of ids) {
     const b = state.bodies.get(id);
-    const bb = b && b.shape && b.shape.boundingBox ? b.shape.boundingBox.bounds : null;
+    let bb = b && b.shape && b.shape.boundingBox ? b.shape.boundingBox.bounds : null;
+    const m = !b && state.meshBodies && state.meshBodies.get(id); // mesh-like body: box of its triangles
+    if (m && m.mesh && m.mesh.positions && m.mesh.positions.length) { const mb = meshBBox(m.mesh); bb = [mb.min, mb.max]; }
     if (!bb) continue;
     for (let i = 0; i < 3; i++) { mn[i] = Math.min(mn[i], bb[0][i]); mx[i] = Math.max(mx[i], bb[1][i]); }
   }

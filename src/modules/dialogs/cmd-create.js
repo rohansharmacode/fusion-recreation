@@ -2,7 +2,7 @@
 import * as U from "./util.js";
 import * as K from "../../kernel.js";
 import { g } from "./glyphs.js";
-import { OPERATIONS, PATTERN_TYPES, profileRefsOf, profileSelRefs, toBodyRef, profileStatus } from "./common.js";
+import { OPERATIONS, PATTERN_TYPES, PATTERN_FEATURE_TYPES, profileRefsOf, profileSelRefs, toBodyRef, profileStatus } from "./common.js";
 
 const V = U.V;
 
@@ -167,7 +167,90 @@ export function openMirror(app, opts = {}) {
 }
 
 // ------------------------------------------------------------------ Patterns
-const dirFilter = (r, dlg) => (r.kind === "sketchCurve" ? U.sketchLineFilter(dlg.baseState)(r) : r.kind === "edge" ? U.isLinearEdge(dlg.baseState, r) : true);
+// Object Type "Features": the features a pattern can re-create (tool features + fillet / chamfer;
+// see patternFeatures in model.js).
+const PATTERNABLE = new Set(["extrude", "revolve", "hole", "box", "cylinder", "sphere", "torus", "loft", "sweep", "coil", "pipe", "fillet", "chamfer"]);
+
+/**
+ * Feature id a selection ref stands for in a Features pattern: a timeline / browser item, or a face
+ * the feature made (the latest feature whose tool surface carries the picked point). Only features
+ * before the pattern's timeline position count.
+ */
+function featureOfRef(dlg, ref) {
+  const app = dlg.app, doc = app.doc;
+  const lim = dlg.editId ? app.featureIndex(dlg.editId) : doc.marker;
+  const res = (app.result && app.result.results) || {};
+  const ok = (f, i) => !!f && i >= 0 && i < lim && PATTERNABLE.has(f.type) && !f.suppressed && !(res[f.id] && (res[f.id].ok === false || res[f.id].rolled));
+  if (ref.kind === "feature") return ok(app.feature(ref.id), app.featureIndex(ref.id)) ? ref.id : null;
+  if (ref.kind !== "face" || !Array.isArray(ref.p)) return null;
+  let probe = null;
+  try {
+    for (let i = Math.min(lim, doc.features.length) - 1; i >= 0; i--) {
+      const f = doc.features[i];
+      const tool = ok(f, i) && res[f.id] && res[f.id].tool;
+      if (!tool) continue;
+      probe = probe || K.pointProbe(ref.p);
+      if (probe.dist(tool) < 1e-3) return f.id;
+    }
+  } catch (e) { console.error(e); } finally { if (probe) probe.delete(); }
+  return null;
+}
+const featureRow = (verb) => ({
+  id: "features", type: "selection", label: "Objects", kinds: ["feature", "face"], prompt: `Select features to ${verb}`,
+  filter: (r, dlg) => !!featureOfRef(dlg, r),
+  mapRef: (r, dlg) => { const id = featureOfRef(dlg, r); return id ? { kind: "feature", id } : null; },
+  visible: (v) => v.patternType === "features",
+});
+const bodyRow = (verb) => ({ id: "bodies", type: "selection", label: "Objects", kinds: ["body", "face"], mapRef: toBodyRef, prompt: `Select bodies to ${verb}`, visible: (v) => v.patternType !== "features" });
+
+/** Object Type of a new pattern: Bodies when bodies / faces were preselected, else Features (Fusion's default). */
+function patternTypeFor(f0, pre) {
+  if (f0) return f0.patternType === "features" ? "features" : "bodies";
+  if (pre.some((r) => r.kind === "feature")) return "features";
+  return pre.some((r) => r.kind === "body" || r.kind === "face") ? "bodies" : "features";
+}
+const patternPreselect = (pre) => pre.map((r) => (r.kind === "feature" ? r : toBodyRef(r))).filter(Boolean);
+
+/** Object Type <-> Objects rows: switching the type activates its row; a pick into a row selects its type. */
+function patternOnChange(id, dlg) {
+  const v = dlg.values;
+  if (id === "patternType") {
+    const row = v.patternType === "features" ? "features" : "bodies";
+    if (!(v[row] || []).length || !dlg.active || dlg.active === "features" || dlg.active === "bodies") dlg.activate(row);
+    dlg._syncSelection();
+  } else if (id === "bodies" && (v.bodies || []).length && v.patternType === "features") dlg.set("patternType", "bodies");
+  else if (id === "features" && (v.features || []).length && v.patternType !== "features") dlg.set("patternType", "features");
+}
+
+/** Centre of the patterned objects (manipulator anchor). */
+function patternCenter(dlg) {
+  const v = dlg.values;
+  if (v.patternType !== "features") return U.bodiesCenter(dlg.baseState, (v.bodies || []).map((r) => r.body));
+  const res = (dlg.app.result && dlg.app.result.results) || {};
+  const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+  const add = (p) => { for (let i = 0; i < 3; i++) { mn[i] = Math.min(mn[i], p[i]); mx[i] = Math.max(mx[i], p[i]); } };
+  for (const r of v.features || []) {
+    const tool = res[r.id] && res[r.id].tool;
+    let bb = null;
+    try { bb = tool && tool.boundingBox ? tool.boundingBox.bounds : null; } catch { bb = null; }
+    if (bb) { add(bb[0]); add(bb[1]); continue; }
+    const f = dlg.app.feature(r.id);
+    for (const e of (f && f.edges) || []) if (Array.isArray(e.p)) add(e.p);
+  }
+  return Number.isFinite(mn[0]) ? V.mul(V.add(mn, mx), 0.5) : null;
+}
+
+/** Objects part of a pattern feature ({patternType, features} or {bodies}); null when nothing is selected. */
+function patternObjects(v) {
+  if (v.patternType === "features") {
+    const features = (v.features || []).map((r) => r.id);
+    return features.length ? { patternType: "features", features } : null;
+  }
+  const bodies = (v.bodies || []).map((r) => r.body);
+  return bodies.length ? { bodies } : null;
+}
+
+const dirFilter =(r, dlg) => (r.kind === "sketchCurve" ? U.sketchLineFilter(dlg.baseState)(r) : r.kind === "edge" ? U.isLinearEdge(dlg.baseState, r) : true);
 
 /** Flip toggle placed after a Directions selection (Fusion's flip button). */
 const flipButton = (field) => (dlg, re) => {
@@ -212,11 +295,12 @@ export function openRectPattern(app, opts = {}) {
     title: "Rectangular Pattern",
     icon: "PatternRectangular",
     editId,
-    help: "Duplicates bodies in a design and distributes them along linear axes in rows and columns.",
-    preselect: (opts.preselect || []).map(toBodyRef).filter(Boolean),
+    help: "Duplicates features or bodies in a design and distributes them along linear axes in rows and columns.",
+    preselect: patternPreselect(opts.preselect || []),
     rows: [
-      { id: "patternType", type: "dropdown", label: "Object Type", options: PATTERN_TYPES, default: "bodies" },
-      { id: "bodies", type: "selection", label: "Objects", kinds: ["body", "face"], mapRef: toBodyRef, prompt: "Select bodies to pattern" },
+      { id: "patternType", type: "dropdown", label: "Object Type", options: PATTERN_FEATURE_TYPES, default: patternTypeFor(f0, opts.preselect || []) },
+      featureRow("pattern"),
+      bodyRow("pattern"),
       { id: "distType", type: "dropdown", label: "Distribution", options: [{ value: "extent", label: "Extent", icon: "extentWhole" }, { value: "spacing", label: "Spacing", icon: "extentSpacing" }], default: "spacing" },
       { id: "g1", type: "group", label: "Direction 1", rows: [
         dirRow("dir1", "flip1", false),
@@ -236,6 +320,7 @@ export function openRectPattern(app, opts = {}) {
       const st = dlg.baseState;
       Object.assign(dlg.values, {
         bodies: (f0.bodies || []).map((b) => ({ kind: "body", body: b })),
+        features: (f0.features || []).map((id) => ({ kind: "feature", id })),
         distType: f0.distType || "spacing",
         dir1: [dirSelRef(f0.dir1 || "X", st)].filter(Boolean),
         dir2: [dirSelRef(f0.dir2, st)].filter(Boolean),
@@ -244,11 +329,12 @@ export function openRectPattern(app, opts = {}) {
       });
       for (const k of ["q1", "d1", "q2", "d2"]) if (f0[k] !== undefined) dlg.values[k] = String(f0[k]);
     },
+    onChange: patternOnChange,
     build(v) {
-      const bodies = (v.bodies || []).map((r) => r.body);
+      const objs = patternObjects(v);
       const dir1 = U.axisFromRef((v.dir1 || [])[0]);
-      if (!bodies.length || !dir1) return null;
-      const f = { type: "rpattern", bodies, dir1, q1: v.q1, d1: v.d1, distType: v.distType };
+      if (!objs || !dir1) return null;
+      const f = { type: "rpattern", ...objs, dir1, q1: v.q1, d1: v.d1, distType: v.distType };
       if (v.flip1) f.flip1 = true;
       const dir2 = U.axisFromRef((v.dir2 || [])[0]);
       if (dir2) { f.dir2 = dir2; f.q2 = v.q2; f.d2 = v.d2; if (v.flip2) f.flip2 = true; }
@@ -256,7 +342,7 @@ export function openRectPattern(app, opts = {}) {
     },
     manipulators(dlg) {
       const v = dlg.values;
-      const c = U.bodiesCenter(dlg.baseState, (v.bodies || []).map((r) => r.body));
+      const c = patternCenter(dlg);
       if (!c) return [];
       const out = [];
       for (const [row, flip, q, d] of [["dir1", "flip1", "q1", "d1"], ["dir2", "flip2", "q2", "d2"]]) {
@@ -301,11 +387,12 @@ export function openCircPattern(app, opts = {}) {
     title: "Circular Pattern",
     icon: "PatternCircular",
     editId,
-    help: "Duplicates bodies in a design and distributes them around a linear axis to create a circular pattern.",
+    help: "Duplicates features or bodies in a design and distributes them around a linear axis to create a circular pattern.",
     preselect: (opts.preselect || []).map((r) => (r.kind === "face" ? toBodyRef(r) : r)),
     rows: [
-      { id: "patternType", type: "dropdown", label: "Object Type", options: PATTERN_TYPES, default: "bodies" },
-      { id: "bodies", type: "selection", label: "Objects", kinds: ["body", "face"], mapRef: toBodyRef, prompt: "Select bodies to pattern" },
+      { id: "patternType", type: "dropdown", label: "Object Type", options: PATTERN_FEATURE_TYPES, default: patternTypeFor(f0, opts.preselect || []) },
+      featureRow("pattern"),
+      bodyRow("pattern"),
       { id: "axis", type: "selection", label: "Axis", kinds: ["originAxis", "sketchCurve", "edge"], max: 1, prompt: "Select an axis", filter: (r, dlg) => (r.kind === "sketchCurve" ? U.sketchLineFilter(dlg.baseState)(r) : true) },
       { id: "angType", type: "dropdown", label: "Type", options: [{ value: "full", label: "Full", icon: "revFull" }, { value: "angle", label: "Angle", icon: "revAngle" }] },
       { id: "angle", type: "value", label: "Total Angle", kind: "angle", default: "180.0 deg", visible: (v) => v.angType === "angle" },
@@ -314,13 +401,14 @@ export function openCircPattern(app, opts = {}) {
     init(dlg) {
       if (!f0) return;
       const full = f0.angle === undefined || Math.abs(Number.parseFloat(f0.angle) - 360) < 1e-9;
-      Object.assign(dlg.values, { bodies: (f0.bodies || []).map((b) => ({ kind: "body", body: b })), axis: [U.refFromAxis(f0.axis, dlg.baseState)].filter(Boolean), count: String(f0.count ?? "3"), angType: full ? "full" : "angle", angle: full ? "180.0 deg" : f0.angle });
+      Object.assign(dlg.values, { bodies: (f0.bodies || []).map((b) => ({ kind: "body", body: b })), features: (f0.features || []).map((id) => ({ kind: "feature", id })), axis: [U.refFromAxis(f0.axis, dlg.baseState)].filter(Boolean), count: String(f0.count ?? "3"), angType: full ? "full" : "angle", angle: full ? "180.0 deg" : f0.angle });
     },
+    onChange: patternOnChange,
     build(v) {
-      const bodies = (v.bodies || []).map((r) => r.body);
+      const objs = patternObjects(v);
       const axis = U.axisFromRef((v.axis || [])[0]);
-      if (!bodies.length || !axis) return null;
-      return { type: "cpattern", bodies, axis, count: v.count, angle: v.angType === "full" ? "360 deg" : v.angle };
+      if (!objs || !axis) return null;
+      return { type: "cpattern", ...objs, axis, count: v.count, angle: v.angType === "full" ? "360 deg" : v.angle };
     },
   });
 }

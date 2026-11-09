@@ -1,150 +1,93 @@
-# Fusion 360 recreation — handoff
+# Fusion Design workspace recreation: handoff
 
-## The task
-Fusion 360 × Claude Builders Club hackathon minigame: use Claude, with the **REA**
-repo (https://github.com/morluto/rea, "Reverse Engineer Anything"), to recreate
-Autodesk Fusion as accurately as possible. Other participants will test the
-result, so it has to be **one shareable web link**. The prize is a visit to Fusion HQ.
+## What this is
+An **unofficial** browser recreation of the Design workspace of Autodesk Fusion, built for the Fusion x Claude
+Builders Club hackathon (testers get one shareable link; the prize is a visit to Fusion HQ). Plain ES modules,
+three.js (Z-up, mm) and a real B-rep kernel (OpenCascade through replicad, WebAssembly), bundled by esbuild. No framework.
 
-Target: a browser recreation of Fusion's **Design workspace**. That means its UI
-layout, its parametric timeline, sketch → extrude/revolve, real B-rep modelling,
-the ViewCube, the marking menu, the S-key toolbox and Fusion's default shortcuts.
+- **Live:** https://rohansharmacode.github.io/fusion-recreation/
+- **Repo:** https://github.com/rohansharmacode/fusion-recreation (branch `main`)
+- **Hosting:** GitHub Pages from the `gh-pages` branch. The published files are the four outputs of
+  `node scripts/build.mjs --release` (`npm run release`): `index.html`, `app.js`, `app.css`, `occt.gz.wasm`.
+  Same four files also work as a claude.ai artifact (`npm run serve:artifact` rehearses the sandbox).
+- Contract and API: [ARCHITECTURE.md](ARCHITECTURE.md). Run/build/release details: [README.md](README.md).
+  Per-dialog notes: `src/modules/dialogs/README.md`. Visual checklist: `docs/fidelity-checklist.md`.
 
-### Rules we set
-- Do **not** copy Autodesk logos, wordmarks or icon artwork. Draw original SVG icons.
-  Layout, behaviour, names, shortcuts and workflows can be reproduced.
-- Label the app as an *unofficial hackathon recreation, not affiliated with Autodesk*
-  (Help → About).
-- Do **not** commit files copied from the Fusion install into any repo. Read them
-  in place as evidence.
+History (git): initial recreation, then refinement rounds 2 to 5 (side-by-side fixes against real Fusion; power-user
+modelling fixes; sketch-solver and marking-menu fixes; splines/ellipses and the Split/Coil/Pipe/Scale/Thread/BOM/Insert group).
 
-## What exists in this folder
-```
-src/expr.js            Fusion-style expression evaluator + ParamTable (units mm/cm/m/in/ft/deg/rad,
-                       functions, parameter references, cycle detection)
-src/sketch/solver.js   Levenberg–Marquardt constraint solver (sparse numeric Jacobian) + DOF
-                       analysis (null space of JᵀJ) → "fully constrained" per entity (blue→black)
-src/sketch/regions.js  Planar arrangement of lines/circles/arcs → closed profiles: split at all
-                       intersections, prune dangling edges, half-edge face walk, hole assignment,
-                       stable region keys (curveId+sense signature)
-src/sketch/sketch.js   Sketch data model + ops: rect (2-pt, centre), polygon (in/circumscribed),
-                       slot, trim, sketch fillet, offset (circles, closed line loops), mirror,
-                       dimension measurement
-src/kernel.js          replicad/OpenCascade wrapper: regions→Drawings, extrude (incl. taper via
-                       loft of offset profile), revolve, hole tool (simple/counterbore/countersink,
-                       drill-point angle), face/edge lookup by geometry, tangent chain, meshing with
-                       face/edge groups mapped by hashCode
-src/model.js           Parametric document + timeline Evaluator with incremental cache.
-                       Features: sketch, extrude (one/two/sym, distance/all, taper, new/join/cut/
-                       intersect, face profiles = Press Pull), revolve, fillet, chamfer, shell,
-                       draft, hole (single / from sketch points), box, cylinder, sphere, torus,
-                       combine, mirror, rectangular & circular pattern, move/copy, delete,
-                       construction plane (offset / angle / midplane), loft, sweep.
-                       Model parameters d1, d2… auto-assigned; Change Parameters data helper.
-tests/                 Node tests (run: `node tests/sketch_test.mjs`, `node tests/kernel_smoke.mjs`,
-                       `node tests/kernel2.mjs`). All passing at handoff.
-```
-Setup: `npm install`. It pulls three@0.169.0, replicad 1.2.1, replicad-opencascadejs 1.2.1 and esbuild.
+## What works (by area)
+- **Shell**: Fusion light theme, application bar, DESIGN workspace menu, all SOLID/SURFACE/MESH/SHEET METAL/PLASTIC/UTILITIES
+  tabs with the real panel layout and dropdowns (from TabToolbars.xml), tooltips, transparent browser tree, comments panel,
+  bottom-right status text, small-screen note.
+- **Viewport**: Fusion mouse scheme (MMB pan, Shift+MMB orbit, wheel zoom, double-MMB fit) plus trackpad, ViewCube (26 zones,
+  home, drag), navigation bar, visual styles, environments, camera modes, grid and snap settings, origin/axis display,
+  picking with point > curve > area ranking, window/freeform/paint selection, selection priority filters.
+- **Sketch**: Create Sketch on origin planes or planar faces with look-at, palette, Finish Sketch. Line, 2-pt/3-pt/center rectangle,
+  circles (centre, 2-pt, 3-pt), 3-pt/centre/tangent arcs, polygons, slots, point, **fit-point spline, ellipse, elliptical arc**,
+  midpoint line, fillet and chamfers, **blend curve (G1)**, trim, extend, offset, mirror, project, dimensions, 12+ constraints,
+  construction toggle. LM solver with DOF analysis (blue to black), selection-order-aware (first pick stays fixed), refuses
+  degenerate geometry, drag through the solver, on-canvas value boxes, snapping with auto constraints. Region finder gives
+  exact profiles for lines, arcs, circles, splines and ellipses.
+- **Modelling** (28 feature types incl. sketch): Extrude (one/two/symmetric, distance/all, taper, join/cut/intersect/new body,
+  Press Pull), Revolve, Sweep, Loft, Hole (simple/counterbore/countersink), Box/Cylinder/Sphere/Torus, **Coil, Pipe, Thread
+  (modeled and cosmetic)**, Fillet, Chamfer, Shell, Draft, Combine, **Split Body, Scale**, Mirror, Rectangular/Circular Pattern,
+  Move/Copy, Delete, construction planes (offset, angle, midplane). Docked dialogs with live preview and on-canvas manipulators.
+  Face/edge references carry a derived geometric signature (`sig`) so features survive upstream edits.
+- **Parametric history**: timeline with playback, drag marker, roll, suppress/unsuppress, rename, trim, edit feature (downstream
+  recompute), Change Parameters with expressions (`d1/2`, units), Compute All, undo/redo (JSON snapshots).
+- **Inspect / insert**: Measure, Section Analysis, Properties, Center of Mass, Appearance and Physical Material libraries,
+  **Interference check, Bill of Materials, Insert Canvas, Insert Mesh (STL/OBJ)**.
+- **Interaction**: marking menu with overflow, S toolbox with search, Fusion default shortcuts (rebindable), Repeat command.
+- **Files**: Save/Open in browser storage (memory fallback), export STEP/STL/design JSON, Save As Image.
+- **Robustness**: per-feature kernel failure isolation, global error safety net (toast, not a frozen UI), real loading progress and
+  an error card with Retry if the kernel fails to load.
 
-### Verified so far
-- Rectangle plus 2 dims plus origin coincidence gives fully constrained (0 free vars). Expressions like `d1/2` work.
-- Profiles: a rectangle with a circle inside gives 2 regions (ring with hole, disc). A splitter line
-  and overlapping circles give the correct face set, and the areas sum to the rectangle.
-- Polygon, slot, sketch fillet and trim all produce the correct areas.
-- Kernel: extrude, fillet, shell, taper loft, revolve, sweep, cut, section (`cutPlane`), STEP/STL
-  export, volume and centre-of-mass. Kernel init takes about 0.3 s in Node.
+## Test status (re-run for this handoff)
+- Engine tests: `npm test` passes (sketch_test, sketch_engine2, kernel_smoke, kernel2, dialogs_model). Also passing:
+  `node tests/spline_test.mjs` ("ALL PASS") and `node tests/robust_test.mjs` (119/119). The last two are not in `npm test`.
+- QA scenarios: `npm run e2e` gives **20/20 scenarios passed, zero console errors** in headless Edge (toolbar, core-loop,
+  viewcube, marking-menu, toolbox, undo-redo, save-open, parameters, browser, timeline, modeling, navigation, sketch,
+  shortcuts, look, small-screen, robustness, create-modify, insert, inspect). Full run is about 5 min with `--parallel=3`.
+- Not re-run for this handoff: `npm run verify` (packaging/sandbox checks) and `npm run e2e:release`. Run both before any new deploy.
 
-## What's left (in order)
-1. **UI shell** (HTML/CSS): application bar (data panel, File ▾, save, undo, redo, document tab,
-   right-side icons), toolbar (workspace dropdown DESIGN ▾; tabs SOLID / SURFACE / MESH /
-   SHEET METAL / PLASTIC / UTILITIES; groups CREATE / MODIFY / ASSEMBLE / CONSTRUCT / INSPECT /
-   INSERT / SELECT with dropdowns), browser tree (Document Settings, Named Views, Origin,
-   Bodies, Sketches, Construction, with eye toggles), timeline (playback controls, feature icons,
-   draggable marker, right-click Edit/Suppress/Roll here/Delete), navigation bar.
-   **Get the exact toolbar contents from Fusion's own `TabToolbars.xml`** (see evidence below).
-2. **Viewport** (three.js, Z-up): Fusion mouse scheme (MMB pan, Shift+MMB orbit, wheel zoom to cursor,
-   double-MMB fit) plus trackpad heuristics. Gradient background, layout grid, perspective/ortho,
-   visual styles. Picking: faces (faceGroups), edges (screen-space), sketch curves/profiles.
-   Hover is light blue, selected is blue.
-3. **ViewCube**: second small scene with 26 click zones, home button, drag to orbit, axis triad.
-   Standard views for Z-up: Front looks from −Y, Right from +X, Top from +Z, Home is iso from (+x, −y, +z).
-4. **Sketch environment**: Create Sketch → pick an origin plane or planar face → look-at animation →
-   SKETCH contextual tab + Sketch Palette + FINISH SKETCH. Tools: Line (L, chained), 2-Point
-   Rectangle (R), Centre Rectangle, Circle (C), 3-pt / centre arc, Polygon, Slot, Point, Fillet,
-   Trim (T), Offset (O), Mirror, Project (P), Dimension (D), constraints, construction toggle (X).
-   On-canvas length/angle input boxes, snapping with auto H/V/coincident, point dragging through the solver.
-   Unconstrained lines are blue, fully constrained black, construction orange dashed, profiles pale orange.
-5. **Command dialogs**: a floating panel on the right with selection rows, expression inputs, OK/Cancel,
-   live preview (evaluate the document with the tentative feature appended; the cache makes this cheap),
-   cut previews in red, and an extrude distance arrow manipulator. Auto operation: extruding away from a
-   face joins, into a body cuts, in empty space makes a new body.
-6. **Marking menu** (right-click radial + overflow list, drag gestures), **S toolbox** (search),
-   keyboard shortcuts, undo/redo (doc JSON snapshots), Change Parameters dialog, Appearance (A) and
-   Physical Material, Properties (mass/volume/area/CoM), Measure (I), Section Analysis (`cutPlane`),
-   save/open in localStorage, STEP/STL export.
-7. **Package and publish**:
-   - Bundle with esbuild (`platform=browser`, ESM).
-   - The OCCT wasm is 22.9 MB. If the host has a per-file limit (claude.ai artifacts allow 20 MiB per
-     file), ship it gzip'd (7.2 MB). Decompress with `DecompressionStream('gzip')` and pass it as
-     `wasmBinary` to the `replicad-opencascadejs` factory.
-   - Hosting options: GitHub Pages, Vercel, or come back to the original claude.ai chat to publish it
-     as an artifact. For artifacts, scripts are only allowed from cdnjs, jsdelivr or unpkg (or bundled),
-     page downloads need the `downloads` capability, and localStorage must be wrapped in try/catch.
-8. **Test**: run Playwright through the core loop (sketch rect → dimension → extrude → fillet → hole →
-   edit in timeline → ViewCube) and check screenshots against Fusion.
+## Known gaps
+- Command coverage: 456 ids registered, **220 real, 217 stubs** (stubs toast "isn't available in this unofficial recreation yet").
+  The stubs are the SURFACE, MESH (ParaMesh*), SHEET METAL, PLASTIC and T-Spline tools, joints/assembly/motion, construction
+  axes and points (only the three construction-plane commands are real), analyses other than section/measure/interference
+  (draft, curvature, zebra, etc.), Emboss/Rib/Web/Boss, Offset Faces/Replace Face/Remove, sketch patterns, 3-tangent circles,
+  conic/3D spline, SVG/DXF import, Drawings/Render/CAM/Simulation workspaces, PIM/task management, scripts manager.
+- No components or assemblies (one flat design; "Isolate" and visibility work on bodies).
+- No cloud: Data Panel, versions, sharing and comments are UI placeholders. Storage is the browser only.
+- The kernel runs on the main thread, so a very heavy boolean blocks the page until it returns (no worker yet).
+- Only the SOLID tab workflow is deeply tested; the other tabs are layout-faithful but mostly stubs.
+- Touch and phone screens are only partly supported; best on desktop Chrome/Edge with a mouse.
+- `sig` matching is geometric: unusual topology changes can still make a face/edge ref fail to resolve (the feature shows an error, the app keeps running).
+- `refshots.mjs` needs the private reference captures (`$FUSION_REFS`), which are not in the repo.
 
-## Evidence ledger (REA-style: observed / inferred / unknown)
+## Next steps
+1. Run `npm run verify` and `npm run e2e:release`, then redeploy `release/` to `gh-pages` after any change.
+2. Move the kernel to a Web Worker (largest UX win for heavy models).
+3. Construction axes/points and the remaining sketch tools (3-tangent circle, sketch patterns, DXF/SVG import).
+4. Offset Faces, Replace Face, Remove, Rib, Emboss; basic surface commands (Patch, Stitch, Thicken, Surface Extrude).
+5. Components and joints (a component tree in the browser, As-built/Rigid joints) if assembly fidelity is wanted.
+6. Keep comparing against real Fusion with `refshots.mjs` and `docs/fidelity-checklist.md`; update ARCHITECTURE.md when ids, events or ref formats change.
 
-### Observed: Autodesk public docs
-- Shortcuts (help.autodesk.com "Fusion keyboard shortcuts reference"):
-  E Extrude, H Hole, Q Press Pull, F Fillet, M Move, V Toggle Visibility, Shift+N Component
-  Colors, S Toolbox, A Appearance, Ctrl+B Compute All, J Joint, Shift+J As-built Joint.
-  Sketch: L Line, R 2-Point Rectangle, C Centre Diameter Circle, T Trim, O Offset, I Measure,
-  P Project, X Normal/Construction, D Sketch Dimension.
-  Selection: 1 Window, 2 Freeform, 3 Paint, Del. View: Ctrl+Alt+V ViewCube, Ctrl+Alt+B Browser,
-  Ctrl+Alt+N Nav bar, Ctrl+Alt+P Data Panel, Ctrl+Alt+R Reset layout. Ctrl+Z/Y, Ctrl+S,
-  Ctrl+Shift+S Recovery Save, Shift+S Scripts and Add-ins, Ctrl+[ / Ctrl+] cycle workspaces.
-- Navigation defaults (Preferences reference): Pan = MMB, Orbit = Shift+MMB, Zoom = wheel; default
-  modelling orientation **Z up**.
-- Interface map: Data Panel; Application Bar (Home, Data Panel, File, Save, Undo/Redo, document tabs,
-  New Design, Autodesk Assistant, Extensions, Job Status, Notifications, Help, Profile); Toolbar
-  (workspace menu, tabs, contextual tabs, contextual environments); Browser; Canvas; ViewCube;
-  Marking Menu; Navigation Bar; Timeline (right-click to edit, drag to reorder).
-- Marking menu defaults (Design): Repeat, Delete, Press Pull, Undo, Redo, Move/Copy, Hole, Sketch.
-  Inside a command, left = Cancel and right = OK.
-- Extrude dialog: Type (Extrude / Thin Extrude), Profiles, Start, Direction (One Side / Two Sides /
-  Symmetric), Extent (Distance / To Object / Through Body / All), Taper Angle, Operation (Join / Cut /
-  Intersect / New Body / New Component); auto-selects the single visible profile.
+## Evidence rules (keep following these)
+- **No Autodesk artwork.** Never use Autodesk logos, wordmarks or icon artwork. All icons are original SVG (`src/modules/icons`).
+  Names, layout, behaviour, shortcuts and colours may be reproduced.
+- **Unofficial label.** Help > About must say "Unofficial hackathon recreation, not affiliated with or endorsed by Autodesk",
+  and the README keeps the same disclaimer.
+- **Read Fusion install files in place only.** The local install (webdeploy `production\<hash>\`: `TabToolbars.xml`,
+  `MarkingMenus.xml`, `LightTheme.xbel`, string tables, QML) is evidence to read where it lives. Never copy those files, or
+  reference captures, into the repo or the release.
+- Evidence ledger: public Autodesk docs (shortcuts, navigation defaults, interface map, dialog fields) and the install
+  files above are "observed"; anything else (marking-menu corner positions, default taper sign, default hole 5 x 10 mm, default
+  fillet 1 mm) is "inferred" and should be re-checked before being relied on.
 
-### Observed: the user's local Fusion install (version 2706.1.17)
-Root: `%LOCALAPPDATA%\Autodesk\webdeploy\production\39e8a3d5e919c70b05ef3ebfe9c6bfc8d9ee001e\`.
-**Read these next; they are the highest-value evidence:**
-- `Fusion\UI\FusionUI\Resources\Toolbar\TabToolbars.xml`: the real Design toolbar layout.
-- `Fusion\UI\FusionUI\Resources\MarkingMenus\MarkingMenus.xml`: the real marking menu layout.
-- `Neutron\UI\Commands\Resources\Toolbar\Toolbars.xml`
-- `LightTheme.xbel`: theme colours (e.g. Container1 #EFEFEF, Container2 #E1E1E1, Container3 #BBBBBB,
-  WidgetContainer5 #CAE2F7). Use these for the UI palette.
-- `PhysicalMaterials.xml`, `VisualMaterials.xml`: material and appearance libraries (names, densities).
-- `StringTable\en-US\NaFusionUI10.xml`, `NaSketch10.xml`: exact command names and tooltips.
-- `Fusion\Toolbar\src\qml\*.qml`, `Fusion\CommandDialog\src\qml\**`: toolbar and dialog QML (sizes,
-  spacing, behaviour).
-- `API\Python\…` stubs: the Fusion object model, for naming.
-
-REA itself (`npx -y rea-agents@latest …`, e.g. `inspect-desktop-application`, `analyze-javascript-application`)
-can run against this install locally. It was blocked in the cloud session.
-
-### Inferred (verify against the files above)
-- Marking menu positions: top Repeat, left Undo, right Redo, bottom Sketch; corners Delete / Press Pull /
-  Hole / Move-Copy.
-- Positive taper grows the profile (Inventor convention). Symmetric extrude defaults to half-length.
-- Default hole is 5 mm diameter by 10 mm deep with a 118° drill point. Default fillet radius is 1 mm.
-- The XZ sketch plane normal is −Y, with sketch y = world Z.
-
-## Gotchas found
-- `R.makeThreePointArc` with collinear points **crashes the wasm** (table index out of bounds).
-  `kernel.js` guards against this. Keep the guard.
-- Mesh `faceGroups[].faceId` and `edgeGroups[].edgeId` are **hash codes**. Map them through
-  `shape.faces[i].hashCode` (done in `meshBody`).
-- Take the sketch feature cache signature *after* solving, because the solver moves points.
-- Region keys use curve id + traversal sense, with a centroid tie-break. Profile refs also store an
-  interior point `c` as a fallback.
+## Gotchas
+- `R.makeThreePointArc` with collinear points crashes the wasm; `kernel.js` guards it. Keep the guard.
+- Mesh `faceGroups[].faceId` / `edgeGroups[].edgeId` are hash codes; map through `shape.faces[i].hashCode` (done in `meshBody`).
+- Take the sketch feature cache signature after solving, because the solver moves points.
+- Region keys use curve id + traversal sense with a centroid tie-break; profile refs also store an interior point `c` as fallback.
+- localStorage must always be wrapped in try/catch (sandboxed artifact iframe); files go through `app.download()`.

@@ -11,22 +11,57 @@ src/app/layout.css         grid layout + theme tokens (CSS variables)           
 src/modules.js             module start-up order                                                     [orchestrator-owned]
 src/modules/<name>/index.js   each UI module: `export function init(app)` (may be async)
 src/modules/icons/icons.js    shared original SVG icon library (not an init module)
-src/model.js kernel.js expr.js sketch/*   modelling engine (already built + tested)
-scripts/build.mjs serve.mjs  build + static server
-tests/e2e/harness.mjs        headless Edge harness (playwright-core, channel "msedge")
+src/model.js kernel.js expr.js   parametric document + evaluator, replicad/OCCT wrapper, expression/ParamTable
+src/sketch/                   solver.js (LM constraint solver + DOF), regions.js (profiles), sketch.js (model + ops),
+                              curves.js (spline / ellipse / elliptical-arc geometry)
+scripts/                      build.mjs (esbuild bundle, --release), serve.mjs (static server, --artifact),
+                              verify-release.mjs (packaging checks), icon-gallery.mjs
+tests/*.mjs                   Node engine tests;  tests/e2e/  headless Edge harness + QA scenarios
 ```
 
-## Build & test
+UI modules (start-up order in `src/modules.js`): `viewport`, `sketch`, `dialogs`, `inspect`, `shell`, `browser`,
+`timeline`, `menus`. `icons` is a shared library, not a module. Files per module:
+* viewport: index, camera, bodies, grid, highlight, origin, pick, selection, viewcube, navbar, navicons, navtools, menu
+* sketch: index, env, tools, modify, freeform, constraints, dimension, snap, pick, render, hud, palette, status, ctx, glyphs
+* dialogs: framework, manip, highlight, common, util, commands (registration), cmd-create / cmd-extrude / cmd-hole /
+  cmd-modify / cmd-construct / cmd-coil-pipe / cmd-split-scale / cmd-thread, threads, cosmetic, glyphs, fallback (see its README.md)
+* inspect: measure, section, properties, appearance, library, analyses, geom, overlay, ui, canvas (Insert Canvas),
+  mesh + insert (Insert Mesh STL/OBJ), bom (Bill of Materials), interference
+* shell: appbar, toolbar, menu, panels, tooltip, spec (toolbar layout), common, theme.css
+* browser: index, ui, scene;  timeline: index, actions, deps;  menus: index, files, params, markingmenu, toolbox, shortcuts, info, modal, util
+* icons: icons, draw, parts, ui, cmd-solid / cmd-sketch / cmd-other (original SVG only)
+
+## Build, test, deploy
 ```
-node scripts/build.mjs                                 # all modules -> dist/
+npm run build                  # node scripts/build.mjs          -> dist/ (all modules, sourcemaps)
+npm run watch                  # rebuild on change
+npm run release                # node scripts/build.mjs --release -> release/ (minified, tree-shaken, size report)
+npm run analyze                # release build to build/analyze with per-package size of app.js
+npm run serve                  # dist/ on :5173;  serve:release  release/ on :5174
+npm run serve:artifact         # release/ on :5175 with strict CSP; open /__sandbox.html (sandboxed-iframe rehearsal)
+npm test                       # engine tests: sketch_test, sketch_engine2, kernel_smoke, kernel2, dialogs_model
+node tests/spline_test.mjs; node tests/robust_test.mjs   # extra engine tests (not in `npm test`)
+npm run e2e                    # node tests/e2e/run-all.mjs: builds to build/qa, runs every QA scenario in headless Edge
+npm run e2e:release            # same against release/ (--release --out=release)
+npm run verify                 # scripts/verify-release.mjs: builds release/ and checks packaging + sandbox boot
 node scripts/build.mjs --only=viewport,sketch --out=build/me   # other modules stubbed out
-node scripts/serve.mjs --dir=build/me --port=5314      # manual serving
-node tests/e2e/boot.mjs                                # smoke test
-node tests/sketch_test.mjs; node tests/kernel_smoke.mjs; node tests/kernel2.mjs   # engine tests
 ```
-In your own test scripts use `launch({ only, outDir: "build/<you>", port: <your port>, shots: "tests/e2e/out/<you>" })`
-from `tests/e2e/harness.mjs`. It returns `{page, shot(name), frames(n), errors, close()}`. `window.app` is the App.
-Screenshots are PNGs you can open with the Read tool to check visuals. Always `close()`.
+Release files (exactly four, each < 20 MiB): `index.html`, `app.js`, `app.css`, `occt.gz.wasm` (the OCCT wasm,
+gzip'd under a `.wasm` name; main.js inflates it). Deploy: the contents of `release/` are published to the
+`gh-pages` branch (GitHub Pages) at https://rohansharmacode.github.io/fusion-recreation/; the same four files also work as a claude.ai artifact.
+
+### QA harness
+`tests/e2e/run-all.mjs [scenario ...] [--parallel=N] [--no-build] [--quiet] [--headed] [--release --out=release]`.
+Environment variables (read in `tests/e2e/lib.mjs`): `QA_OUT` build dir (default `build/qa`), `QA_SHOTS` screenshot
+root (default `tests/e2e/out/qa`; results.json goes there), `QA_PORT` first server port (default 5318; parallel runs use consecutive ports).
+Scenarios (`tests/e2e/scenarios/*.mjs`, 20): toolbar, core-loop, viewcube, marking-menu, toolbox, undo-redo, save-open,
+parameters, browser, timeline, modeling, navigation, sketch, shortcuts, look, small-screen, robustness, create-modify,
+insert, inspect. Each is `defineScenario({name, run(t)})` with helpers from `lib.mjs` (`t.check`, `t.app`, `t.key`, `t.fill`, `t.state`, ...).
+`tests/e2e/refshots.mjs [--refs=<dir>] [--only=04,13] [--no-build]` reproduces real-Fusion reference captures through the UI and writes
+`[ref | ours]` side-by-side composites to `tests/e2e/out/refpairs/` (reference folder: `$FUSION_REFS`). The older per-module
+scripts in `tests/e2e/` (`boot.mjs`, `shell.mjs`, `dialogs.mjs`, ...) can still be run directly.
+In your own scripts use `launch({ only, outDir: "build/<you>", port: <your port>, shots: "tests/e2e/out/<you>" })` from
+`tests/e2e/harness.mjs`; it returns `{page, shot(name), frames(n), errors, close()}`. `window.app` is the App. Always `close()`.
 
 ## Hosts (`app.dom.*`)
 `appbar, toolbar, workspace, canvasHost, browserHost, commentsHost, viewcubeHost, navbarHost, paletteHost,
@@ -64,8 +99,11 @@ app.activeCommand            {id, ok(), cancel()} while a command dialog is open
 app.appearances              {id: {name, color, metalness, roughness, opacity?}}
 app.ui.<name>                public objects modules expose to each other (e.g. app.ui.dialog, app.ui.toolbar)
 app.toast(msg, kind='info'|'error'|'warning', ms)
+app.reportError(err, {where, logged})   non-fatal error -> de-duplicated, rate-limited toast (global safety net in main.js, input dispatch)
+app.newDocument(name) / loadDocument(doc) / editFeature(id) / param(name)   document lifecycle, Edit Feature, parameter value
 app.setStatus(text) / app.status   bottom-right canvas status text like Fusion ("1 Profile | Area : 800.00 mm^2", "Edge", "Body1"); emits 'status'
-app.download(filename, Blob|string, mime) -> Promise<bool>   the ONLY way to offer files (works in the claude.ai artifact sandbox)
+app.download(filename, Blob|string|Uint8Array, mime) -> Promise<bool>   the ONLY way to offer files (uses the artifact
+                             `downloads` capability when present, else <a download>)
 app.M / app.K / app.S / app.E   model.js / kernel.js / sketch.js / expr.js namespaces (K.R = replicad)
 app.on(type, fn) -> off;  app.emit(type, detail)
 ```
@@ -86,12 +124,18 @@ app.on(type, fn) -> off;  app.emit(type, detail)
 | `dialog` | `{open, id}` | dialog framework |
 | `layout` | `{}` | any module that shows/hides a panel |
 | `status` | `{text}` | core setStatus (viewport renders it bottom-right of the canvas) |
+| `file` | `{action:'save'|'open'|'new'|'export', name, ...}` | menus file operations |
+| `marking-menu` | `{open}` | menus |
+| `shortcuts` | `{env}` | menus (shortcut bindings changed/reset) |
+| `selection-filters` | `{filters}` | shell toolbar (Select panel priority filters) |
+| `viewport-visibility` / `viewport-grid` | object visibility / grid prefs | viewport |
+| `analyses` / `insert` | `{}` | inspect (analysis list changed / canvas or mesh inserted) |
 
 ### Refs (selection / hover / pick results)
 ```
 {kind:'body', body}
-{kind:'face', body, index, p:[x,y,z], n:[x,y,z], planar}      p = picked point on the face, n = normal there
-{kind:'edge', body, index, p:[x,y,z]}                          p = point on the edge (midpoint when not picked)
+{kind:'face', body, index, p:[x,y,z], n:[x,y,z], planar, sig?}  p = picked point on the face, n = normal there
+{kind:'edge', body, index, p:[x,y,z], sig?}                    p = point on the edge (midpoint when not picked)
 {kind:'vertex', body, p}
 {kind:'profile', sketch, key, c:[u,v]}                         sketch = sketch feature id; key/c from sketch regions
 {kind:'sketchCurve', sketch, curve} {kind:'sketchPoint', sketch, point} {kind:'sketchDim', sketch, cid}
@@ -99,6 +143,12 @@ app.on(type, fn) -> off;  app.emit(type, detail)
 {kind:'cplane', id}  {kind:'feature', id}
 ```
 `refKey(ref)` (exported from core.js) gives a stable identity string.
+
+Feature face/edge refs stored in the document are `{body, p[, n][, sig]}`. `sig` is **derived, optional** data written by
+`model.js` on every successful resolve (`K.edgeSignature` / `K.faceSignature`: curve/surface type `t`, relative position `q`
+in the body box, direction/axis `d`/`a`, radius `r`, adjacent-face types and normals `f`). Later evaluations re-find the entity
+by `sig` first (`K.matchEdge` / `K.matchFace`), then by nearest point to `p`, and move `p`/`n` back onto the entity. Refs without
+`sig` (old documents, fresh picks) fall back to nearest-point and get one on first resolve. Never author `sig` by hand.
 
 ### Commands
 `register({id, label, tooltip?, icon?, shortcut?: "E" | ["Ctrl+Z"], when?: 'model'|'sketch', kind?: 'feature'|'tool'|'view'|'ui', stub?, run(app, ctx), enabled?(app), checked?(app)})`.
@@ -143,15 +193,18 @@ Standard views (Z-up): Front looks from −Y, Right from +X, Top from +Z, Home =
 Body visibility: `doc.bodies[id].visible`; sketches/planes: `feature.visible !== false`; origin: `doc.origin.visible`.
 
 ## Document (src/model.js)
-`doc = {version, name, units:'mm', params:[{name, expr, kind, comment}], features:[...], marker, bodies:{id:meta}, counters, origin:{visible}}`.
+`doc = {version, name, units:'mm', params:[{name, expr, kind, comment}], features:[...], marker, bodies:{id:meta}, counters, origin:{visible}, canvases?, meshes?}`
+(`canvases` = Insert Canvas images, `meshes` = Insert Mesh STL/OBJ bodies; document data, not timeline features).
 Numeric feature fields are **expression strings** (`"10 mm"`, `"d1/2"`, `"30 deg"`) evaluated by the
 ParamTable; `M.assignParams` gives each a model parameter name stored in `f.p[field]` (d1, d2 …).
 Feature shapes (all have `id, type, name`; `suppressed`, `visible` optional):
 ```
 sketch   {plane:{o,x,n}, planeRef:{kind:'origin',name}|{kind:'face',body,p,n,plane}|{kind:'cplane',id}, sk, visible}
-         sk = {points:{id:{x,y,fixed?}}, curves:{id:{type:'line'|'circle'|'arc'|'point', p1,p2|c,r, cons}}, constraints:[{id,type,refs,expr?,param?,dimType?}], nid}
+         sk = {points:{id:{x,y,fixed?}}, curves:{id:{type:'line'|'circle'|'arc'|'point'|'spline'|'ellipse'|'earc', cons, ...}}
+         line p1,p2 | circle c,r | arc c,p1,p2 | spline pts:[pointIds],closed?,tan0?,tan1? (fit-point, C2 cubic) |
+         ellipse c,a,b (centre + two axis end points) | earc c,a,b,p1,p2 (elliptical arc); geometry in src/sketch/curves.js, constraints:[{id,type,refs,expr?,param?,dimType?}], nid}
          constraint types: coincident onCurve midpoint horizontal vertical parallel perpendicular collinear equal
-         concentric tangent symmetric fix distance pointLine diameter radius angle
+         concentric tangent symmetric fix distance pointLine diameter radius angle (+ internal `grab` drag residual)
 extrude  {profiles:[{sketch,key,c}], faces:[{body,p,n}], distance, dirType:'one'|'two'|'sym', distance2,
           symMeasure:'half'|'whole', extent:'distance'|'all', taper, taper2, startType:'profile'|'offset', startOffset,
           flip, operation:'join'|'cut'|'intersect'|'new'|'newComponent', bodies:[participant body ids]}
@@ -166,19 +219,28 @@ cplane   {mode:'offset'|'angle'|'midplane', base:planeRef, offset, axis, angle, 
 rpattern {bodies, dir1, q1, d1, dir2, q2, d2, distType:'spacing'|'extent'}   cpattern {bodies, axis, count, angle}
 move     {bodies, tx,ty,tz, rx,ry,rz, copy}   mirror {bodies, plane, operation}   combine {target, tools, operation, keepTools}
 loft     {profiles, ruled, operation}   sweep {profile, path:{sketch, curves}, operation}   delete {bodies}
+split    Split Body   coil {diameter, revolutions, height, pitch, angle, sectionSize, ...}   pipe {distance, sectionSize, thickness, ...}
+scale    {factor | sx,sy,sz}   thread {length, offset, ...}  (modeled + cosmetic threads, dialogs/threads.js)
 ```
+Feature types (`FIELDS` / `TYPE_LABEL` in model.js): sketch, extrude, revolve, fillet, chamfer, shell, hole, box, cylinder,
+sphere, torus, cplane, rpattern, cpattern, move, mirror, combine, loft, sweep, delete, draft, split, coil, pipe, scale, thread.
+`FIELDS[type]` lists the expression-valued fields and their kind (`length`|`angle`|`none`); each gets a model parameter (d1, d2 ...).
 planeRef for a planar face: `{kind:'face', body, p, n, plane:{o,x,n}}` (use `K.planeFromNormal(p, n)`).
 
 ## Command ownership (Fusion ids from the local install's TabToolbars.xml)
+At runtime 456 ids are registered: 220 real commands, 217 stubs (`stub:true`, toast "isn't available in this unofficial recreation yet"),
+the rest hidden aliases. A real registration replaces a stub; a stub never replaces a real command. Registration sites:
+`app.commands.register`, the `reg(...)` helpers in sketch/menus/shell/timeline `index.js`, and `C(...)` in `dialogs/commands.js`.
 | module | command ids |
 |---|---|
-| sketch | SketchCreate, SketchStop (Finish Sketch), DrawPolyline (L), ShapeRectangleTwoPoint (R), ShapeRectangleThreePoint, ShapeRectangleCenter, CircleCenterRadius (C), CircleTwoPoint, CircleThreePoint, ArcThreePoint, ArcCenterTwoPoint, ArcTangent, ShapePolygonCircumscribed, ShapePolygonInscribed, ShapePolygonEdge, ShapeSlotCenterToCenter, ShapeSlotOverall, ShapeSlotCenterPoint, DrawPoint, MirrorSketchCommand, ProjectNewCmd (P), SketchDimension (D), FilletSketchCmd, TrimSketchCmd (T), ExtendSketchCmd, Offset (O), ConstraintHorizontalVertical, ConstraintCoincident, ConstraintTangent, ConstraintEqual, ConstraintParallel, ConstraintPerpendicular, ConstraintFix, ConstraintMidPoint, ConstraintConcentric, ConstraintCollinear, ConstraintSymmetry, construction toggle (X) |
-| dialogs | Extrude (E), Revolve, Sweep, SolidLoft, FusionHoleCommand (H), PrimitiveBox, PrimitiveCylinder, PrimitiveSphere, PrimitiveTorus, PatternRectangular, PatternCircular, MirrorCommand, FusionPressPullCommand (Q), FusionFilletEdgesCommand (F), FusionChamferCommand, FusionShellBodyCommand, FusionDraftCommand, FusionCombineCommand, FusionMoveCommand (M), FusionDeleteCommand, ConstructionPlaneOffsetFromPlaneCommand (+ WorkPlaneOffsetFromPlaneCommand alias), ConstructionPlaneAtAngleCommand, ConstructionMidPlaneCommand |
-| inspect | MeasureCommand (I), FusionHalfSectionViewCommand, FusionCenterOfMassCommand, AppearanceCommand (A), PhysicalMaterialCommand, properties |
-| viewport | navigation bar + view commands, SelectCommand, selectWindow (1), selectFreeForm (2), selectPaint (3), ToggleViewCube (Ctrl+Alt+V), ToggleNavBar (Ctrl+Alt+N) |
-| browser | ToggleBrowser (Ctrl+Alt+B) |
-| shell | everything else in the toolbar as stubs (`stub:true`, "not available in this recreation"), ToggleDataPanel (Ctrl+Alt+P), ResetLayout (Ctrl+Alt+R) |
-| menus | FileNew (Ctrl+N), FileOpen (Ctrl+O), FileSave (Ctrl+S), FileSaveAs, RecoverySave (Ctrl+Shift+S), FileExport, FileExportSTL, Undo (Ctrl+Z), Redo (Ctrl+Y), ShowToolbox (S), RepeatCommand, ChangeParameterCommand, FusionComputeAllCommand (Ctrl+B), ToggleVisibility (V), KeyboardShortcuts, About, delete-key routing |
+| sketch | SketchCreate, SketchStop (Finish Sketch), SketchActivate, SketchLookAt, DrawPolyline (L), SketchMidpointLine, ShapeRectangleTwoPoint (R), ShapeRectangleThreePoint, ShapeRectangleCenter, CircleCenterRadius (C), CircleTwoPoint, CircleThreePoint, CircleElipse, ArcThreePoint, ArcCenterTwoPoint, ArcTangent, ShapePolygonCircumscribed, ShapePolygonInscribed, ShapePolygonEdge, ShapeSlotCenterToCenter, ShapeSlotOverall, ShapeSlotCenterPoint, DrawPoint, DrawSpline (fit point), BlendG1CurveSketchCmd, MirrorSketchCommand, ProjectNewCmd (P), SketchDimension (D), FilletSketchCmd, ChamferSketchEqualDistance / DistanceDistance / DistanceAngle, TrimSketchCmd (T), ExtendSketchCmd, Offset (O), ConstraintHorizontalVertical, ConstraintCoincident, ConstraintTangent, ConstraintEqual, ConstraintParallel, ConstraintPerpendicular, ConstraintFix, SketchFixConstraintCmd, ConstraintMidPoint, ConstraintConcentric, ConstraintCollinear, ConstraintSymmetry, SketchConstructionCmd (X), SketchDeleteCmd |
+| dialogs | Extrude (E), Revolve, Sweep, SolidLoft, FusionHoleCommand (H), PrimitiveBox / Cylinder / Sphere / Torus / Coil / Pipe, FusionThreadCommand, PatternRectangular, PatternCircular, MirrorCommand, FusionPressPullCommand (Q), FusionFilletEdgesCommand (F), FusionChamferCommand, FusionShellBodyCommand, FusionDraftCommand, FusionCombineCommand, ModifyScale, FusionSplitBodyCommand, FusionMoveCommand (M), FusionDeleteCommand, ConstructionPlaneOffsetFromPlaneCommand (+ WorkPlaneOffsetFromPlaneCommand alias), ConstructionPlaneAtAngleCommand, ConstructionMidPlaneCommand |
+| inspect | MeasureCommand (I), FusionHalfSectionViewCommand, FusionCenterOfMassCommand, AppearanceCommand (A), PhysicalMaterialCommand, FusionPropertiesCommand (+ hidden aliases), FusionAddCanvasCommand, ParaMeshInsertAlignCommand (Insert Mesh), InterferenceCheckCommand, MaterializedBomHybridCmd (Bill of Materials) |
+| viewport | Orbit / FreeOrbit / ConstrainedOrbit, Pan, Zoom, ZoomWindow, Fit, LookAtCommand, ViewDisplay / VisualStyle / Env / Effect / GraphicsPreset / GroundPlane commands, ViewCamera* (ortho / perspective), ViewVisibility* (origins, bodies, sketches, planes, ShowAll, HideAll), VisibilityOverrideCommand, grid and snap commands (ViewLayoutGrid*, DefineGridCmd, ToggleGridSnapCommand, SetSnapValueCmd, ToggleIncrementalMoveCmd), SingleViewCmd / MultiViewCmd / SplitView*, ShowWorkspaceFullScreen / Normal, ViewCube* (GoHome, SetHome*, ResetHome), ToggleViewCube (Ctrl+Alt+V), ToggleNavBar (Ctrl+Alt+N), Show/Hide ViewCube and NavigationToolbar, SelectCommand, selectWindow (1), selectFreeForm (2), selectPaint (3), Select{Body,Face,Edge,Component}PriorityCommand |
+| browser | ToggleBrowser (Ctrl+Alt+B), FusionChangeActiveUnitsCommand, FindInBrowser, FindInWindow, IsolateCmd, UnisolateCmd, SelectabilityToggleCmd, RenameBrowserCmd, ShowAllBodiesCmd, ShowAllComponentsCmd, SoftDeleteCommand |
+| timeline | FusionRollCommand, RollToEndCommand, FusionSuppressCommand, FusionUnsuppressCommand, FusionRenameTimelineEntryCommand, FusionTrimFeaturesCommand, FusionFindInTimeline, ProfileSketchActivate |
+| shell | every other toolbar id as a stub; real: ToggleDataPanel (Ctrl+Alt+P), ShowFusionHomeCmd, ToggleComments, ToggleToolbar, ResetLayout (Ctrl+Alt+R), SaveAsImageCommand, FileClose, ThreeDprintCmdDef, ShowCommandHelp, NextWorkspace / PreviousWorkspace; placeholder Undo / Redo / FileNew / About that menus replaces |
+| menus | FileNew (Ctrl+N), FileOpen (Ctrl+O), FileSave (Ctrl+S), FileSaveAs, RecoverySave (Ctrl+Shift+S), FileExport (STEP / STL / JSON), FileExportSTL, Undo (Ctrl+Z), Redo (Ctrl+Y), ShowToolbox (S), RepeatCommand, ChangeParameterCommand, FusionComputeAllCommand (Ctrl+B), ToggleVisibility (V), FusionEditFeatureCommand, UnisolateAllCmd, SetOrbitCenterCommand, ResetOrbitCenterCommand, KeyboardShortcuts, About, delete-key routing, marking menu |
 
 ## DOM test hooks (keep these stable — e2e tests rely on them)
 * Any button/menu item that runs a command: `data-cmd="<commandId>"`.

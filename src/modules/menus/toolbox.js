@@ -89,8 +89,9 @@ export function createToolbox(app, opts = {}) {
     const found = search(q);
     if (!found.length) res.appendChild(el("div", { class: "tbx-empty", text: "No matching commands" }));
     for (const d of found) {
-      const enabled = app.commands.isEnabled(d.id) || (d.when === "sketch" && app.mode !== "sketch" && !d.stub);
-      const row = el("div", { class: `tbx-row${enabled ? "" : " tbx-disabled"}${d.stub ? " tbx-stub" : ""}`, dataset: { cmd: d.id }, title: d.stub ? `${d.label || d.id} is not available in this recreation` : (d.tooltip || "") });
+      // commands this recreation does not implement (stubs) are listed greyed out, like an unavailable command
+      const enabled = !d.stub && (app.commands.isEnabled(d.id) || (d.when === "sketch" && app.mode !== "sketch"));
+      const row = el("div", { class: `tbx-row${enabled ? "" : " tbx-disabled"}${d.stub ? " tbx-stub" : ""}`, dataset: { cmd: d.id }, "aria-disabled": enabled ? null : "true", title: d.stub ? `${d.label || d.id} is not available in this recreation` : (d.tooltip || "") });
       row.innerHTML = `<span class="tbx-ico">${iconHtml(d.id, 24)}</span><span class="tbx-row-label">${esc(d.label || d.id)}</span>`;
       res.appendChild(row);
       const e = { id: d.id, node: row, enabled };
@@ -135,13 +136,14 @@ export function createToolbox(app, opts = {}) {
   function runId(id, enabled) {
     const d = app.commands.get(id);
     if (!d) return;
-    if (!enabled && !d.stub && !(d.when === "sketch" && app.mode !== "sketch" && opts.runInNewSketch)) {
+    if (d.stub) { app.toast(`${d.label || id} isn't available in this unofficial recreation yet`, "info", 2200); return; }
+    if (!enabled && !(d.when === "sketch" && app.mode !== "sketch" && opts.runInNewSketch)) {
       app.toast(`${d.label || id} is not available right now`, "info", 1600);
       return;
     }
     close();
     setTimeout(() => {
-      if (!d.stub && d.when === "sketch" && app.mode !== "sketch" && id !== "SketchStop" && opts.runInNewSketch) { opts.runInNewSketch(id); return; }
+      if (d.when === "sketch" && app.mode !== "sketch" && id !== "SketchStop" && opts.runInNewSketch) { opts.runInNewSketch(id); return; }
       app.commands.run(id, { source: "toolbox" });
     }, 0);
   }

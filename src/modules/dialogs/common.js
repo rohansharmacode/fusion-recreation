@@ -7,6 +7,8 @@ export const PATTERN_TYPES = [
   { value: "faces", label: "Faces", icon: "faces", disabled: true },
   { value: "components", label: "Components", icon: "components", disabled: true },
 ];
+/** Rectangular / Circular Pattern: Features can be patterned too (model.js patternFeatures). */
+export const PATTERN_FEATURE_TYPES = PATTERN_TYPES.map((o) => (o.value === "features" ? { ...o, disabled: false } : o));
 export const OPERATIONS = [
   { value: "join", label: "Join", icon: "join" },
   { value: "cut", label: "Cut", icon: "cut" },

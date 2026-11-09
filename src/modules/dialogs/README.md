@@ -136,6 +136,12 @@ PrimitiveCoil, PrimitivePipe, FusionThreadCommand (`cmd-coil-pipe.js`, `cmd-thre
 shell, draft, hole, box, cylinder, sphere, torus, cplane, combine, move, mirror, rpattern,
 cpattern, loft, sweep, coil, pipe, thread, scale, split.
 
+* **Rectangular / Circular Pattern**: Object Type Features (default, like Fusion) or Bodies (default when
+  bodies / faces are preselected); Faces / Components are greyed out. Features: pick timeline items or a
+  face a feature made (hole, extrude, revolve, primitives, loft, sweep, coil, pipe, fillet, chamfer) ->
+  `{patternType:'features', features:[ids]}`; model.js `patternFeatures` re-creates each feature's tool
+  (cut / join) or its fillet / chamfer edges at every instance (instances that miss the body -> warning).
+
 * **Coil**: Plane, Type (Revolution and Height / Revolution and Pitch / Height and Pitch / Spiral), Diameter,
   Rotation, Revolutions, Height, Pitch, Angle (taper), Section (Circular / Square / Triangular (External) /
   (Internal)), Section Position (Inside / On Center / Outside), Section Size, Operation. After the plane: click

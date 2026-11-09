@@ -655,7 +655,7 @@ const APPLY = {
     });
   },
 
-  rpattern(st, f, P) {
+  rpattern(st, f, P, doc) {
     const q1 = Math.max(1, Math.round(fval(P, f, "q1"))), d1 = fval(P, f, "d1");
     const q2 = f.dir2 ? Math.max(1, Math.round(fval(P, f, "q2"))) : 1;
     const d2 = f.dir2 ? fval(P, f, "d2") : 0;
@@ -664,6 +664,15 @@ const APPLY = {
     const a1 = dirOf(f.dir1 || "X", f.flip1), a2 = f.dir2 ? dirOf(f.dir2, f.flip2) : [0, 0, 0];
     const sp1 = f.distType === "extent" && q1 > 1 ? d1 / (q1 - 1) : d1;
     const sp2 = f.distType === "extent" && q2 > 1 ? d2 / (q2 - 1) : d2;
+    if (f.patternType === "features") {
+      const xs = [];
+      for (let i = 0; i < q1; i++) for (let j = 0; j < q2; j++) {
+        if (i === 0 && j === 0) continue;
+        const off = V.add(V.mul(a1, sp1 * i), V.mul(a2, sp2 * j));
+        xs.push({ shape: (s) => K.translated(s, off), point: (p) => V.add(p, off) });
+      }
+      return patternFeatures(st, f, P, doc, xs);
+    }
     let k = 0;
     for (const id of f.bodies || []) {
       const b = st.bodies.get(id);
@@ -677,11 +686,16 @@ const APPLY = {
     }
   },
 
-  cpattern(st, f, P) {
+  cpattern(st, f, P, doc) {
     const n = Math.max(1, Math.round(fval(P, f, "count")));
     const tot = f.angle !== undefined ? fval(P, f, "angle") : 360;
     const ax = axisFromRef(st, f.axis || { kind: "origin", name: "Z" });
     const step = Math.abs(tot - 360) < 1e-9 ? 360 / n : n > 1 ? tot / (n - 1) : 0;
+    if (f.patternType === "features") {
+      const xs = [];
+      for (let i = 1; i < n; i++) xs.push({ shape: (s) => K.rotated(s, step * i, ax.o, ax.d), point: (p) => rotatePoint(p, step * i, ax.o, ax.d) });
+      return patternFeatures(st, f, P, doc, xs);
+    }
     let k = 0;
     for (const id of f.bodies || []) {
       const b = st.bodies.get(id);
@@ -1140,6 +1154,70 @@ function edgeFeature(st, f, P, kind) {
     if (K.isEmptyShape(s)) throw new Error(`${kind === "fillet" ? "Fillet" : "Chamfer"} failed — try a smaller value`);
     st.bodies.set(bid, { id: bid, shape: s, from: f.id });
   }
+}
+
+// ---------- feature patterns (rpattern / cpattern with patternType 'features') ----------
+/** p rotated by angleDeg about the axis through o along d (right-handed, like K.rotated). */
+function rotatePoint(p, angleDeg, o, d) {
+  const k = V.norm(d), v = V.sub(p, o), t = (angleDeg * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
+  return V.add(o, V.add(V.add(V.mul(v, c), V.mul(V.cross(k, v), s)), V.mul(k, V.dot(k, v) * (1 - c))));
+}
+
+/**
+ * Re-create f.features at every instance transform xs [{shape(s) -> moved copy, point(p)}].
+ * Tool features (hole, extrude, revolve, primitives ...) re-evaluate their tool on a scratch copy of
+ * the state and cut / join a moved copy of it; fillet / chamfer re-apply on the moved edge points.
+ * Instances that reach no geometry are skipped with a warning (an error when none computes).
+ */
+function patternFeatures(st, f, P, doc, xs) {
+  const ids = f.features || [];
+  if (!ids.length) throw new Error("Select features to pattern");
+  let failed = 0, total = 0, k = 0;
+  const affected = new Set();
+  for (const fid of ids) {
+    const src0 = (doc.features || []).find((x) => x.id === fid);
+    if (!src0 || src0.id === f.id) throw new Error("A patterned feature is missing");
+    if (src0.suppressed || src0.type === "rpattern" || src0.type === "cpattern" || !APPLY[src0.type]) throw new Error(`${src0.name} cannot be patterned`);
+    // evaluation refreshes geometric refs in place: work on a copy so the document stays untouched
+    const src = JSON.parse(JSON.stringify(src0));
+    if (src.type === "fillet" || src.type === "chamfer") {
+      for (const x of xs) {
+        total++;
+        const edges = [];
+        for (const e of src.edges || []) {
+          const b = st.bodies.get(e.body), p = Array.isArray(e.p) ? x.point(e.p) : null;
+          const ne = b && p ? K.nearestEdgeIndex(b.shape, p) : null;
+          if (ne && ne.dist < 1e-2) edges.push({ body: e.body, p });
+        }
+        try {
+          if (!edges.length) throw new Error("no edge");
+          edgeFeature(st, { ...src, id: f.id, edges }, P, src.type);
+          for (const e of edges) affected.add(e.body);
+        } catch { failed++; }
+      }
+      continue;
+    }
+    const scratch = cloneState(st);
+    try { APPLY[src.type](scratch, src, P, doc); } catch { /* the tool may have been made before the failure */ }
+    const tool = scratch._tool;
+    for (const [id, b] of scratch.bodies) if (b.shape !== tool && st.bodies.get(id)?.shape !== b.shape) K.del(b.shape);
+    if (!tool) throw new Error(`${src0.name} cannot be patterned`);
+    const op = src.type === "hole" ? "cut" : src.operation || "new";
+    for (const x of xs) {
+      total++;
+      const t = x.shape(tool);
+      try {
+        for (const id of applyOp(st, { ...src, id: f.id, operation: op, newBody: null }, t, doc, (f.newBodies || [])[k] || `${f.id}_${k + 1}`)) affected.add(id);
+      } catch { failed++; }
+      k++;
+      let kept = false;
+      for (const b of st.bodies.values()) if (b.shape === t) { kept = true; break; }
+      if (!kept) K.del(t);
+    }
+    K.del(tool);
+  }
+  if (total && failed >= total) throw new Error("No pattern instance could be computed");
+  return { affected: [...affected], ...(failed ? { warning: `${failed} pattern instance${failed > 1 ? "s" : ""} could not be computed` } : {}) };
 }
 
 // ---------- evaluator with incremental cache ----------

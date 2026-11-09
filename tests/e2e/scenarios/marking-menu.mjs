@@ -148,7 +148,7 @@ const scenario = defineScenario({
       await t.escapeAll();
     }
 
-    t.step("inside a sketch: same 8 buttons (FusionSketchEnvironment), sketch overflow with Sketch Palette Show/Hide rows");
+    t.step("inside a sketch: same 8 buttons (FusionSketchEnvironment), sketch overflow Remove | Show All | Unisolate");
     const skId = await t.app(() => {
       const { S, K } = window.app;
       const sk = S.newSketch();
@@ -174,24 +174,16 @@ const scenario = defineScenario({
     const m1 = await skMenu();
     await t.shot("sketch-overflow");
     t.check("sketch marking menu keeps Fusion's 8 buttons (Press Pull NE, Hole SE, Sketch tier S)", ["FusionPressPullCommand", "FusionHoleCommand", "sketch-submenu", "RepeatCommand"].every((x) => m1.wedges.includes(x)), m1.wedges.join(","));
-    const pal = (m, opt) => m.rows.find((r) => r.mm === `palette-${opt}`);
-    t.check("sketch overflow offers Hide Profile / Hide Dimension / Hide Projected Geometries / Hide Construction Geometries",
-      ["showProfile", "showDims", "showProjected", "showConstruction"].every((o) => pal(m1, o)) && /^(Show|Hide) Profile$/.test(pal(m1, "showProfile")?.text || "") && /^(Show|Hide) Dimension$/.test(pal(m1, "showDims")?.text || ""),
-      m1.rows.map((r) => r.text).join(" | "));
+    // Fusion 2706 (ref 11): with nothing selected the sketch overflow goes Remove -> Show All -> Unisolate,
+    // with no Sketch Palette Show/Hide Profile / Dimension / Projected / Construction rows in between.
+    const texts = m1.rows.map((r) => r.text);
+    const iRemove = texts.indexOf("Remove"), iShowAll = texts.indexOf("Show All"), iUnisolate = texts.indexOf("Unisolate");
+    t.check("sketch overflow goes straight from Remove to Show All, then Unisolate (no Hide Profile / Dimension / … rows)",
+      iRemove >= 0 && iShowAll === iRemove + 1 && iUnisolate === iShowAll + 1 && !texts.some((x) => /^(Show|Hide) (Profile|Dimension|Projected|Construction)/.test(x)),
+      texts.join(" | "));
     t.check("sketch overflow has no model-only commands (Create Sketch, Extrude, Fillet, Edit Feature)", !m1.rows.some((r) => ["SketchCreate", "FusionFilletEdgesCommand", "FusionEditFeatureCommand", "SketchActivate"].includes(r.cmd)), m1.rows.map((r) => r.cmd || r.mm).join(","));
-    const dimsBefore = await t.app(() => window.app.ui.sketch.options.showDims !== false);
-    const dimRow = pal(m1, "showDims");
-    if (dimRow) {
-      await t.click('.mm-overflow [data-mm="palette-showDims"]');
-      await t.settle(250);
-      const after = await t.app(() => ({ opt: window.app.ui.sketch.options.showDims !== false, cb: document.querySelector('.sk-palette input[data-opt="showDims"]')?.checked }));
-      t.check(`"${dimRow.text}" flips the Sketch Palette Dimensions option (and its checkbox)`, after.opt === !dimsBefore && after.cb === !dimsBefore, JSON.stringify({ dimsBefore, after }));
-      const m2 = await skMenu();
-      t.check("the row then reads the opposite action", (pal(m2, "showDims")?.text || "") === (dimsBefore ? "Show Dimension" : "Hide Dimension"), pal(m2, "showDims")?.text);
-      await t.click('.mm-overflow [data-mm="palette-showDims"]');
-      await t.settle(250);
-      t.check("clicking it again restores the option", (await t.app(() => window.app.ui.sketch.options.showDims !== false)) === dimsBefore);
-    }
+    await t.escapeAll(1);
+    await t.settle(150);
     const m3 = await skMenu();
     const skSub = await t.app(() => { const n = document.querySelector('.mm-root .mm-item[data-mm="sketch-submenu"]'); const r = n && n.getBoundingClientRect(); return r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null; });
     if (skSub) {

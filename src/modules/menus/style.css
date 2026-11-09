@@ -70,6 +70,7 @@
 .tbx-row-sc:empty { display: none; }
 .tbx-disabled { color: #a3a3a3; }
 .tbx-disabled .tbx-ico { opacity: .45; }
+.tbx-row.tbx-disabled:hover { background: transparent; }
 .tbx-empty { padding: 6px 9px; color: #858585; font-size: 11px; white-space: normal; }
 
 /* ------------------------------------------------------------------ modal dialogs (Fusion light theme) */

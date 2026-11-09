@@ -1,5 +1,7 @@
 # Design workspace recreation (unofficial Fusion hackathon entry)
 
+**Live demo: https://rohansharmacode.github.io/fusion-recreation/** · Source: https://github.com/rohansharmacode/fusion-recreation
+
 A browser recreation of the **Design workspace of Autodesk Fusion**, built with three.js and a real
 B-rep kernel (OpenCascade via replicad, compiled to WebAssembly). It runs from one link, with no
 install and no account.
@@ -20,12 +22,12 @@ are only partly supported.
 - **Sketching**: Create Sketch on an origin plane or a planar face, with a look-at animation, the SKETCH
   contextual tab, the Sketch Palette and Finish Sketch. Tools: Line (L), 2-Point / 3-Point / Center
   Rectangle (R), circles (C), arcs, polygons, slots, point, sketch fillet, Trim (T), Extend, Offset (O),
-  Mirror, Project (P), Sketch Dimension (D), the geometric constraints and the construction toggle (X).
+  fit-point splines, ellipses and elliptical arcs, Blend Curve, Mirror, Project (P), Sketch Dimension (D), the geometric constraints and the construction toggle (X).
   On-canvas value boxes, snapping with automatic H/V/coincident constraints, and a real constraint solver
   (blue lines turn black when fully constrained). Profiles are detected automatically.
 - **Solid modelling** on a real B-rep kernel: Extrude (E; one side, two sides, symmetric, taper,
   join / cut / intersect / new body), Revolve, Sweep, Loft, Hole (H; simple, counterbore, countersink),
-  Box / Cylinder / Sphere / Torus, Press Pull (Q), Fillet (F), Chamfer, Shell, Draft, Combine,
+  Box / Cylinder / Sphere / Torus, Coil, Pipe, Thread, Split Body, Scale, Press Pull (Q), Fillet (F), Chamfer, Shell, Draft, Combine,
   Move/Copy (M), Mirror, Rectangular and Circular Pattern, Delete, and construction planes
   (offset, at angle, midplane). Every command has a docked dialog with a live preview.
 - **Parametric history**: timeline playback, drag the marker to roll back, double-click a feature to
@@ -35,7 +37,7 @@ are only partly supported.
   search, Fusion's default shortcuts, undo/redo (Ctrl+Z / Ctrl+Y), window/freeform/paint selection,
   visual styles, environments, camera modes and grid settings.
 - **Inspect and files**: Measure (I), Section Analysis, Properties (volume, area, centre of mass),
-  Appearance (A) and Physical Material. Save and Open use browser storage, falling back to memory when
+  Appearance (A) and Physical Material, Interference, Bill of Materials, and Insert Canvas / Insert Mesh (STL, OBJ). Save and Open use browser storage, falling back to memory when
   storage is blocked. Export to STEP, STL or design JSON.
 - **Robustness**: if one feature fails in the kernel, only that feature is marked as failed, and the app
   keeps running. Any unexpected error becomes a toast instead of a frozen UI. The loading screen shows
@@ -54,7 +56,8 @@ npm install
 npm run build          # dist/ (all modules, sourcemaps)
 npm run serve          # http://127.0.0.1:5173/
 npm test               # engine tests (sketch solver, regions, kernel, dialogs model)
-npm run e2e            # QA scenarios in headless Edge (tests/e2e/scenarios)
+npm run release        # release/ = index.html, app.js, app.css, occt.gz.wasm (what is published)
+npm run e2e            # 20 QA scenarios in headless Edge (tests/e2e/scenarios; env QA_OUT, QA_SHOTS, QA_PORT)
 ```
 
 | script | what it does |

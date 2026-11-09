@@ -73,7 +73,19 @@ export function registerViewCommands(vp) {
   for (const [id, key, label] of EFFECTS) {
     reg({ id, label, run: () => vp.setEffect(key, !vp.prefs.effects[key]), checked: () => !!vp.prefs.effects[key] });
   }
-  reg({ id: "FusionViewColorCyclingToggleCmd", label: "Display Component Colors", shortcut: "Shift+N", run: () => vp.setEffect("componentColors", !vp.prefs.effects.componentColors), checked: () => !!vp.prefs.effects.componentColors });
+  // Display Component Colors: colour-cycles the bodies. Always confirm the toggle with a short toast, since an
+  // empty design (or a click from a dropdown that closes at once) otherwise shows no change at all.
+  reg({
+    id: "FusionViewColorCyclingToggleCmd", label: "Display Component Colors", shortcut: "Shift+N",
+    tooltip: "Shows each component in its own colour.",
+    run: () => {
+      const on = !vp.prefs.effects.componentColors;
+      vp.setEffect("componentColors", on);
+      const n = vp.bodies && vp.bodies.objects ? vp.bodies.objects.size : 0;
+      app.toast(on ? (n ? "Display Component Colors on (Shift+N)" : "Display Component Colors on: no bodies to colour yet") : "Display Component Colors off", "info", 2600);
+    },
+    checked: () => !!vp.prefs.effects.componentColors,
+  });
 
   reg({ id: "VisibilityOverrideCommand", label: "Object Visibility", kind: "ui", run: () => vp.navbar.openMenu("display") });
   const VIS = [

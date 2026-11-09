@@ -33,6 +33,9 @@ const STUB_SHORTCUTS = { JointAssembleCmdNew: "J", JointAsBuiltCmd: "Shift+J", F
 const UI_FONT_CSS = "https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700&display=swap";
 function loadUiFont(onLoaded) {
   try {
+    // an opaque-origin sandbox (artifact hosts) has a strict CSP that refuses remote stylesheets and logs a console
+    // error for the attempt: keep the fallback fonts there
+    if (typeof window !== "undefined" && window.origin === "null") return;
     if (!document.querySelector("link[data-shell-font]")) {
       const pre = document.createElement("link");
       pre.rel = "preconnect"; pre.href = "https://fonts.gstatic.com"; pre.crossOrigin = "anonymous";
@@ -220,7 +223,7 @@ function registerStubs(app) {
   stub("Undo", L("Undo")[0], L("Undo")[1], { shortcut: "Ctrl+Z", run: () => app.history.undo(), enabled: () => app.history.canUndo() });
   stub("Redo", L("Redo")[0], L("Redo")[1], { shortcut: "Ctrl+Y", run: () => app.history.redo(), enabled: () => app.history.canRedo() });
   stub("FileNew", L("FileNew")[0], L("FileNew")[1], { shortcut: "Ctrl+N", run: () => app.commands.run("FileClose") });
-  stub("About", L("About")[0], L("About")[1], { run: () => app.toast("Unofficial hackathon recreation — not affiliated with or endorsed by Autodesk", "info", 5000) });
+  stub("About", L("About")[0], L("About")[1], { run: () => app.toast("Unofficial hackathon recreation: not affiliated with or endorsed by Autodesk", "info", 5000) });
   for (const id of ["FileOpen", "FileSave", "FileSaveAs", "RecoverySave", "FileExport", "FileExportSTL", "KeyboardShortcuts", "ToggleBrowser", "ToggleViewCube", "ToggleNavBar"]) {
     stub(id, L(id)[0], L(id)[1]);
   }

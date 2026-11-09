@@ -448,15 +448,18 @@ function rigidGroups(app) {
   return out;
 }
 /** Add the rigid-group partners of moved occurrences (same rigid motion) to a {oid: M} map. */
-export function expandRigid(app, map) {
+export function expandRigid(app, map, opts = {}) {
   const C = app.components;
   const out = { ...map };
+  const grounded = (o) => { try { const i = C.info && C.info(o); return !!(i && i.grounded); } catch { return false; } };
   let grew = true;
   for (let pass = 0; grew && pass < 4; pass++) {
     grew = false;
     for (const g of rigidGroups(app)) {
       const lead = g.find((o) => out[o]);
       if (!lead) continue;
+      // a grounded member holds the whole rigid group in place (unless forced): nothing in it moves
+      if (!opts.force && g.some((o) => !map[o] && grounded(o))) { for (const o of g) delete out[o]; continue; }
       const delta = MD.mul(out[lead], M.invRigid(C.transform(lead)));
       for (const o of g) if (!out[o]) { out[o] = MD.mul(delta, C.transform(o)); grew = true; }
     }
@@ -470,10 +473,11 @@ export function installRigidGroups(app) {
     if (!C || C.__createxRigid || typeof C.setTransforms !== "function") return;
     C.__createxRigid = true;
     const many = C.setTransforms, one = C.setTransform;
-    C.setTransforms = (map, opts) => { let m = map; try { m = expandRigid(app, map || {}); } catch (e) { console.warn("[createx] rigid group", e); } return many(m, opts); };
+    C.setTransforms = (map, opts) => { let m = map; try { m = expandRigid(app, map || {}, opts || {}); } catch (e) { console.warn("[createx] rigid group", e); } return many(m, opts); };
     C.setTransform = (oid, m, opts = {}) => {
       let ex = null;
-      try { ex = expandRigid(app, { [oid]: m }); } catch { ex = null; }
+      try { ex = expandRigid(app, { [oid]: m }, opts); } catch { ex = null; }
+      if (ex && !ex[oid]) return false; // held by a grounded member of its rigid group
       if (!ex || Object.keys(ex).length === 1) return one(oid, m, opts);
       const info = C.info && C.info(oid);
       if (info && info.grounded && !opts.force) return one(oid, m, opts);

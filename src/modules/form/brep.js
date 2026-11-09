@@ -158,7 +158,7 @@ function sewFaces(K, faces, size) {
         } finally { if (ms) ms.delete(); try { sh.delete(); } catch { /* ignore */ } }
       }
     } else {
-      for (const sh of shells) out.push(K.R.cast(sh));
+      for (const sh of shells) { out.push(K.R.cast(sh)); try { sh.delete(); } catch { /* ignore */ } }
       if (!shells.length) out.push(K.R.cast(sewn));
     }
     if (out.length === 1) return K.singleSolid ? K.singleSolid(out[0]) : out[0];

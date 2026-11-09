@@ -295,7 +295,7 @@ export function init(app) {
 
   function validateExpr(rowId, col, expr) {
     const c = D.get(app.doc);
-    const tmp = { ...app.doc, params: D.clone(app.doc.params), features: D.clone(app.doc.features), bodies: app.doc.bodies, configurations: { ...c, cells: { ...c.cells, [rowId]: { ...(c.cells[rowId] || {}), [col.id]: expr } } } };
+    const tmp = { ...app.doc, params: D.clone(app.doc.params), features: D.clone(app.doc.features), bodies: Object.fromEntries(Object.entries(app.doc.bodies || {}).map(([k, b]) => [k, { ...b }])), configurations: { ...c, cells: { ...c.cells, [rowId]: { ...(c.cells[rowId] || {}), [col.id]: expr } } } };
     D.applyRow(tmp, rowId, M);
     let v;
     try {
@@ -383,7 +383,8 @@ export function init(app) {
     if (ctx.body) return { kind: "body", id: ctx.body };
     if (ctx.id) return app.doc.bodies[ctx.id] && !app.feature(ctx.id) ? { kind: "body", id: ctx.id } : { kind: "feature", id: ctx.id };
     const s = app.selection.items[0];
-    if (s) return ctxTarget({ ref: s });
+    // recurse once only: a selection ref of another kind (a vertex) would otherwise recurse forever
+    if (s && !ctx.fromSel) return ctxTarget({ ref: s, fromSel: true });
     return null;
   };
   const runConfigure = (a, ctx) => {

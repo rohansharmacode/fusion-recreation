@@ -14,6 +14,20 @@ export const VISUAL_STYLES = {
 export const DEFAULT_STYLE = "ViewShadedCommand"; // Fusion default (reference capture: Shaded ●)
 
 const EDGE_COLOR = 0x111111;
+// one shared empty display entry for render-only bodies (a new one per rebuild would never be freed)
+const EMPTY_MESH = { positions: new Float32Array(0), indices: new Uint32Array(0) };
+/** Free the GPU objects of a body's render-hook extra (made fresh by the hook on every rebuild). */
+function disposeExtra(o) {
+  if (!o || !o.extra) return;
+  o.extra.traverse((x) => {
+    try {
+      if (x.geometry) x.geometry.dispose();
+      const m = x.material;
+      if (Array.isArray(m)) m.forEach((y) => y && y.dispose()); else if (m) m.dispose();
+    } catch { /* ignore */ }
+  });
+  o.extra = null;
+}
 
 /** Per-shape display data, cached in a WeakMap keyed by the replicad shape object. */
 export class MeshCache {
@@ -46,7 +60,7 @@ export class MeshCache {
     // Topology analysis, once per shape (shape.faces/edges allocate wrappers):
     //  - face types (planar?)
     //  - hidden edges: seams of periodic faces (used by one face only in a closed solid) and
-    //    "smooth splits" of one surface (e.g. a cylinder made of two half faces) — Fusion's
+    //    "smooth splits" of one surface (e.g. a cylinder made of two half faces): Fusion's
     //    kernel has neither, so they are not drawn or picked
     //  - real vertices (not smooth junctions of two tangent edges) and edge display groups
     //    (edges joined through smooth junctions highlight together, like one Fusion edge)
@@ -360,11 +374,11 @@ export class BodyLayer {
       keep.add(b.id);
       let o = this.objects.get(b.id);
       if (!o || o.src !== src || o.srcEntry !== (b.entry || null) || o.kind !== kind) {
-        if (o) { group.remove(o.group); }
+        if (o) { group.remove(o.group); disposeExtra(o); }
         const g = new THREE.Group();
         g.name = `body:${b.id}`;
         g.userData = { body: b.id, kind };
-        const ent = entry || this.vp.cache.meshEntry({ positions: new Float32Array(0), indices: new Uint32Array(0) }, "none");
+        const ent = entry || this.vp.cache.meshEntry(EMPTY_MESH, "none");
         const mesh = new THREE.Mesh(ent.geo, this.material(b.meta));
         mesh.userData = { body: b.id, entry: ent, kind };
         mesh.renderOrder = 0;
@@ -384,7 +398,7 @@ export class BodyLayer {
       if (o.extra) { try { const eb = new THREE.Box3().setFromObject(o.extra); if (!eb.isEmpty()) box.union(eb); } catch { /* ignore */ } }
     }
     for (const [id, o] of this.objects) {
-      if (!keep.has(id)) { group.remove(o.group); this.objects.delete(id); }
+      if (!keep.has(id)) { group.remove(o.group); disposeExtra(o); this.objects.delete(id); }
     }
     group.visible = this.visibleOverride;
     if (comps && (comps.displayOverrides || [...this.objects.values()].some((o) => o.displayed))) this.applyDisplay();

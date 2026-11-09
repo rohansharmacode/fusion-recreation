@@ -249,6 +249,7 @@ export function openScriptsManager(app, mg, opts = {}) {
     inp.multiple = true;
     inp.style.display = "none";
     document.body.append(inp);
+    inp.addEventListener("cancel", () => inp.remove()); // picker dismissed
     inp.addEventListener("change", async () => {
       const files = [...(inp.files || [])];
       inp.remove();

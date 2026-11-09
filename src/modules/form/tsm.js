@@ -14,13 +14,15 @@ export function writeTSM(c, name = "Body") {
   for (const f of c.f) out.push(`f ${f.map((i) => i + 1).join(" ")}`);
   for (const [a, b] of c.crease || []) out.push(`crease ${a + 1} ${b + 1}`);
   for (const v of c.cv || []) out.push(`cv ${v + 1}`);
+  for (const v of c.frozen || []) out.push(`frozen ${v + 1}`);
+  for (const v of c.iso || []) out.push(`iso ${v + 1}`);
   if (c.sym && c.sym.type === "mirror") for (const pl of c.sym.planes || []) out.push(`sym mirror ${[...pl.o, ...pl.n].map((x) => +x.toFixed(6)).join(" ")}`);
   if (c.sym && c.sym.type === "circular") out.push(`sym circular ${[...c.sym.o, ...c.sym.d].map((x) => +x.toFixed(6)).join(" ")} ${c.sym.count}`);
   return out.join("\n") + "\n";
 }
 
 function parseText(text) {
-  const v = [], f = [], crease = [], cv = [];
+  const v = [], f = [], crease = [], cv = [], frozen = [], iso = [];
   let sym = null;
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.trim();
@@ -33,6 +35,8 @@ function parseText(text) {
       f.push(idx);
     } else if (k === "crease" && t.length >= 3) crease.push([+t[1] - 1, +t[2] - 1]);
     else if (k === "cv" && t.length >= 2) cv.push(+t[1] - 1);
+    else if (k === "frozen" && t.length >= 2) frozen.push(+t[1] - 1);
+    else if (k === "iso" && t.length >= 2) iso.push(+t[1] - 1);
     else if (k === "sym" && t[1] === "mirror" && t.length >= 8) {
       const n = t.slice(2, 8).map(Number);
       sym = sym && sym.type === "mirror" ? sym : { type: "mirror", planes: [] };
@@ -42,7 +46,7 @@ function parseText(text) {
       sym = { type: "circular", o: n.slice(0, 3), d: n.slice(3, 6), count: n[6] | 0 };
     }
   }
-  return { v, f, crease, cv, sym };
+  return { v, f, crease, cv, frozen, iso, sym };
 }
 function parseXML(text) {
   const v = [], f = [];
@@ -72,6 +76,6 @@ export function readTSM(text) {
   const n = d.v.length;
   if (d.f.some((fc) => fc.some((i) => !(i >= 0 && i < n)))) throw new Error("The file refers to vertices that do not exist");
   if (d.f.length > 100000) throw new Error("The total number of faces cannot exceed 100,000");
-  const c = tidy({ v: d.v, f: d.f, crease: d.crease.filter(([a, b]) => a >= 0 && b >= 0 && a < n && b < n), cv: d.cv.filter((i) => i >= 0 && i < n), frozen: [], iso: [], sym: d.sym });
+  const c = tidy({ v: d.v, f: d.f, crease: d.crease.filter(([a, b]) => a >= 0 && b >= 0 && a < n && b < n), cv: d.cv.filter((i) => i >= 0 && i < n), frozen: (d.frozen || []).filter((i) => i >= 0 && i < n), iso: (d.iso || []).filter((i) => i >= 0 && i < n), sym: d.sym });
   return compact(orient(c)).cage;
 }

@@ -143,7 +143,7 @@ export function textRow(id, opts = {}) {
       ta.title = opts.tooltip || "Specifies the text shown in the PMI note.";
       ta.value = dlg.values[id] ?? "";
       ta.addEventListener("input", () => dlg.set(id, ta.value, { user: true, fromInput: true }));
-      ta.addEventListener("keydown", (e) => e.stopPropagation());
+      ta.addEventListener("keydown", (e) => { if (e.key !== "Escape") e.stopPropagation(); }); // Esc still closes the dialog
       const tools = h("div", "pmi-ttools");
       const group = (key, opts2, title) => {
         const g = h("div", "pmi-tgroup");
@@ -432,7 +432,7 @@ export function popupMenu(app, anchor, items, opts = {}) {
   if (mr.bottom > window.innerHeight - 4) m.style.top = `${Math.max(4, Math.round(r.top - mr.height - 1))}px`;
   const away = (e) => { if (!m.contains(e.target)) closePopup(); };
   const key = (e) => { if (e.key === "Escape") { e.stopPropagation(); e.preventDefault(); closePopup(); } };
-  setTimeout(() => { window.addEventListener("pointerdown", away, true); window.addEventListener("keydown", key, true); }, 0);
+  setTimeout(() => { if (!POP || POP.m !== m) return; window.addEventListener("pointerdown", away, true); window.addEventListener("keydown", key, true); }, 0); // not when already closed
   POP = { m, off: () => { window.removeEventListener("pointerdown", away, true); window.removeEventListener("keydown", key, true); } };
   return m;
 }

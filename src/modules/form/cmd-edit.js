@@ -224,7 +224,7 @@ function triad(app, d, alt) {
   // The numbers accumulate over the drags of one selection (like Fusion). An Alt-drag first folds them into the
   // geometry, extrudes the selection and then starts again from zero.
   const begin = (key, v0 = 0) => {
-    if (d._drag) return;
+    if (d._drag === key) return; // a drag of another handle that ended without a final callback does not block this one
     d._drag = key;
     d._dragV0 = 0;
     d._alt = false;
@@ -319,7 +319,9 @@ function selButtons(app, d) {
     const m = new Map();
     for (const r of rs) {
       if (r.kind !== "tsEdge") { m.set(JSON.stringify(r), r); continue; }
-      for (const e of edgeLoop(c, t.edge(r.a, r.b))) { const x = eRef(id, ...t.edges[e]); m.set(JSON.stringify(x), x); }
+      const e0 = t.edge(r.a, r.b);
+      if (e0 < 0) continue; // stale edge ref
+      for (const e of edgeLoop(c, e0)) { const x = eRef(id, ...t.edges[e]); m.set(JSON.stringify(x), x); }
     }
     return [...m.values()];
   });
@@ -328,7 +330,9 @@ function selButtons(app, d) {
     const m = new Map();
     for (const r of rs) {
       if (r.kind !== "tsEdge") { m.set(JSON.stringify(r), r); continue; }
-      for (const e of edgeRing(c, t.edge(r.a, r.b))) { const x = eRef(id, ...t.edges[e]); m.set(JSON.stringify(x), x); }
+      const e0 = t.edge(r.a, r.b);
+      if (e0 < 0) continue; // stale edge ref
+      for (const e of edgeRing(c, e0)) { const x = eRef(id, ...t.edges[e]); m.set(JSON.stringify(x), x); }
     }
     return [...m.values()];
   });

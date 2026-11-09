@@ -203,7 +203,7 @@ export async function modelChain(t, { sk, typed }) {
     await t.key("f");
     const dlgF = await t.waitFor('.dlg[data-dialog="FusionFilletEdgesCommand"]', { timeout: 3000 });
     t.require("F opens the Fillet dialog (.dlg[data-dialog=FusionFilletEdgesCommand])", dlgF);
-    // top front edge (y=0, z=D1) — candidates along it, then the other top edges
+    // top front edge (y=0, z=D1): candidates along it, then the other top edges
     const edgePts = [];
     for (const u of [0.5, 0.4, 0.6, 0.3, 0.7]) edgePts.push([W * u, 0, D1]);
     for (const u of [0.5, 0.35, 0.65]) edgePts.push([W, Hh * u, D1], [W * u, Hh, D1], [0, Hh * u, D1]);

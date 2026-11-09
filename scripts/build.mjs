@@ -17,7 +17,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
 
-export const ALL_MODULES = ["viewport", "sketch", "dialogs", "shell", "browser", "timeline", "menus", "inspect", "manage", "annotate", "configure", "assembly", "insertx", "surface", "mesh", "sheetmetal", "plastic", "createx", "solidx", "form", "render", "animation", "simulation", "manufacture", "drawing", "generative"];
+export const ALL_MODULES = ["viewport", "sketch", "dialogs", "shell", "browser", "timeline", "menus", "inspect", "manage", "annotate", "configure", "assembly", "insertx", "surface", "mesh", "sheetmetal", "plastic", "createx", "solidx", "form", "render", "drawing"];
 export const WASM_FILE = "occt.gz.wasm";
 export const LEGACY_WASM_FILE = "occt.wasm.gz";
 export const RELEASE_FILES = ["index.html", "app.js", "app.css", WASM_FILE];
@@ -131,7 +131,7 @@ const cspSafeEmbind = {
       }
       if (applied !== EMBIND_PATCHES.length && !embindWarned) {
         embindWarned = true;
-        console.warn(`[build] csp-safe-embind: ${applied}/${EMBIND_PATCHES.length} patches applied (replicad-opencascadejs changed?) — the kernel will need 'unsafe-eval' on hosts with a strict CSP`);
+        console.warn(`[build] csp-safe-embind: ${applied}/${EMBIND_PATCHES.length} patches applied (replicad-opencascadejs changed?): the kernel will need 'unsafe-eval' on hosts with a strict CSP`);
       }
       if (applied) src = EMBIND_HELPERS + src;
       return { contents: src, loader: "js" };

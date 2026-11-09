@@ -110,6 +110,7 @@ export function openFormDialog(app, spec) {
     ...spec,
     preview: false,
     build(v, dlg) {
+      dlg.formChange = null; // a throwing compute must not leave the previous change for OK to commit
       const ch = spec.compute(v, dlg);
       dlg.formChange = ch || null;
       return ch ? previewOf(app, ch) : null;

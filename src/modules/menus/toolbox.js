@@ -1,4 +1,4 @@
-// S toolbox, as in Fusion: no panel — a title "<Environment> Shortcuts" (Design / Sketch), a row of the
+// S toolbox, as in Fusion: no panel: a title "<Environment> Shortcuts" (Design / Sketch), a row of the
 // environment's shortcut icons and an underlined "Search" field, all floating at the cursor.
 // Typing lists matching commands of the current environment in a bordered list (24 px icon + name,
 // alphabetical, first row highlighted cyan). Arrow keys move, Enter runs, Esc closes, a click outside

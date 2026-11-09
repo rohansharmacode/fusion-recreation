@@ -691,7 +691,7 @@ cmd({
   rows: () => [
     bodyRow("body", "Body", "Select mesh body to convert"),
     dd("operation", "Operation", [["parametric", "Parametric", { tooltip: "Converts the mesh body to a solid or surface body in the timeline." }], ["baseFeature", "Base Feature"]], "parametric"),
-    dd("method", "Method", [["faceted", "Faceted"], ["prismatic", "Prismatic"], ["organic", "Organic", { disabled: true }]], "prismatic", { tooltip: "Organic needs the T-Spline Form environment, which is not available in this recreation." }),
+    dd("method", "Method", [["faceted", "Faceted"], ["prismatic", "Prismatic"], ["organic", "Organic"]], "prismatic", { tooltip: "Faceted: one face per triangle. Prismatic: coplanar triangles merge into planar faces. Organic: a smooth body through the mesh (quads from Convert To Quad Mesh give the best result)." }),
     previewRow(),
   ],
   init(dlg, f) { Object.assign(dlg.values, { body: bodyRefs([f.body]), operation: f.operation || "parametric", method: f.method || "prismatic" }); },

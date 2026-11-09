@@ -68,7 +68,7 @@ export function registerPathPatternFeature(app) {
       const bb = f.patternType === "features" ? null : bodiesBox(st, f.bodies || []);
       const c0 = bb ? V.mul(V.add(bb.min, bb.max), 0.5) : all.length ? all[0].pivot : null;
       const marks = c0 ? all.map((T) => ({ k: T.k, p: rigidPoint(T, c0) })) : [];
-      const warn = skipped ? `${skipped} pattern instance${skipped > 1 ? "s are" : " is"} beyond the end of the path` : null;
+      let warn = skipped ? `${skipped} pattern instance${skipped > 1 ? "s are" : " is"} beyond the end of the path` : null;
       if (f.patternType === "features") {
         const r = M.patternFeatures(st, f, P, doc, xs.map((T) => ({ shape: (s) => rigidShape(T, s), point: (p) => rigidPoint(T, p) })));
         if (warn) r.warning = r.warning ? `${r.warning}; ${warn}` : warn;
@@ -83,13 +83,15 @@ export function registerPathPatternFeature(app) {
         for (const T of xs) {
           k++;
           // ids stay stable when instances are suppressed
-          const nid = `${f.id}_${bi * 1000 + T.k}`;
+          // (more than 999 instances: a separator keeps the ids unique; smaller patterns keep their saved ids)
+          const nid = T.k < 1000 ? `${f.id}_${bi * 1000 + T.k}` : `${f.id}_${bi}_${T.k}`;
           if (b) st.bodies.set(nid, { id: nid, shape: rigidShape(T, b.shape), from: f.id });
           else st.meshBodies.set(nid, { ...mb, id: nid, mesh: rigidMesh(T, mb.mesh), from: f.id });
           affected.push(nid);
         }
       }
       if (!k && !(f.bodies || []).length) throw new Error("Select objects to pattern");
+      if (!k && !warn) warn = "The bodies to pattern are missing: edit the feature to reselect them";
       return { affected, count: xs.length + 1, marks, ...(warn ? { warning: warn } : {}) };
     },
     deps: (f) => ({ sketches: [...new Set((f.path || []).map((c) => c.sketch))], bodies: [...(f.bodies || []), ...(f.edges || []).map((e) => e.body)], features: f.features || [], cplanes: [], geo: (f.edges || []).map((e) => ({ ...e, kind: "edge" })) }),

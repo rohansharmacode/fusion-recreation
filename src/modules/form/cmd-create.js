@@ -291,14 +291,15 @@ export function openExtrude(app, opts = {}) {
     rows: [
       { id: "profile", type: "selection", label: "Profile", kinds: [...CURVE_KINDS, "tsEdge"], prompt: "Select sketch profiles or planar faces to extrude",
         filter: (r) => r.kind !== "tsEdge" || (!!cageOf(app, r.body) && isBoundary(app, r)) },
-      { id: "dirType", type: "dropdown", label: "Direction", options: [{ value: "one", label: "One Side", icon: "oneSide" }, { value: "two", label: "Two Side", icon: "twoSides" }, { value: "sym", label: "Symmetric", icon: "symmetric" }], default: "one" },
+      // T-Spline boundary edges extrude one way, without taper: the rows that do not apply are hidden for them
+      { id: "dirType", type: "dropdown", label: "Direction", options: [{ value: "one", label: "One Side", icon: "oneSide" }, { value: "two", label: "Two Side", icon: "twoSides" }, { value: "sym", label: "Symmetric", icon: "symmetric" }], default: "one", visible: (v) => !(v.profile || []).some((r) => r.kind === "tsEdge") },
       { id: "distance", type: "value", label: "Distance", kind: "length", default: "10.00 mm" },
       { id: "frontFaces", type: "value", label: "Front Faces", kind: "none", default: "2", integer: true, min: 1 },
-      { id: "distance2", type: "value", label: "Distance", kind: "length", default: "10.00 mm", visible: (v) => v.dirType === "two" },
-      { id: "backFaces", type: "value", label: "Back Faces", kind: "none", default: "2", integer: true, min: 1, visible: (v) => v.dirType === "two" },
+      { id: "distance2", type: "value", label: "Distance", kind: "length", default: "10.00 mm", visible: (v) => v.dirType === "two" && !(v.profile || []).some((r) => r.kind === "tsEdge") },
+      { id: "backFaces", type: "value", label: "Back Faces", kind: "none", default: "2", integer: true, min: 1, visible: (v) => v.dirType === "two" && !(v.profile || []).some((r) => r.kind === "tsEdge") },
       { id: "faces", type: "value", label: "Faces", kind: "none", default: "8", integer: true, min: 1, visible: (v) => !(v.profile || []).some((r) => r.kind === "tsEdge") },
       { id: "spacing", type: "dropdown", label: "Spacing", options: SPACING, default: "uniform", visible: (v) => !(v.profile || []).some((r) => r.kind === "tsEdge") },
-      { id: "taper", type: "value", label: "Angle", kind: "angle", default: "0.0 deg" },
+      { id: "taper", type: "value", label: "Angle", kind: "angle", default: "0.0 deg", visible: (v) => !(v.profile || []).some((r) => r.kind === "tsEdge") },
       { id: "operation", type: "dropdown", label: "Operation", options: OPS, default: "new", sep: true },
     ],
     onChange(id, dlg) { if (id === "profile") setAutoFaces(app, dlg, "profile", "faces"); },
@@ -344,10 +345,11 @@ function extrudeTsEdges(app, refs, dist, n) {
   for (const r of refs) { if (!by.has(r.body)) by.set(r.body, []); by.get(r.body).push(r); }
   for (const [id, rs] of by) {
     let c = cageOf(app, id);
+    if (!c) throw new Error("The T-Spline body of the selected edges no longer exists");
     // outward direction: away from the adjacent faces, averaged
     const t = topo(c);
     let d = [0, 0, 0];
-    for (const r of rs) { const e = t.edge(r.a, r.b); const f = t.eFaces[e][0]; d = V.add(d, V.norm(V.sub(V.lerp(c.v[r.a], c.v[r.b], 0.5), faceCentroid(c, f)))); }
+    for (const r of rs) { const e = t.edge(r.a, r.b); if (e < 0) throw new Error("Select boundary edges of the T-Spline body again"); const f = t.eFaces[e][0]; d = V.add(d, V.norm(V.sub(V.lerp(c.v[r.a], c.v[r.b], 0.5), faceCentroid(c, f)))); }
     d = V.norm(d);
     let cur = rs;
     for (let k = 1; k <= Math.max(1, n); k++) {

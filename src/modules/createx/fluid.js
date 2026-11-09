@@ -95,6 +95,7 @@ export function registerFluidFeature(app) {
         }
         owned.push(env);
         const parts = splitPieces(env, caps);
+        owned.push(...parts.filter((s) => s !== env)); // freed below unless kept (also on the error path)
         const outerFaces = K.facesOf(outer);
         owned.push(...outerFaces);
         const obb = K.bboxOf(outer);
@@ -111,7 +112,7 @@ export function registerFluidFeature(app) {
           const keep = f.volume === "external" ? touchesOuter(s) : !touchesOuter(s);
           let vol = 0;
           try { vol = K.volumeOf(s); } catch { vol = 0; }
-          if (keep && vol > 1e-6) pieces.push(s); else if (s !== env) owned.push(s);
+          if (keep && vol > 1e-6) pieces.push(s);
         }
       } catch (e) {
         K.del(owned.filter((s) => !pieces.includes(s)));

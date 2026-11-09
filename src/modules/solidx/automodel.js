@@ -85,7 +85,7 @@ const solidFace = (state) => (r) => { const b = state.bodies.get(r.body); return
 export function openAutomatedModeling(app, opts = {}) {
   const editId = opts.editId || null;
   const f0 = editId ? app.feature(editId) : null;
-  const inputsKey = (v) => JSON.stringify([(v.faces || []).map((r) => [r.body, r.index]), (v.avoid || []).map((r) => r.body)]);
+  const inputsKey = (v) => JSON.stringify([(v.faces || []).map((r) => [r.body, r.index]), (v.avoid || []).map((r) => r.body), v.volume]);
   const generate = (dlg) => {
     const v = dlg.values;
     const base = { faces: (v.faces || []).map((r) => ({ body: r.body, p: r.p, n: r.n })), avoid: (v.avoid || []).map((r) => r.body) };

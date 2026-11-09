@@ -38,6 +38,7 @@ function loftFlat(app, bodyId, b, d) {
   if (!fp) throw new Error("This lofted flange can't be flattened");
   const solid = G.flatPrism(fp.frame, fp.outer, d.w0, d.w0 + d.T);
   const out = { solid, frame: fp.frame, data: { w0: d.w0, T: d.T, frame: fp.frame, bends: {} }, lines: fp.lines };
+  if (c && c.fp && c.fp.solid) K.del(c.fp.solid); // the body changed: free the old flat solid like flatOf does
   cache.set(bodyId, { shape: b.shape, key: "loft", fp: out });
   return { fp: out, body: b, d };
 }
@@ -48,10 +49,10 @@ function dxfWriter() {
   const w = (code, v) => { out.push(String(code), String(v)); };
   return {
     out, w,
-    header(min, max) {
+    header(min, max, units = "mm") {
       w(0, "SECTION"); w(2, "HEADER");
       w(9, "$ACADVER"); w(1, "AC1009");
-      w(9, "$INSUNITS"); w(70, 4);
+      w(9, "$INSUNITS"); w(70, units === "in" ? 1 : 4); // 1 inches, 4 millimetres
       w(9, "$EXTMIN"); w(10, min[0]); w(20, min[1]); w(30, 0);
       w(9, "$EXTMAX"); w(10, max[0]); w(20, max[1]); w(30, 0);
       w(0, "ENDSEC");
@@ -83,10 +84,12 @@ export function flatDXF(fp, { centerLines = true, extentLines = true, units = "m
   const loops = G.flatLoops(fp.solid, fp.data);
   const pts = loops.flatMap((l) => l.pts);
   const sc = (p) => [fx(p[0] * k), fx(p[1] * k)];
-  const min = [Math.min(...pts.map((p) => p[0])) * k, Math.min(...pts.map((p) => p[1])) * k];
-  const max = [Math.max(...pts.map((p) => p[0])) * k, Math.max(...pts.map((p) => p[1])) * k];
+  // extents by a loop (no spread of large point lists); an empty pattern gets 0,0 extents instead of Infinity
+  const min = [Infinity, Infinity], max = [-Infinity, -Infinity];
+  for (const p of pts) for (let i = 0; i < 2; i++) { if (p[i] * k < min[i]) min[i] = p[i] * k; if (p[i] * k > max[i]) max[i] = p[i] * k; }
+  if (!pts.length) { min[0] = min[1] = max[0] = max[1] = 0; }
   const D = dxfWriter();
-  D.header(min, max);
+  D.header(min, max, units);
   D.tables([["OUTER_PROFILES", 7, "CONTINUOUS"], ["INTERIOR_PROFILES", 7, "CONTINUOUS"], ["BEND_CENTER_LINES_UP", 5, "DASHED"], ["BEND_CENTER_LINES_DOWN", 1, "DASHED"], ["BEND_EXTENT_LINES", 8, "CONTINUOUS"]]);
   D.w(0, "SECTION"); D.w(2, "ENTITIES");
   for (const l of loops) {

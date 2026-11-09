@@ -2,9 +2,9 @@
 // implicit suppression display, Find in Timeline).
 //
 // Two kinds of dependency are tracked:
-//  * explicit  — a feature names another feature's output: a profile/point/path/axis from a
+//  * explicit : a feature names another feature's output: a profile/point/path/axis from a
 //                sketch, a construction plane, or a body created by that feature;
-//  * geometric — a feature references an edge/face (by point) that only exists after an
+//  * geometric: a feature references an edge/face (by point) that only exists after an
 //                earlier feature ran. Checked against the evaluator's cached per-feature states.
 
 const SKIP_KEYS = new Set(["id", "name", "p", "newBody", "newBodies", "sk", "suppressed", "visible", "type"]);

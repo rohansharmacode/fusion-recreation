@@ -451,7 +451,7 @@ const tupDel = (v) => { const t = v.toTuple(); del(v); return t; };
 // ---------- leak-free shape operations ----------
 // replicad wraps every operation result with cast(raw) and never deletes `raw`, and the OCCT embind
 // glue only auto-finalizes smart pointers: that raw TopoDS_Shape handle lives for the whole session
-// and keeps the result's entire B-rep (plus its mesh triangulation) in wasm memory — every live
+// and keeps the result's entire B-rep (plus its mesh triangulation) in wasm memory: every live
 // preview leaked a body. The modelling hot paths therefore run here with the same OCCT calls and
 // options as replicad, deleting raw handles and builders deterministically.
 function own(raw) {
@@ -726,7 +726,7 @@ function shellByBooleans(shape, faces, t) {
   const inside = t > 0;
   const T = Math.abs(t);
   const rem = faces.map((f) => faceGeom(f));
-  if (rem.some((g) => g.type !== "PLANE" || g.d === undefined)) throw new Error("Shell failed — try a smaller thickness");
+  if (rem.some((g) => g.type !== "PLANE" || g.d === undefined)) throw new Error("Shell failed: try a smaller thickness");
   const tmp = [];
   try {
     let A = shape;
@@ -793,7 +793,7 @@ export function shellFaces(shape, faces, thickness, tolerance = 1e-3) {
   try { s = shellByBooleans(shape, faces, thickness); } catch { s = null; }
   if (s && shellPlausible(s, v0, inside)) return s;
   del(s);
-  throw new Error("Shell failed — try a smaller thickness");
+  throw new Error("Shell failed: try a smaller thickness");
 }
 /** Draft `faces` (Face objects of `shape`) by angle (deg) about the neutral plane pl {o, n}. */
 export function draftFaces(shape, faces, angleDeg, pl) {

@@ -171,7 +171,7 @@ export function identifiers(src) {
 }
 
 export function formatValue(v, kind = "length", digits = 2) {
-  if (!Number.isFinite(v)) return "—";
+  if (!Number.isFinite(v)) return "-";
   const r = Math.abs(v) < 1e-9 ? 0 : v;
   return kind === "angle" ? `${r.toFixed(1)} deg` : kind === "none" ? `${+r.toFixed(3)}` : `${r.toFixed(digits)} mm`;
 }

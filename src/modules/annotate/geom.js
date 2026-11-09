@@ -395,6 +395,7 @@ export function holeData(app, state, R) {
         const wall = (big.faces || []).find((f) => f !== other && T.faces[f] && T.faces[f].type === "CYLINDRE" && coaxial(T.faces[f], cyl));
         if (wall !== undefined) {
           const wallEnds = T.edges.filter((e) => (e.faces || []).includes(wall) && circleCoaxial(e, cyl)).map((e) => z(e.c));
+          if (!wallEnds.length) return { kind: "open", z: end.z };
           const far = sgn > 0 ? Math.max(...wallEnds) : Math.min(...wallEnds);
           return { kind: "cb", d: 2 * big.r, depth: Math.abs(far - end.z), z: end.z, top: far };
         }

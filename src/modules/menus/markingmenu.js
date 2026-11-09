@@ -2,7 +2,7 @@
 //
 // Layout follows Fusion's own Design marking menu definition (MarkingMenus.xml,
 // EnvId FusionSolidEnvironment / FusionSketchEnvironment, TypeId BaseMenu) and the look of the
-// real menu (light theme): eight white rectangular buttons around the cursor —
+// real menu (light theme): eight white rectangular buttons around the cursor -
 //   N "Repeat <last>" · NW "Delete ✖" · NE "Press Pull" · W "Undo ↶" · E "Redo ↷" (grey when unavailable)
 //   SW "Move/Copy ✥" · SE "Hole" · S "Sketch ▼" (2nd tier: Finish Sketch, 2-Point Rectangle, Spline,
 //   Project, Line, Offset, Sketch Dimension, Center Diameter Circle). Inside a command: W Cancel, E OK.
@@ -242,7 +242,7 @@ const OVERFLOW_SKETCH = [
   "-",
   ["LookAtCommand", (c) => c.n > 0],
   "-",
-  // Fusion 2706 (ref 11): with nothing selected the list goes Remove | Show All | Unisolate — the
+  // Fusion 2706 (ref 11): with nothing selected the list goes Remove | Show All | Unisolate: the
   // Sketch Palette Show/Hide Profile, Dimension, … rows are not offered here.
   ["ShowAllComponentsCmd", (c) => c.n === 0],
   ["ShowAllBodiesCmd", (c) => c.n > 0 && c.hiddenBodies],

@@ -133,7 +133,7 @@ export function init(app) {
       app.recompute();
       const ms = performance.now() - t0;
       const errs = Object.values(app.result.results).filter((r) => r && r.ok === false).length;
-      if (errs) app.toast(`Compute All finished — ${errs} feature${errs === 1 ? "" : "s"} could not be computed`, "warning", 3000);
+      if (errs) app.toast(`Compute All finished - ${errs} feature${errs === 1 ? "" : "s"} could not be computed`, "warning", 3000);
       else app.toast(`Compute All complete (${ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1)} s`})`, "info", 1800);
     },
   });

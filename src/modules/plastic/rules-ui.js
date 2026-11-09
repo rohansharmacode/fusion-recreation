@@ -124,7 +124,7 @@ export function createRulesUI(app) {
           row.addEventListener("click", (ev) => {
             const b = ev.target.closest("button[data-act]");
             sel = { sec, id: r.id };
-            if (b && !b.disabled) act(b.dataset.act, sec, r);
+            if (b && !b.disabled) act(b.dataset.act, sec, r).catch((e) => app.toast(String((e && e.message) || e), "error"));
             else render();
           });
           s.appendChild(row);
@@ -173,7 +173,8 @@ export function createRulesUI(app) {
       render();
     };
     const newBtn = h("button", { type: "button", class: "mn-btn pl-new", "data-action": "new" }, "New Plastic Rule");
-    newBtn.addEventListener("click", async () => {
+    newBtn.addEventListener("click", () => newRule().catch((e) => app.toast(String((e && e.message) || e), "error")));
+    const newRule = async () => {
       const design = RU.designRules(app.doc);
       const base = (sel.sec === "design" ? design : RU.library()).find((x) => x.id === sel.id) || RU.effectiveRule(app.doc);
       const target = sel.sec === "library" ? RU.library() : design;
@@ -182,7 +183,7 @@ export function createRulesUI(app) {
       if (sel.sec === "library") { RU.saveLibrary([...RU.library(), nr]); sel = { sec: "library", id: nr.id }; }
       else { app.mutate("New Plastic Rule", (doc) => { RU.ensurePlastic(doc).rules.push(nr); }, { recompute: false }); sel = { sec: "design", id: nr.id }; }
       render();
-    });
+    };
     const off = app.on("doc", () => { if (manage && !manage.closed) render(); });
     manage = M.open({
       id: "FusionManagePlasticRuleCommand", title: "Manage Plastic Rules", body, width: 620, footLeft: newBtn,

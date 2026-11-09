@@ -228,6 +228,47 @@ export function splitCurve2(sk, id, g, ranges) {
 }
 
 /**
+ * Trim / Break of a closed control point spline: the periodic spline opens at the cuts and becomes open
+ * clamped splines over `ranges` ([a, b] in geom t units; b < a or b > T wraps past the seam). The first
+ * piece keeps `id`; pieces that meet share their cut point. Returns the piece ids.
+ */
+export function splitClosedCv(sk, id, g, ranges) {
+  const cv = sk.curves[id];
+  const P = cv.pts.map((q) => P2(sk, q));
+  const n = P.length;
+  const p = cvDegree(cv, n);
+  // two turns of the periodic spline (cvBeziers' closed layout repeated) so a range can cross the seam
+  const Q = [...P, ...P, ...P.slice(0, p)];
+  const U = [];
+  for (let i = 0; i < Q.length + p + 1; i++) U.push(i);
+  const T = g.T;
+  const sp = g.uSpans || [];
+  const per = g.pieces || 1;
+  const wrap = (t) => ((t % T) + T) % T;
+  const uOf = (t) => {
+    const w = wrap(t);
+    if (!sp.length) return p + (w / T) * n;
+    const i = Math.min(sp.length - 1, Math.max(0, Math.floor(w / per)));
+    const f = Math.max(0, Math.min(1, (w - i * per) / per));
+    return sp[i][0] + (sp[i][1] - sp[i][0]) * f;
+  };
+  const cuts = new Map();
+  const cutPt = (t, q) => { const k = wrap(t).toFixed(9); if (!cuts.has(k)) cuts.set(k, newPt(sk, q)); return cuts.get(k); };
+  const ids = [];
+  ranges.forEach(([a, b], i) => {
+    const ua = uOf(a);
+    let ub = uOf(b);
+    if (ub <= ua + 1e-9) ub += n;
+    const seg = bsplineSegment(Q, U, p, ua, ub);
+    const last = seg.P.length - 1;
+    const pts = seg.P.map((q, k) => (k === 0 ? cutPt(a, q) : k === last ? cutPt(b, q) : newPt(sk, q)));
+    if (i === 0) { cv.pts = pts; cv.knots = seg.U; delete cv.closed; ids.push(id); }
+    else { const sid = nid(sk, "s"); sk.curves[sid] = { type: "cvspline", pts, degree: cv.degree, knots: seg.U, cons: cv.cons }; ids.push(sid); }
+  });
+  return ids;
+}
+
+/**
  * Break: split curve `id` at the intersections bounding the piece under q (Fusion's Break keeps
  * every piece). Returns the ids of the pieces, or null when nothing crosses the curve.
  */
@@ -286,7 +327,7 @@ export function breakAt(S, sk, id, q) {
   if (ranges.length < 2) return null;
   dropDims(id);
   if (cv.type === "cvspline" || cv.type === "conic") {
-    if (cv.type === "cvspline" && cv.closed) return null;
+    if (cv.type === "cvspline" && cv.closed) return splitClosedCv(sk, id, g, ranges);
     return splitCurve2(sk, id, g, ranges);
   }
   return S.splitFreeform(sk, id, g, ranges);
@@ -300,6 +341,10 @@ export function breakAt(S, sk, id, q) {
  * involve scaled entities get their values scaled (expressions replaced by the new value).
  */
 export function scaleEntities(sk, curveIds, pointIds, bp, k, params, fmtLen) {
+  // a curve with a fixed point keeps its size and its points (scaling its radius or dimensions around a
+  // point that cannot move would distort it)
+  const isFixed = (p) => !!(sk.points[p] && sk.points[p].fixed);
+  curveIds = curveIds.filter((id) => { const cv = sk.curves[id]; return cv && !curvePoints(cv).some(isFixed); });
   const pts = new Set(pointIds || []);
   for (const id of curveIds) { const cv = sk.curves[id]; if (cv) for (const p of curvePoints(cv)) pts.add(p); }
   for (const p of pts) {
@@ -441,8 +486,14 @@ export function addPattern(sk, spec, params) {
 export function removePattern(sk, cid) {
   const c = sk.constraints.find((k) => k.id === cid);
   if (!c) return false;
-  for (const id of c.copies || []) delete sk.curves[id];
+  const pts = new Set();
+  for (const id of c.copies || []) { const cv = sk.curves[id]; if (cv) for (const p of curvePoints(cv)) pts.add(p); delete sk.curves[id]; }
   sk.constraints = sk.constraints.filter((k) => k !== c && k.patternOf !== cid);
+  // the copies' points go too unless another curve or a constraint still uses them
+  const used = new Set();
+  for (const cv of Object.values(sk.curves)) for (const p of curvePoints(cv)) used.add(p);
+  for (const k of sk.constraints) for (const r of k.refs || []) used.add(r);
+  for (const p of pts) if (!used.has(p)) delete sk.points[p];
   return true;
 }
 

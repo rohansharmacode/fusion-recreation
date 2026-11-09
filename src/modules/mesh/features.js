@@ -6,6 +6,8 @@ import * as K from "../../kernel.js";
 import * as A from "./algo.js";
 import { boolean, merge } from "./csg.js";
 import { tessellate, meshToBrep, REFINEMENT } from "./brep.js";
+import { cageToShape } from "../form/brep.js";
+import { tidy, orient, compact as compactCage } from "../form/cage.js";
 
 // ------------------------------------------------------------------ helpers
 const LOST = "Lost target body. Edit feature to reselect target body.";
@@ -333,9 +335,11 @@ def("meshSmoothBoundary", {
         }
       }
       // relax the rings of vertices next to the boundary
+      let ringMask = null;
       if (rings > 0) {
         const NB = A.vertNeighbors(W);
         const ring = new Uint8Array(A.vcount(W));
+        ringMask = ring;
         let front = mine.flat();
         const bnd = new Set(front);
         for (let r = 0; r < rings; r++) {
@@ -345,7 +349,9 @@ def("meshSmoothBoundary", {
         }
         A.taubin(W, ring, Math.round(2 + s * 10));
       }
-      if (ref) for (let v = 0; v < A.vcount(W); v++) { const h = A.closestPoint(ref, A.vtx(W, v)); if (h) { W.P[3 * v] = h.q[0]; W.P[3 * v + 1] = h.q[1]; W.P[3 * v + 2] = h.q[2]; } }
+      // Preserve Shape: only the vertices smoothing moved (boundary loops and relaxed rings) go back onto the original
+      const moved = new Set(mine.flat());
+      if (ref) for (let v = 0; v < A.vcount(W); v++) { if (!moved.has(v) && !(ringMask && ringMask[v])) continue; const h = A.closestPoint(ref, A.vtx(W, v)); if (h) { W.P[3 * v] = h.q[0]; W.P[3 * v + 1] = h.q[1]; W.P[3 * v + 2] = h.q[2]; } }
       put(st, t.body, W, f);
       out.push(t.body);
     }
@@ -391,7 +397,10 @@ def("meshEraseFill", {
       if (!loops.length) throw new Error("Select faces to repair or double-click a face at the edge of a hole to fill");
       const d = Math.max(0, Math.min(1, num(P, f, "density", 0.5)));
       const edge = A.avgEdge(W0, sel) * Math.pow(2, 1 - 2 * d);
-      A.fillLoops(W, loops, { type: f.fillType || "smooth", edge });
+      // the patch joins the face group of the erased region
+      let g0 = null;
+      for (let k = 0; k < sel.length; k++) if (sel[k]) { g0 = W0.G[k] ?? null; break; }
+      A.fillLoops(W, loops, { type: f.fillType || "smooth", edge, group: g0 });
       put(st, t.body, A.compact(W), f);
       out.push(t.body);
     }
@@ -662,7 +671,15 @@ def("meshConvert", {
   makesBodies: true,
   apply(st, f) {
     const W = workOf(st, f.body);
-    if (f.method === "organic") throw new Error("Organic conversion needs the T-Spline Form environment, which is not available in this recreation. Use Faceted or Prismatic.");
+    if (f.method === "organic") {
+      // Organic: the mesh (its quad pairs merged into quads) becomes a T-spline cage whose smooth limit surface
+      // is the body (the Form module's cage -> B-rep conversion)
+      const cage = organicCage(W);
+      if (cage.f.length > 2000) throw new Error("Organic conversion works on meshes with up to 2,000 faces: use Reduce or Convert To Quad Mesh first.");
+      const r = cageToShape(K, cage);
+      st.bodies.set(f.newBody, { id: f.newBody, shape: r.shape, from: f.id });
+      return { affected: [f.newBody], ...(r.faceted ? { warning: "The smooth conversion failed: the body is faceted" } : {}) };
+    }
     if (A.tcount(W) > 20000) throw new Error("This mesh has more than 20000 faces: use Reduce before converting it.");
     const shape = meshToBrep(K, W, { unify: f.method === "prismatic" });
     st.bodies.set(f.newBody, { id: f.newBody, shape, from: f.id });
@@ -670,6 +687,32 @@ def("meshConvert", {
   },
   deps: (f) => deps([f.body]), touches: () => [],
 });
+/** T-spline cage of a work mesh: paired triangles (W.Q) become quads, the others stay triangles. */
+function organicCage(W) {
+  const v = [];
+  for (let i = 0; i < A.vcount(W); i++) v.push([W.P[3 * i], W.P[3 * i + 1], W.P[3 * i + 2]]);
+  const f = [];
+  const n = A.tcount(W);
+  const merged = new Set(); // partners that really formed a quad with a smaller index
+  const tri = (t) => [W.T[3 * t], W.T[3 * t + 1], W.T[3 * t + 2]];
+  for (let t = 0; t < n; t++) {
+    const u = W.Q ? W.Q[t] : -1;
+    if (merged.has(t)) continue; // merged with its partner already
+    const a = tri(t);
+    if (u >= 0 && u < n && W.Q[u] === t) {
+      const b = tri(u);
+      let quad = null;
+      for (let i = 0; i < 3 && !quad; i++) {
+        const p = a[i], q = a[(i + 1) % 3], r = a[(i + 2) % 3];
+        if (b.includes(p) && b.includes(q)) { const x = b.find((k) => k !== p && k !== q); if (x !== undefined) quad = [p, x, q, r]; }
+      }
+      if (quad) { f.push(quad); merged.add(u); continue; }
+    }
+    if (new Set(a).size === 3) f.push(a);
+  }
+  return compactCage(orient(tidy({ v, f, crease: [], cv: [], frozen: [], iso: [], sym: null }))).cage;
+}
+
 def("meshQuad", {
   label: "Convert To Quad Mesh", stem: "MeshToQuadMesh", icon: "ParaMeshToQuadMeshCommand",
   fields: { edgeLength: "length" },

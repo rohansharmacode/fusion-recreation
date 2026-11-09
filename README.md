@@ -6,7 +6,7 @@ A browser recreation of the **Design workspace of Autodesk Fusion**, built with 
 B-rep kernel (OpenCascade via replicad, compiled to WebAssembly). It runs from one link, with no
 install and no account.
 
-> **Unofficial hackathon recreation — not affiliated with or endorsed by Autodesk.**
+> **Unofficial hackathon recreation: not affiliated with or endorsed by Autodesk.**
 > Autodesk and Fusion are trademarks of Autodesk, Inc. No Autodesk logos, wordmarks or icon artwork
 > are used: every icon is an original SVG drawing.
 

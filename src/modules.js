@@ -17,11 +17,7 @@ import * as createx from "@module/createx";
 import * as solidx from "@module/solidx";
 import * as form from "@module/form";
 import * as render from "@module/render";
-import * as animation from "@module/animation";
-import * as simulation from "@module/simulation";
-import * as manufacture from "@module/manufacture";
 import * as drawing from "@module/drawing";
-import * as generative from "@module/generative";
 import * as shell from "@module/shell";
 import * as browser from "@module/browser";
 import * as timeline from "@module/timeline";
@@ -45,11 +41,9 @@ export const MODULES = [
   ["solidx", solidx], // Remaining SOLID Modify / Construct tools
   ["form", form], // Form (T-Spline) contextual environment
   ["render", render], // RENDER workspace
-  ["animation", animation], // ANIMATION workspace
-  ["simulation", simulation], // SIMULATION workspace
-  ["manufacture", manufacture], // MANUFACTURE workspace
   ["drawing", drawing], // DRAWING workspace
-  ["generative", generative], // GENERATIVE DESIGN workspace
+  // ANIMATION, SIMULATION, MANUFACTURE and GENERATIVE DESIGN are out of scope (cut by the user): the DESIGN
+  // switcher still lists them as placeholder workspaces (shell/workspaces-spec.js), no module owns them
   ["shell", shell], // application bar + toolbar (renders after commands are registered)
   ["browser", browser], // browser tree
   ["timeline", timeline], // parametric timeline

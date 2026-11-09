@@ -9,7 +9,7 @@ const h = await launch({ only, outDir: process.env.MENUS_OUT || "build/menus", p
 const { page } = h;
 let failures = 0;
 const check = (name, cond, extra = "") => {
-  console.log(`${cond ? "PASS" : "FAIL"}  ${name}${extra ? `  — ${extra}` : ""}`);
+  console.log(`${cond ? "PASS" : "FAIL"}  ${name}${extra ? `  - ${extra}` : ""}`);
   if (!cond) failures++;
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -323,7 +323,7 @@ try {
   await page.evaluate(() => app.commands.run("About"));
   await sleep(120);
   const about = await page.evaluate(() => document.querySelector('[data-dialog="About"]')?.textContent || "");
-  check("About has the disclaimer", /Unofficial hackathon recreation — not affiliated with or endorsed by Autodesk/.test(about) && /Fusion Design — unofficial recreation/.test(about));
+  check("About has the disclaimer", /Unofficial hackathon recreation: not affiliated with or endorsed by Autodesk/.test(about) && /Fusion Design: unofficial recreation/.test(about));
   await h.shot("16-about");
   await page.keyboard.press("Escape");
   await sleep(60);

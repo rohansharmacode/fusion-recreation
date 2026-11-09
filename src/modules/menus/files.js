@@ -36,7 +36,7 @@ export function createFiles(app, modals) {
   function warnStorage() {
     if (store.persistent || F.warnedStorage) return;
     F.warnedStorage = true;
-    app.toast("Browser storage is unavailable here — saved designs last only for this session", "warning", 5000);
+    app.toast("Browser storage is unavailable here: saved designs last only for this session", "warning", 5000);
   }
 
   function thumbnail() {
@@ -576,7 +576,7 @@ export function createFiles(app, modals) {
   // offer the recovery document once after start-up
   app.on("ready", () => {
     const rec = recovery();
-    if (rec && rec.dirty && rec.doc.features.length) app.toast(`Unsaved changes to "${rec.name || "Untitled"}" were recovered — open them from File › Open`, "info", 6000);
+    if (rec && rec.dirty && rec.doc.features.length) app.toast(`Unsaved changes to "${rec.name || "Untitled"}" were recovered: open them from File › Open`, "info", 6000);
   });
 
   /** Open a saved design by id (asks about unsaved changes first). Used by the Data Panel. */

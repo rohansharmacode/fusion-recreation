@@ -47,7 +47,9 @@ All numeric fields are expressions with model parameters.
 * Coordinate systems are pickable as `{kind:'feature', id}` (viewport pick provider) and selectable in the browser.
 * Rigid Group: `installRigidGroups(app)` wraps `app.components.setTransform(s)`: moving one occurrence of a Bounding Solid
   rigid group (the bounding solid's component + the components of the selected bodies) moves the others by the same rigid
-  motion in the same undo step. The new component's frame (`st.occ` T) is the bounding solid's coordinate system.
+  motion in the same undo step; a grounded member holds the whole group (nothing moves unless forced). The new
+  component's frame (`st.occ` T) is the bounding solid's coordinate system. This wrapper is a temporary hook: the wave 2b
+  assembly module must replace it with a real rigid-group feature (see ARCHITECTURE.md).
 * markers.js: `markerSet(app)` clickable canvas point markers for dialogs (suppression toggles, box points).
 * vox.js: `grid`, `spacingFor`, `meshSDF` (signed distance of a closed triangle mesh), `unsignedDist`, `insideFlags`,
   `march` (naive surface nets iso-surface), `latticeValue`, `textureValue`.

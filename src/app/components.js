@@ -50,7 +50,7 @@ export function installComponents(app) {
     return `${(c && c.name) || "Component"}:${(meta && meta.n) || 1}`;
   }
   function info(oid) {
-    if (oid === ROOT) return { id: ROOT, root: true, component: ROOT, name: doc().name || "Untitled", label: label(ROOT), parent: null, T: ID, visible: true, grounded: true, selectable: true };
+    if (oid === ROOT) return { id: ROOT, root: true, component: ROOT, name: doc().name || "Untitled", label: label(ROOT), parent: null, T: [...ID], visible: true, grounded: true, selectable: true }; // a copy: callers may mutate T
     const s = st();
     const e = s && s.occ && s.occ.get(oid);
     if (!e) return null;

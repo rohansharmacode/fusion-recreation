@@ -42,7 +42,7 @@ export function createInfo(app, modals) {
         list.appendChild(el("div", { class: "ks-section", text: title }));
         for (const d of items) {
           const row = el("div", { class: `ks-row${d.stub ? " ks-stub" : ""}`, dataset: { ksCmd: d.id } });
-          row.innerHTML = `<span class="ks-ico">${iconHtml(d.id, 16)}</span><span class="ks-label">${esc(d.label || d.id)}${d.stub ? ' <span class="mn-dim">(not available)</span>' : ""}</span><span class="ks-keys">${d.shortcut ? keysHtml(d.shortcut) : '<span class="mn-dim">—</span>'}</span>`;
+          row.innerHTML = `<span class="ks-ico">${iconHtml(d.id, 16)}</span><span class="ks-label">${esc(d.label || d.id)}${d.stub ? ' <span class="mn-dim">(not available)</span>' : ""}</span><span class="ks-keys">${d.shortcut ? keysHtml(d.shortcut) : '<span class="mn-dim">-</span>'}</span>`;
           list.appendChild(row);
         }
       };
@@ -79,8 +79,8 @@ export function createInfo(app, modals) {
     const body = el("div", { class: "ab-body" },
       el("div", { class: "ab-mark", html: '<svg width="56" height="56" viewBox="0 0 56 56"><path d="M28 8 L46 18 L46 38 L28 48 L10 38 L10 18 Z" fill="#eef4f9" stroke="#5b7fa6" stroke-width="1.6" stroke-linejoin="round"/><path d="M10 18 L28 28 L46 18 M28 28 L28 48" fill="none" stroke="#5b7fa6" stroke-width="1.6" stroke-linejoin="round"/><path d="M28 28 L46 18 L46 38 L28 48 Z" fill="#c9d9e8"/><path d="M10 18 L28 28 L28 48 L10 38 Z" fill="#dde8f2"/></svg>' }),
       el("div", { class: "ab-text" },
-        el("div", { class: "ab-title", text: "Fusion Design — unofficial recreation" }),
-        el("div", { class: "ab-disclaimer", text: "Unofficial hackathon recreation — not affiliated with or endorsed by Autodesk" }),
+        el("div", { class: "ab-title", text: "Fusion Design: unofficial recreation" }),
+        el("div", { class: "ab-disclaimer", text: "Unofficial hackathon recreation: not affiliated with or endorsed by Autodesk" }),
         el("div", { class: "ab-p", html: "A browser recreation of a parametric CAD Design workspace: sketches with a constraint solver, a parametric timeline, B-rep solid modelling, the ViewCube, the marking menu and the S toolbox." }),
         el("table", { class: "ab-table" },
           el("tr", {}, el("td", { text: "Version" }), el("td", { text: "1.0.0" })),

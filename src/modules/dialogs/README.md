@@ -1,4 +1,4 @@
-# dialogs module — command dialog framework (`app.ui.dialog`) + modelling commands
+# dialogs module: command dialog framework (`app.ui.dialog`) + modelling commands
 
 Look (pass 2, measured on Fusion 2706 captures): the panel is DOCKED at the right edge of the canvas under
 the ViewCube (`#dialog-host`, white, no frame/shadow), header "− TITLE ... »", a label column sized to the
@@ -65,9 +65,9 @@ on a document replace (undo/redo/open) and when the sketch environment is entere
 | `dropdown` | option value | `options:[{value, label, icon, disabled}]` (icon = glyph name from glyphs.js), `noCaret` |
 | `buttons` | option value | icon toggles, same `options` (disabled ones look normal and explain themselves in a toast) |
 | `check` | boolean | |
-| `group` | — | `rows:[...]`, `collapsed`, `header(values)` (false = rows shown without a header), `labelWidth`/`labelClip`/`ctrlWidth` (own columns, Fusion-style "Hole Typ..." clipping) |
-| `custom` | — | `render(dlg) -> HTMLElement`, `update(el, dlg)` (called on refresh) |
-| `text` | — | `text(dlg)` |
+| `group` |: | `rows:[...]`, `collapsed`, `header(values)` (false = rows shown without a header), `labelWidth`/`labelClip`/`ctrlWidth` (own columns, Fusion-style "Hole Typ..." clipping) |
+| `custom` |: | `render(dlg) -> HTMLElement`, `update(el, dlg)` (called on refresh) |
+| `text` |: | `text(dlg)` |
 
 `labelFn(values, dlg)` on any row replaces its label text on refresh. `sep:true` draws Fusion's thin divider
 above a row (e.g. before Operation), `space:n` adds n px above it, `extra(dlg, re) -> HTMLElement` appends a
@@ -107,7 +107,7 @@ dlg.message(text, 'error'|'warning'|'info')
 dlg.schedulePreview(ms) / dlg.previewNow() / dlg.refresh()
 dlg.ok() / dlg.cancel()
 dlg.commitFeature(feature, {hideSketches:[ids], label})   insert at the marker (or replace editId) as one undo step
-dlg.manips.screenPoint(id) -> [x, y]   (canvas px) — handy for tests
+dlg.manips.screenPoint(id) -> [x, y]   (canvas px): handy for tests
 ```
 `app.ui.dialog`: `open(spec)`, `current`, `isOpen(id?)`, `ok()`, `cancel()`, `fmt(v, kind)`,
 `withUnit(expr, kind)`, `glyph(name, size)`.

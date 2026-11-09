@@ -8,6 +8,7 @@
 import * as M from "../../model.js";
 import * as K from "../../kernel.js";
 import * as U from "../dialogs/util.js";
+import { curvePolyline } from "../../sketch/sketch.js";
 
 export const V = K.V;
 const EPS = 1e-9;
@@ -294,9 +295,13 @@ function sampleSketchCurve(s, cv) {
   const S = s.sk;
   const out = [];
   try {
-    // splines / ellipses: tessellate through the sketch module's curve helpers when present
-    const pts = (cv.pts || []).map((id) => S.points[id]).filter(Boolean);
-    if (cv.type === "spline" && pts.length >= 2) for (const q of pts) out.push(K.toWorld(s.plane, q.x, q.y));
+    // splines / control point splines / conics: sampled on the real curve (not the fit or control points)
+    const id = Object.keys(S.curves).find((k) => S.curves[k] === cv);
+    const pts = (cv.pts || []).map((pid) => S.points[pid]).filter(Boolean);
+    if ((cv.type === "spline" || cv.type === "cvspline" || cv.type === "conic") && id) {
+      for (const q of curvePolyline(S, id, 96)) out.push(K.toWorld(s.plane, q[0], q[1]));
+    }
+    if (!out.length && cv.type === "spline" && pts.length >= 2) for (const q of pts) out.push(K.toWorld(s.plane, q.x, q.y));
     else if ((cv.type === "ellipse" || cv.type === "earc") && S.points[cv.c] && S.points[cv.a] && S.points[cv.b]) {
       const c = S.points[cv.c], a = S.points[cv.a], b = S.points[cv.b];
       const ax = [a.x - c.x, a.y - c.y], bx = [b.x - c.x, b.y - c.y];

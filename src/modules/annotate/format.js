@@ -142,11 +142,13 @@ export function tolerancePieces(nominal, tol, disp, settings, opts = {}) {
   const out = { nominal: f(nominal), after: "" };
   if (!tol || !tol.on) return out;
   const up = Number(tol.upper) || 0, lo = Number(tol.lower) || 0;
+  // a limit value of 0 is valid; only an empty or invalid one falls back to the nominal value
+  const lim = (x) => (x === "" || x === null || x === undefined || !Number.isFinite(Number(x)) ? nominal : Number(x));
   switch (tol.type) {
     case "symmetric": out.after = ` ${SYM.pm}${fd(Math.abs(up))}`; break;
     case "deviation": out.after = ` ${STK}${sgn(up)}${SEP}${sgn(lo)}${END}`; break;
-    case "limitsStacked": out.nominal = `${STK}${f(Number(tol.upper) || nominal)}${SEP}${f(Number(tol.lower) || nominal)}${END}`; break;
-    case "limitsLinear": out.nominal = `${f(Number(tol.lower) || nominal)}-${f(Number(tol.upper) || nominal)}`; break;
+    case "limitsStacked": out.nominal = `${STK}${f(lim(tol.upper))}${SEP}${f(lim(tol.lower))}${END}`; break;
+    case "limitsLinear": out.nominal = `${f(lim(tol.lower))}-${f(lim(tol.upper))}`; break;
     case "max": out.after = " MAX"; break;
     case "min": out.after = " MIN"; break;
     case "basic": out.nominal = `${BOX}${out.nominal}${BOXEND}`; break;

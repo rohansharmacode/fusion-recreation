@@ -562,9 +562,7 @@ class MaterialBrowser {
       <div class="insp-mb-edbody">${body}</div>
       ${ro ? `<div class="insp-mb-ro">Materials in the Fusion libraries are read-only. Duplicate the material or add it to Favorites to edit a copy.</div>` : ""}`;
     for (const inp of ed.querySelectorAll("[data-mb-field]")) {
-      const ev = inp.tagName === "SELECT" || inp.type === "color" || inp.type === "range" ? "input" : "input";
-      inp.addEventListener(ev, () => this._edit(inp.dataset.mbField, inp));
-      if (inp.tagName === "SELECT") inp.addEventListener("change", () => this._edit(inp.dataset.mbField, inp));
+      inp.addEventListener("input", () => this._edit(inp.dataset.mbField, inp)); // SELECT, color and range fire input too
     }
     this._applyState();
   }
@@ -732,6 +730,7 @@ class MaterialBrowser {
     inp.type = "file";
     inp.accept = ".json,application/json";
     inp.style.display = "none";
+    inp.addEventListener("cancel", () => inp.remove()); // picker dismissed
     inp.addEventListener("change", async () => {
       const file = inp.files && inp.files[0];
       inp.remove();

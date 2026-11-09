@@ -234,7 +234,7 @@ function applyEdgeChain(st, f, P, doc, kind) {
     }
     const cuts = [], adds = [];
     const mParents = new Map();
-    for (const it of items) {
+    try { for (const it of items) {
       const e = it.e;
       const mp = mParents.get(e.fid) || G.flangeM(d, e.fid);
       mParents.set(e.fid, mp);
@@ -257,7 +257,7 @@ function applyEdgeChain(st, f, P, doc, kind) {
       }
       for (const [i, fid] of r.flanges.entries()) d.flanges[fid].len = segsI[i].L;
       adds.push(...tools);
-    }
+    } } catch (e) { del(cuts, adds); throw e; } // a later edge failed: free the tools made so far
     const shape = combine(b.shape, cuts, adds);
     G.refreshSeeds(shape, d);
     putBody(st, bodyId, shape, d, f, b);

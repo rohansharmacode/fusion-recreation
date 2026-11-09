@@ -170,7 +170,7 @@ export function createAnalyses(app) {
       if (previewAnalysis) out.push(previewAnalysis);
       return out;
     },
-    get display() { return display; },
+    get display() { if (!display) display = createSurfaceDisplay(app, store); return display; }, // created on first use (dialogs need directionOf before the first refresh)
     activeSection() {
       if (previewSection) return previewSection;
       const s = [...docList()].reverse().find((a) => a.type === "section" && a.visible !== false && a.id !== previewSectionId);

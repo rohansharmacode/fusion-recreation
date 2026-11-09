@@ -216,7 +216,10 @@ export function replaceFaces(shape, idx, targetFaces, extend = true) {
   try {
     for (const tf of targetFaces) {
       let x = null;
-      if (extend) { try { x = extendedFace(geomOf(tf), c, half); } catch { x = null; } }
+      // only a single face is extended; a body target (several faces) is used as it is
+      let single = false;
+      try { single = K.topoOf(tf).faces.length === 1; } catch { single = false; }
+      if (extend && single) { try { x = extendedFace(geomOf(tf), c, half); } catch { x = null; } }
       if (x) { owned.push(x); targets.push(x); } else targets.push(tf);
     }
     return rebuildByCells(shape, idx, targets);
@@ -302,6 +305,43 @@ export function faceGrid(shape, i, nu, nv) {
   } finally { K.del(ad, face); }
 }
 
+/** Inverse of the interior Bernstein collocation matrix B[a][i] = bern(n, i, a / n), a, i in 1..n-1. */
+function interiorBernInverse(n) {
+  const m = n - 1;
+  const A = [];
+  for (let a = 1; a <= m; a++) { const row = []; for (let i = 1; i <= m; i++) row.push(bern(n, i, a / n)); for (let j = 0; j < m; j++) row.push(j === a - 1 ? 1 : 0); A.push(row); }
+  for (let c = 0; c < m; c++) {
+    let p = c;
+    for (let r = c + 1; r < m; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r;
+    [A[c], A[p]] = [A[p], A[c]];
+    const piv = A[c][c];
+    for (let j = 0; j < 2 * m; j++) A[c][j] /= piv;
+    for (let r = 0; r < m; r++) if (r !== c) { const f = A[r][c]; if (f) for (let j = 0; j < 2 * m; j++) A[r][j] -= f * A[c][j]; }
+  }
+  return A.map((row) => row.slice(m));
+}
+/**
+ * Edit Face handles sit on the surface at grid node (a, b): their displacements D are where the surface must
+ * go. Control displacements C solve Bu C Bv^T = D (separable Bernstein system), so the face follows the handle.
+ */
+function controlMoves(D, nu, nv) {
+  const iu = interiorBernInverse(nu), iv = interiorBernInverse(nv);
+  const C = [];
+  for (let ia = 0; ia <= nu; ia++) { C.push([]); for (let ib = 0; ib <= nv; ib++) C[ia].push(null); }
+  let any = false;
+  for (let ia = 1; ia < nu; ia++) for (let ib = 1; ib < nv; ib++) {
+    const s = [0, 0, 0];
+    for (let a = 1; a < nu; a++) for (let b = 1; b < nv; b++) {
+      const d = D[a][b];
+      if (!d) continue;
+      const w = iu[ia - 1][a - 1] * iv[ib - 1][b - 1];
+      s[0] += w * d[0]; s[1] += w * d[1]; s[2] += w * d[2];
+    }
+    if (Math.hypot(s[0], s[1], s[2]) > 1e-12) { C[ia][ib] = s; any = true; }
+  }
+  return any ? C : D;
+}
+
 function isFourSided(shape, i) {
   const es = K.topoOf(shape).edges.filter((e) => (e.faces || []).includes(i));
   return es.length === 4 && es.every((e) => (e.faces || []).length === 2 && e.faces[0] !== e.faces[1]);
@@ -325,6 +365,7 @@ export function editFaceShape(shape, i, nu, nv, moves) {
     const uv = O.BRepTools.UVBounds(face.wrapped, 0, 0, 0, 0);
     const D = [];
     for (let a = 0; a <= nu; a++) { D.push([]); for (let b = 0; b <= nv; b++) D[a].push((moves && moves[`${a},${b}`]) || null); }
+    const Cm = controlMoves(D, nu, nv);
     arr = new O.NCollection_Array2_gp_Pnt(1, N + 1, 1, N + 1);
     for (let a = 0; a <= N; a++) {
       const s = a / N;
@@ -334,7 +375,7 @@ export function editFaceShape(shape, i, nu, nv, moves) {
         let p = [P.X(), P.Y(), P.Z()];
         K.del(P);
         for (let ia = 1; ia < nu; ia++) for (let ib = 1; ib < nv; ib++) {
-          const d = D[ia][ib];
+          const d = Cm[ia][ib];
           if (!d) continue;
           const w = bern(nu, ia, s) * bern(nv, ib, t);
           p = V.add(p, V.mul(d, w));

@@ -77,8 +77,11 @@ export function renameFeature(app, id, name) {
   setFeatureFields(app, [id], { name }, "Rename");
 }
 
+// bodies of a pasted occurrence ("b1@o2") share their component's body data (app.bodyMeta): act on the base body
+const bodyKey = (app, id) => (app.M && app.M.instanceBase ? app.M.instanceBase(id) : id);
+
 export function setBodiesVisible(app, ids, visible) {
-  ids = ids.filter((id) => app.doc.bodies[id]);
+  ids = [...new Set(ids.map((id) => bodyKey(app, id)))].filter((id) => app.doc.bodies[id]);
   if (!ids.length) return;
   app.mutate(visible ? "Show" : "Hide", (doc) => {
     for (const id of ids) if (doc.bodies[id]) doc.bodies[id].visible = !!visible;
@@ -87,7 +90,7 @@ export function setBodiesVisible(app, ids, visible) {
 
 /** Show/hide bodies and display features (sketches, planes) together as one undoable step. */
 export function setVisibility(app, { bodies = [], features = [] }, visible) {
-  bodies = bodies.filter((id) => app.doc.bodies[id]);
+  bodies = [...new Set(bodies.map((id) => bodyKey(app, id)))].filter((id) => app.doc.bodies[id]);
   features = features.filter((id) => app.feature(id));
   if (!bodies.length && !features.length) return;
   const before = new Map(features.map((id) => [id, JSON.stringify(app.feature(id))]));
@@ -140,6 +143,7 @@ export function setFolderVisibility(app, key, visible, { bodies = [], features =
 
 export function renameBody(app, id, name) {
   name = String(name || "").trim();
+  id = bodyKey(app, id);
   const meta = app.doc.bodies[id];
   if (!meta || !name || name === meta.name) return;
   app.mutate("Rename", (doc) => { if (doc.bodies[id]) doc.bodies[id].name = name; });

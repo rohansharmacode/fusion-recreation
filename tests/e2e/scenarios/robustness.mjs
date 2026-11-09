@@ -16,6 +16,15 @@ async function reset(t) {
   for (let i = 0; i < 3; i++) { await t.page.keyboard.press("Escape"); await t.frames(1); }
   // a sketch entered by a command (e.g. a sketch tool picked a plane) is left with Finish Sketch
   if (await t.app(() => window.app.mode === "sketch")) { await t.app(() => window.app.commands.run("SketchStop")); await t.frames(2); }
+  // a contextual environment entered by a command (Form, Flat Pattern, ...) is left with its FINISH command:
+  // Esc never leaves an environment in Fusion
+  for (let i = 0; i < 3; i++) {
+    const fin = await t.app(() => { const e = window.app.environment; return e ? e.finishCommand || e.id : null; });
+    if (!fin) break;
+    await t.app((f) => { const a = window.app; const e = a.environment; if (e.finishCommand && a.commands.get(f)) a.commands.run(f); else a.exitEnvironment(e.id, { reason: "finish" }); }, fin);
+    await t.frames(2);
+    await t.page.keyboard.press("Escape");
+  }
 }
 
 const scenario = defineScenario({

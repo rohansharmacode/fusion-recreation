@@ -129,24 +129,29 @@ function formOfBody(app, id) {
 }
 /** Add a new T-spline body: into the edited Form, else in a new Form feature. hide: original body ids to hide. */
 export function addTSplineBody(app, cage, label, { hide = [], name } = {}) {
-  if (FORM.editing && formFeature(app)) {
-    return app.mutate(label, (doc) => {
-      const f = doc.features.find((x) => x.id === FORM.editing);
-      const id = app.M.nextBody(doc, name ? { name } : {});
-      f.bodies = [...(f.bodies || []), { ...clone(cage), id }];
-      for (const h of hide) if (doc.bodies[h]) doc.bodies[h].visible = false;
-      return id;
-    });
-  }
+  return addTSplineBodies(app, [{ cage, hide, name }], label)[0];
+}
+/** Several T-spline bodies [{cage, hide, name}] in one undo step (Convert of several bodies). Returns the body ids. */
+export function addTSplineBodies(app, items, label) {
+  const editing = !!(FORM.editing && formFeature(app));
   return app.mutate(label, (doc) => {
-    const id = app.M.nextBody(doc, name ? { name } : {});
-    const nf = { type: "form", bodies: [{ ...clone(cage), id }] };
-    prepareFeature(doc, nf);
-    doc.features.splice(doc.marker, 0, nf);
-    doc.marker += 1;
-    for (const h of hide) if (doc.bodies[h]) doc.bodies[h].visible = false;
-    return id;
-  });
+    const ids = [];
+    for (const { cage, hide = [], name } of items) {
+      const id = app.M.nextBody(doc, name ? { name } : {});
+      if (editing) {
+        const f = doc.features.find((x) => x.id === FORM.editing);
+        f.bodies = [...(f.bodies || []), { ...clone(cage), id }];
+      } else {
+        const nf = { type: "form", bodies: [{ ...clone(cage), id }] };
+        prepareFeature(doc, nf);
+        doc.features.splice(doc.marker, 0, nf);
+        doc.marker += 1;
+      }
+      for (const h of hide) if (doc.bodies[h]) doc.bodies[h].visible = false;
+      ids.push(id);
+    }
+    return ids;
+  }) || [];
 }
 export function openConvert(app, opts = {}) {
   const inForm = () => !!FORM.editing;
@@ -181,15 +186,17 @@ export function openConvert(app, opts = {}) {
           for (const id of ids) for (const f2 of doc.features) if (f2.type === "form") for (const c of f2.bodies || []) if (c.id === id) c.converted = true;
         });
       }
-      let last = null;
+      const items = [];
       for (const id of ids) {
         const b = app.anyBody(id);
         if (!b) continue;
         const cage = type === "mesh2ts" ? cageFromMesh(b.mesh) : cageFromShape(app, b.shape);
         if (!cage.f.length) throw new Error("The body has no faces to convert");
-        last = addTSplineBody(app, cage, "Convert", { hide: [id] });
+        items.push({ cage, hide: [id] });
       }
-      return last;
+      // every converted body in one undo step
+      const made = items.length ? addTSplineBodies(app, items, "Convert") : [];
+      return made.length ? made[made.length - 1] : null;
     },
   });
 }

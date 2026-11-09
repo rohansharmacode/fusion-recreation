@@ -21,8 +21,12 @@ scripts/                      build.mjs (esbuild bundle, --release), serve.mjs (
 tests/*.mjs                   Node engine tests;  tests/e2e/  headless Edge harness + QA scenarios
 ```
 
-UI modules (start-up order in `src/modules.js`): `viewport`, `sketch`, `dialogs`, `inspect`, `shell`, `browser`,
-`timeline`, `menus`. `icons` is a shared library, not a module. Files per module:
+UI modules (start-up order in `src/modules.js`): `viewport`, `sketch`, `dialogs`, `inspect`, `manage`, `annotate`,
+`configure`, `assembly`, `insertx`, `surface`, `mesh`, `sheetmetal`, `plastic`, `createx`, `solidx`, `form`, `render`,
+`drawing`, `shell`, `browser`, `timeline`, `menus`. `assembly`, `insertx`, `render` and `drawing` are empty placeholders
+for wave 2b. Animation, Simulation, Manufacture and Generative Design were cut by the user: no module owns them and the
+DESIGN switcher lists them as placeholder workspaces. `icons` is a shared library, not a module. Every module folder has a
+README.md (commands, data, API). Files per module (the feature modules are listed in their READMEs):
 * viewport: index, camera, bodies, grid, highlight, origin, pick, selection, viewcube, navbar, navicons, navtools, menu
 * sketch: index, env, tools, modify, freeform, constraints, dimension, snap, pick, render, hud, palette, status, ctx, glyphs
 * dialogs: framework, manip, highlight, common, util, commands (registration), cmd-create / cmd-extrude / cmd-hole /
@@ -436,9 +440,32 @@ root component (node = `{eye?, onEye?, menu?() -> items, children:[{key, label, 
 renamable?, rename?(name), tip?, badge?}]}`; returns remove()); `app.ui.browser.invalidate()` re-renders. Registered feature
 types with `browser.folder` are listed in that folder. The timeline reads `def.deps` / `def.touches` for its reorder checks.
 
+## Feature modules (wave 1 + 2a): public APIs and document data
+Each module registers its timeline types with `M.registerFeature` from its own folder and documents the details in its
+README.md. Summary of what other modules may use:
+| module | `app.ui` API | feature types / document data / environments |
+|---|---|---|
+| inspect | `app.ui.inspect`: analyses(), analysis(id), setAnalysisVisible, removeAnalysis, renameAnalysis, editAnalysis, openAnalysis(type, {preselect, editId}), refreshAnalyses(), curvature(bodyId), optimalMinimumRadius(ids), analysisObjects(), materialBrowser | `doc.analyses` (section, com, zebra, draft, curvature map, minimum radius, environment map, accessibility, comb, isocurve); `mesh` feature (Insert Mesh, triangles in `doc.meshData`) |
+| manage | `app.ui.scripts` (store, host, run, stop, edit, open, create, list, reference), `app.ui.pim` (components, item, changeOrders, assign, quickRelease, createChangeOrder, advance, open), `app.ui.tasks` (list, save, remove, related, openBoard, openRelated, newTask) | local PIM items / change orders and tasks (approved by the user as local equivalents of the cloud features), script store in localStorage |
+| annotate | `app.ui.pmi`: features(), spec(id), specs(), refresh(), settings(), ctxFor(state), renderer.primsOf(id) | pmiNote, pmiGeneralNote, pmiDimension, pmiGdt, pmiHoleNote; `doc.pmi` settings |
+| configure | `app.ui.configure` (data, rules, configurations, active, columns, activate, addConfigurations, addAspect, ...) | `doc.configurations = {version, nid, rows, active, columns, cells, themes, rules}`; floating mode bar `ConfigToolbar` |
+| surface | (dialog openers only) | surfExtrude, surfRevolve, surfSweep, surfLoft, surfPatch, surfRuled, surfOffset, surfThicken, surfBoundaryFill, surfExtend, surfTrim, surfUntrim, surfStitch, surfUnstitch, surfMerge, surfReverse, surfSilhouette, surfValidate |
+| mesh | `app.ui.mesh = {open(id, opts), palette, display, enterDirect(id), analyze(id)}` | meshRemesh ... meshQuad, meshConvert (Faceted / Prismatic / Organic through the form module's `cageToShape`), meshBase; environment `meshedit` |
+| sheetmetal | `app.ui.sheetMetal = {flatOf(id), flatDXF, enterFlat(id), exitFlat(), flatActive, rules}` | smBaseFlange, smEdgeFlange, smHem, smLoft, smFold, smJog, smUnfold, smRefold, smRip, smCorner, smFillet, smChamfer, smConvert, smJoinBend; `doc.sheetMetal {rules, active, components, flats, rev}`; environment `flatpattern` |
+| plastic | `app.ui.plastic = {rules, openManage(), openAssign({preselect}), types}` | rib, web, emboss, boss, lip, rest, snapFit; `doc.plastic = {rules, assign}` |
+| createx | (dialog openers only) | boundingsolid, fluidvolume, pathpattern, geopattern, csys, vlattice, vtexture; `st.csys`; body kind `volumetric`; rigid-group hook (below) |
+| solidx | (dialog openers only) | caxis, cpoint (refs `{kind:'caxis'|'cpoint', id}`, `st.axes`, `st.points`), offsetface, replaceface, splitface, removefaces, removefeatures, align, basefeature, editface, automodel; `M.registerCPlaneMode(mode, fn)`; environment `basefeature` |
+| form | `app.ui.form = {state, createForm, enter, finish, setDisplay, insertTSplineText, readTSM, writeTSM, cageToShape, cageFromShape, evalCage, ops, cage}` | `{type:'form', bodies:[cage]}`; refs tsVertex, tsEdge, tsFace; body kind `tspline`; environment `form`; event `form` |
+
+**Temporary hook: Bounding Solid rigid groups (createx).** `installRigidGroups(app)` in src/modules/createx/bounding.js wraps
+`app.components.setTransform` / `setTransforms` at runtime so that a move of one occurrence of a rigid group carries the
+other members (one undo step; a grounded member holds the whole group). This is a stop-gap: the wave 2b assembly module
+must replace it with a real rigid-group feature and remove the wrapper.
+
 ## Command ownership (Fusion ids from the local install's TabToolbars.xml)
-At runtime 456 ids are registered: 220 real commands, 217 stubs (`stub:true`, toast "isn't available in this unofficial recreation yet"),
-the rest hidden aliases. A real registration replaces a stub; a stub never replaces a real command. Registration sites:
+At runtime (integration check, 2026-11-09) 1025 ids are registered: 497 real commands (17 of them hidden aliases or shortcut-only)
+and 528 stubs (`stub:true`, toast "isn't available in this unofficial recreation yet"; most belong to the placeholder workspaces and
+to wave 2b: assembly, insertx, render, drawing, cloud features). A real registration replaces a stub; a stub never replaces a real command. Registration sites:
 `app.commands.register`, the `reg(...)` helpers in sketch/menus/shell/timeline `index.js`, and `C(...)` in `dialogs/commands.js`.
 | module | command ids |
 |---|---|
@@ -451,6 +478,19 @@ the rest hidden aliases. A real registration replaces a stub; a stub never repla
 | timeline | FusionRollCommand, RollToEndCommand, FusionSuppressCommand, FusionUnsuppressCommand, FusionRenameTimelineEntryCommand, FusionTrimFeaturesCommand, FusionFindInTimeline, ProfileSketchActivate |
 | shell | every other toolbar id as a stub; real: ToggleDataPanel (Ctrl+Alt+P), ShowFusionHomeCmd, ToggleComments, ToggleToolbar, ResetLayout (Ctrl+Alt+R), SaveAsImageCommand, FileClose, ThreeDprintCmdDef, ShowCommandHelp, NextWorkspace / PreviousWorkspace; placeholder Undo / Redo / FileNew / About that menus replaces |
 | menus | FileNew (Ctrl+N), FileOpen (Ctrl+O), FileSave (Ctrl+S), FileSaveAs, RecoverySave (Ctrl+Shift+S), FileExport (STEP / STL / JSON), FileExportSTL, Undo (Ctrl+Z), Redo (Ctrl+Y), ShowToolbox (S), RepeatCommand, ChangeParameterCommand, FusionComputeAllCommand (Ctrl+B), ToggleVisibility (V), FusionEditFeatureCommand, UnisolateAllCmd, SetOrbitCenterCommand, ResetOrbitCenterCommand, KeyboardShortcuts, About, delete-key routing, marking menu |
+| inspect (wave 1) | FusionZebraAnalysisCommand, FusionDraftAnalysisCommand, FusionCurvatureMapAnalysisCommand, FusionCurvatureCombAnalysisCommand, FusionIsoCurveAnalysisCommand, FusionEnvironmentMapAnalysisCommand, FusionAccessibilityAnalysisCommand, FusionMinimumRadiusAnalysisCommand, MaterialCommand |
+| sketch (wave 1) | CircleTanTanRadius, CircleThreeTangent, ConicCurveCmd, ShapeArcSlotCenterTwoPoint, ShapeArcSlotThreePoint, MTextCmd, BreakSketchCmd, SketchScaleCmd, RectangularSketchPatternCommand, CircularSketchPatternCommand, IntersectCmd, IntersectionCurve, ProjectToSurface, Include3DGeometry, SketchIsoparametricCurve, SpunProfileCmd, DrawCVMSpline3D, SketchImportSVG, ImportDxfFileCommand, SketchAutoConstraintAndDimCmd, SketchAutoConstraintAndDimFromDatumCmd, SketchAutoConstrainAndFinish, ConstraintSmooth, SketchPolygonConstraintCmd, AddTangentHandle, DeleteTangentCommand, AddCurvatureHandle, DeleteCurvatureCommand, Offset |
+| dialogs (components, wave 1) | FusionCreateNewComponentCommand, FusionCreateNewCompCmdFromBody, FusionActivateLocalCompCmd, FusionGroundComponents, FusionUnGroundComponents, CopyCommand, PasteCommand, FusionPasteNewCommand, SnapshotEditAccept, SnapshotEditCancel, FusionMoveCommand, FusionDeleteCommand, SelectComponentPriorityCommand, FusionPropertiesCommand, MaterializedBomHybridCmd |
+| manage | ScriptsManagerCommand, APIHelpCommand, ExchangeAppStoreCommand, DesignAdviceCmd, FusionFindFeaturesCommand, GraphViewCmd, TimelineBuilderCommand, FusionComputeUnresolvedCommand, SelectByNameCommand, FusionSelectBodiesBySizeCommand, SelectByBoundaryCommand, FusionSelectSeedAndBoundaryFacesCommand, SelectByInvertCommand, SelectionFilterCommand, PIMAssignItemNumberCmd, PIMQuickReleaseCmd, PIMECOReleaseCmd, PIMGoToDashboardCmd, TaskManagementCreateTaskCmd, TaskManagementRelatedTasksCmd, TaskManagementOpenTasksCmd |
+| annotate | LeaderLineNoteCommand, GeneralNoteCommand, DimensionNoteCommand, GeometricToleranceNoteCommand, HoleThreadNoteCommand, FusionChangePMISettingsCmd |
+| configure | FusionStartDesignConfigModeCmd, FusionShowDesignConfigPanelCmd, FusionConfigurationRulesCmd, ConfigureFeatureCmd, ConfigureEntityCmd, ActivateConfig |
+| surface | SurfaceExtrude, SurfaceRevolve, SurfaceSweep, SurfaceLoft, FusionSurfacePatchCommand, FusionSurfaceRuledCommand, FusionSurfaceOffsetCommand, SurfaceSculpt, FusionSurfaceThickenCommand, FusionExtendCommand, FusionSurfaceTrimCommand, FusionSurfaceUntrimCommand, FusionSurfaceStitchCommand, FusionSurfaceUnStitchCommand, FusionSurfaceMergeCommand, FusionSurfaceReverseNormalCommand, FusionSurfaceValidateCommand, FusionPartingLineSplitCmd |
+| mesh | ParaMeshAlignCommand, ParaMeshAttractToReferenceCommand, ParaMeshBaseFeatureCreateCommand, ParaMeshBaseFeatureStopCommand, ParaMeshBridgeCommand, ParaMeshCalculateFaceGroupsCommand, ParaMeshCloseCracksCommand, ParaMeshCombineCommand, ParaMeshConvertCommand, ParaMeshCreateFaceGroupCommand, ParaMeshEmptyBaseFeatureCommand, ParaMeshEraseAndFillCommand, ParaMeshExtractCommand, ParaMeshHollowCommand, ParaMeshMergeFaceGroupsCommand, ParaMeshPlanarSectionCommand, ParaMeshPlaneCutCommand, ParaMeshReduceCommand, ParaMeshRemeshCommand, ParaMeshRemoveCommand, ParaMeshRepairCommand, ParaMeshReverseNormalsCommand, ParaMeshScaleCommand, ParaMeshShowSelectionPanelCmd, ParaMeshSmoothBoundaryCommand, ParaMeshSmoothCommand, ParaMeshTessellateCommand, ParaMeshTextureCommand, ParaMeshToQuadMeshCommand, FacegroupsToggleCmd, FitCurvesToSectionCommand |
+| sheetmetal | FusionSheetMetalRulesCommand, FusionSheetMetalRulesLibraryCommand, FusionSheetMetalFlangeCommand, FusionSheetMetalHemFlangeCommand, FusionSheetMetalLoftCommand, FusionSheetMetalJogCommand, SheetMetalFoldCmd, FusionSheetmetalUnfoldCommand, FusionSheetmetalRefoldCommand, FusionSheetMetalRipCommand, FusionSheetMetalCornerCommand, FusionSheetMetalFilletCommand, FusionSheetMetalChamferCommand, FusionJoinByBendCommand, ConvertToSheetMetalCmd, FusionSheetMetalFlatPatternCmd, ExportFlatPatternCmd, FusionSheetMetalExitFlatPatternCmd |
+| plastic | FusionRibCommand, FusionWebCommand, EmbossCmd, FusionBossCommand, FusionLipCommand, FusionRestCommand, FusionSnapFitCommand, FusionAssignPlasticRuleCommand, FusionManagePlasticRuleCommand |
+| createx | StockModelCommand, EnclosureCommand, PatternOnPath, FusionPatternGeometricCommand, CoordinateSystemCommand, VolFieldCreateLatticeCommand, VolFieldTextureCommand |
+| solidx | FusionOffsetFacesCommand, FusionReplaceFaceCommand, FusionSplitFaceCommand, EditFaceCommand, FusionRemoveFacesCommand, FusionRemoveFeaturesCommand, AlignCmd, BaseFeatureCreationCommand, BaseFeatureStop, AutomatedModelingCommand, ConstructionAxisFromTwoPlanesCommand, ConstructionAxisNormalToFaceCommand, ConstructionAxisThroughCylinderCommand, ConstructionAxisThroughEdgeCommand, ConstructionAxisThroughTwoPointsCommand, ConstructionPlaneAlongPathCommand, ConstructionPlaneFromThreePointsCommand, ConstructionPlaneFromTwoEdgesCommand, ConstructionPlanePerpendicularToPlaneCommand, ConstructionTangentPlaneCommand, ConstructionPointAlongPathCommand, ConstructionPointAtEdgeAndPlaneCommand, ConstructionPointFromCircleOrSphereCommand, ConstructionPointFromPointCommand, ConstructionPointFromThreePlanesCommand, ConstructionPointThroughTwoEdgesCommand |
+| form | TSplineBaseFeatureCreationCommand, TSplineBaseFeatureStop, TSplinePrimitiveBoxCommand, TSplinePrimitivePlaneCommand, TSplinePrimitiveCylinderCommand, TSplinePrimitiveSphereCommand, TSplinePrimitiveTorusCommand, TSplinePrimitiveQuadBallCommand, TSplinePrimitivePipe, TSplineAppendFaceCommand, TSplineExtrudeCommand, TSplineRevolveCommand, TSplineSweepCommand, TSplineLoft, TSplineEditCommand, TSplineEditByCurveCmd, TSplineInsertEdgeCommand, TSplineSubsetCmd, TSplineInsertPointCommand, TSplineMergeEdgeCmd, TSplineBridgeSubDCmd, TSplineFillHoleCmd, TSplineEraseAndFillCmd, TSplineWeldCommand, TSplineUnWeldCommand, TSplineCreasedEdgeCommand, TSplineUnCreaseEdgeCmd, TSplineBevelEdgeCommand, TSplineSlideEdgeCommand, TSplineSmoothCmd, TSplineCylindrifyCmd, TSplinePullSubDCmd, TSplineFlattenSubDCmd, TSplineStraightenCmd, TSplineMatchCmd, TSplineInterpolateSubDCmd, TSplineThickenCommand, TSplineFreezeCmd, TSplineUnFreezeCmd, TSplineInternalMirrorSymmetryCmd, TSplineInternalCircularSymmetryCmd, TSplineReflectionMirrorSymmetryCmd, TSplineReflectionCircularSymmetryCmd, TSplineClearSymmetryCommand, TSplineIsolateSymmetryCmd, TSplineToggleTessModeCmd, TSplineRepairBodyCmd, TSplineMakeUniformCmd, TSpline2BRepCommand, TSplineCapSettingCommand, TSplineImportCommand, TSplineSaveAsTSMCommand |
 
 ## DOM test hooks (keep these stable: e2e tests rely on them)
 * Any button/menu item that runs a command: `data-cmd="<commandId>"`.
@@ -470,5 +510,5 @@ the rest hidden aliases. A real registration replaces a stub; a stub never repla
    writing); test with `--only=` builds so unfinished modules don't break you.
 3. Never copy files from the Fusion install into the repo; read them in place as evidence. Names, layout,
    behaviour, shortcuts and colours may be reproduced; logos and icon artwork may not.
-4. Help → About must say "Unofficial hackathon recreation — not affiliated with or endorsed by Autodesk".
+4. Help → About must say "Unofficial hackathon recreation: not affiliated with or endorsed by Autodesk".
 5. localStorage access must be wrapped in try/catch (the app may run in a sandboxed iframe).

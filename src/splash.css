@@ -1,5 +1,5 @@
 /* Loading screen (owned by packaging; markup in index.html, driven by src/main.js).
-   Neutral, Fusion-like light card. No Autodesk logo or wordmark — just "Design" and the disclaimer.
+   Neutral, Fusion-like light card. No Autodesk logo or wordmark: just "Design" and the disclaimer.
    Bundled into app.css (render-blocking <link> in <head>), so it is styled at first paint. */
 #splash {
   position: fixed; inset: 0; z-index: 2000;

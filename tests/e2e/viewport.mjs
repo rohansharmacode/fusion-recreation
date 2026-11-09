@@ -7,7 +7,7 @@ const h = await launch({ only, outDir: process.env.VP_OUT || "build/viewport", p
 const { page } = h;
 let fails = 0;
 const check = (name, cond, extra = "") => {
-  console.log(`${cond ? "PASS" : "FAIL"} ${name}${extra ? ` — ${extra}` : ""}`);
+  console.log(`${cond ? "PASS" : "FAIL"} ${name}${extra ? ` - ${extra}` : ""}`);
   if (!cond) fails++;
 };
 const settle = async (ms = 450) => { await page.waitForTimeout(ms); await h.frames(3); };

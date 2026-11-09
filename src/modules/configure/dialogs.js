@@ -31,7 +31,7 @@ export function openConfigure(app, ctl, target) {
   const dlgApi = app.ui.dialog;
   const id = target.kind === "body" ? "ConfigureEntityCmd" : "ConfigureFeatureCmd";
   if (!dlgApi || !dlgApi.open) {
-    // no dialog framework (stubbed build): configure every unconfigured aspect directly
+    // no dialog framework (stubbed build): keep the configured aspects and configure the last one directly
     const want = aspects.map((a, i) => values[`a${i}`] || i === aspects.length - 1);
     ctl.setAspects(target, aspects, want);
     return null;

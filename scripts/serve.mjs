@@ -77,7 +77,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const port = Number(args.port || (args.release ? 5174 : 5173));
   const artifact = !!args.artifact;
   if (!fs.existsSync(path.resolve(root, dir, "index.html"))) {
-    console.error(`${dir}/index.html not found — build first (npm run ${dir === "release" ? "release" : "build"})`);
+    console.error(`${dir}/index.html not found: build first (npm run ${dir === "release" ? "release" : "build"})`);
     process.exit(1);
   }
   serve({ dir, port, artifact, quiet: !args.verbose }).then(() => {

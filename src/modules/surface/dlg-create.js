@@ -401,7 +401,7 @@ const CELL_COLORS = { on: "#3d8bff", off: "#9aa4b2" };
 export function openBoundaryFill(app, opts = {}) {
   const f0 = edit(app, opts);
   let cache = { key: "", cells: [] };
-  const toolsKey = (v) => JSON.stringify((v.tools || []).map((r) => r.kind + (r.body || r.name || r.id || "")));
+  const toolsKey = (v) => JSON.stringify(v.tools || []); // the whole refs: unnamed planes must not share a key
   /** Cells of the current tools in the base state (cached per tool set). */
   const cellsOf = (dlg) => {
     const key = toolsKey(dlg.values);

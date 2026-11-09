@@ -75,6 +75,8 @@ plane = model.js planeRef; toolRef `{kind:'face', body, p, n} | {kind:'origin', 
   model.js `moveOccurrence` (components contract); root bodies move directly.
 * Base Feature: features made inside are ordinary while you work; FINISH BASE FEATURE stores the bodies they made or
   changed as BRep text in the base feature and removes them (sketches and construction geometry stay).
-* Edit Face works on four-sided faces; the boundary stays fixed so the body stays closed.
+* Edit Face works on four-sided faces; the boundary stays fixed so the body stays closed. `moves` are surface
+  displacements at the grid nodes: the control displacements solve the separable Bernstein system, so the face passes
+  through each dragged handle.
 * Automated Modeling is local (Fusion uses a cloud solver): smooth / ruled loft through the face outlines or round
   struts between the face centres, with the Bodies to Avoid cut away.

@@ -15,18 +15,18 @@
 //   status text: renders app.status bottom-right ('status' events) and sets it for canvas
 //     selection / pre-highlight ("Body1", "Face", "Edge", "2 Edges", "Extrude1"); vp.refreshStatus()
 //   objectVisibility {origins, bodies, sketches, sketchDimensions, constructionPlanes} /
-//     setObjectVisibility(key, bool) — emits 'viewport-visibility'
+//     setObjectVisibility(key, bool): emits 'viewport-visibility'
 //   gridSettings {visible, lock, snap, adaptive, major, subdivisions, incremental, linearIncrement,
 //     angularIncrement} (emits 'viewport-grid' on change), gridSpacing() = current minor spacing,
 //     setGridPlane(plane|null) to override where the layout grid is drawn (default: XY, or the
 //     active sketch plane while sketching)
-//   addWindowSelectProvider(fn(region) -> refs[]) — region {kind:'window'|'crossing', rect,
+//   addWindowSelectProvider(fn(region) -> refs[]): region {kind:'window'|'crossing', rect,
 //     polygon, inside(x,y), segmentTouches(ax,ay,bx,by)} in canvas CSS px
 //   selectionMode ('window'|'freeform'|'paint'), selectionPriority ('face'|'body'|'edge')
 //   anchorAt(x,y) -> world point under the cursor (body hit or target depth)
 //   overlayScene                groups.overlay lives here and is drawn after a depth clear (always on top)
 //   viewCube, navbar, menu, size(), isAnimating(), stats.frames
-// Note: `camera` returns the perspective OR orthographic camera depending on the mode — read it
+// Note: `camera` returns the perspective OR orthographic camera depending on the mode: read it
 // each time instead of caching it.
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";

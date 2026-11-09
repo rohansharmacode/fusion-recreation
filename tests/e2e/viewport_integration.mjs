@@ -6,7 +6,7 @@ import { launch } from "./harness.mjs";
 const h = await launch({ outDir: process.env.VP_OUT || "build/viewport-all", port: Number(process.env.VP_PORT) || 5311, shots: process.env.VP_SHOTS || "tests/e2e/out/viewport" });
 const { page } = h;
 let fails = 0;
-const check = (name, cond, extra = "") => { console.log(`${cond ? "PASS" : "FAIL"} ${name}${extra ? ` — ${extra}` : ""}`); if (!cond) fails++; };
+const check = (name, cond, extra = "") => { console.log(`${cond ? "PASS" : "FAIL"} ${name}${extra ? ` - ${extra}` : ""}`); if (!cond) fails++; };
 try {
   await page.waitForTimeout(500);
   const idle = async () => {

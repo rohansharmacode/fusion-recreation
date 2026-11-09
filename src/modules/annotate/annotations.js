@@ -72,7 +72,7 @@ function noteSpec(f, ctx) {
   const R0 = R[0];
   const T = R0 ? R0.point : f.target;
   if (!T) return null;
-  const pl = R0 ? planeFor(f, state, R) : { n: f.plane.n, x: f.plane.x };
+  const pl = R0 ? planeFor(f, state, R) : f.plane ? { n: f.plane.n, x: f.plane.x } : { n: [0, 0, 1], x: [1, 0, 0] };
   const H = H_OF(settings);
   const ext = evalExpr(ctx.P, f.ext);
   const block = { kind: "text", lines: String(f.text ?? "").split("\n"), align: f.hAlign || "left" };
@@ -288,7 +288,7 @@ function gdtSpec(f, ctx) {
   const R0 = R[0];
   const T = R0 ? R0.point : f.target;
   if (!T) return null;
-  const pl = R0 ? planeFor(f, state, R) : { n: f.plane.n, x: f.plane.x };
+  const pl = R0 ? planeFor(f, state, R) : f.plane ? { n: f.plane.n, x: f.plane.x } : { n: [0, 0, 1], x: [1, 0, 0] };
   const ext = evalExpr(ctx.P, f.ext);
   return {
     id: f.id, orphan: lost || !R0, warning: lost || !R0 ? MSG_LOST : null, selRefs: R0 ? [R0.selRef] : [], plane: pl, target: T,

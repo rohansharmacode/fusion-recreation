@@ -64,7 +64,9 @@ export function assignItemNumbers(app, keys, scheme = "default") {
   if (!todo.length) return [];
   return app.mutate("Assign Item Number", (doc) => {
     const p = ensure(doc);
-    return todo.map((k) => { p.items[k] = newItem(p, scheme, nameOf(app, k)); return p.items[k].itemNumber; });
+    // scheme: one scheme id, or {componentKey: scheme id} (the dialog's per-row choice): one undo step for all
+    const sch = (k) => (scheme && typeof scheme === "object" ? scheme[k] || "default" : scheme);
+    return todo.map((k) => { p.items[k] = newItem(p, sch(k), nameOf(app, k)); return p.items[k].itemNumber; });
   }, { recompute: false });
 }
 export function quickRelease(app, keys) {
@@ -167,7 +169,7 @@ function openAssign(app) {
     body: el("div", { class: "mg-pim" }, el("div", { class: "mg-note", html: `${GL.info}<span>${esc(note)}</span>` }), table(["", "", "Part Name", "Numbering Scheme", "Item Number"], rows)),
     buttons: [
       { action: "ok", label: "Assign", primary: true, disabled: !todo.length || configured(app), onClick: () => {
-        try { const nums = todo.flatMap((k) => assignItemNumbers(app, [k], scheme[k])); app.toast(`Item number${nums.length === 1 ? "" : "s"} assigned: ${nums.join(", ")}`, "info", 3500); refreshPalette(app); return true; } catch (e) { return failToast(app, e); }
+        try { const nums = assignItemNumbers(app, todo, scheme); app.toast(`Item number${nums.length === 1 ? "" : "s"} assigned: ${nums.join(", ")}`, "info", 3500); refreshPalette(app); return true; } catch (e) { return failToast(app, e); }
       } },
       { action: "cancel", label: "Cancel" },
     ],

@@ -38,7 +38,7 @@ Section Sketch, Fit Curves to Mesh Section), `style.css`.
 | ParaMeshExtractCommand | Separate | meshSeparate (MeshSeparate) | Body, Type (Mesh Shells / All Face Groups / Select Face Groups / Select Faces), Face Groups, Faces, Multiple Bodies, Keep Body, Preview |
 | ParaMeshScaleCommand | Scale Mesh | meshScale (Scale) | Entities, Point, Scale Type, Scale Factor / X / Y / Z Scale (arrow) |
 | ParaMeshRemoveCommand | Remove | meshRemove (MeshRemove) | Body |
-| ParaMeshConvertCommand | Convert Mesh | meshConvert (Convert Mesh) | Body, Operation (Parametric / Base Feature), Method (Faceted / Prismatic; Organic disabled), Preview. New B-rep body (solid when closed, surface otherwise); the mesh is hidden |
+| ParaMeshConvertCommand | Convert Mesh | meshConvert (Convert Mesh) | Body, Operation (Parametric / Base Feature), Method (Faceted / Prismatic / Organic), Preview. New B-rep body (solid when closed, surface otherwise); the mesh is hidden |
 | ParaMeshToQuadMeshCommand | Convert To Quad Mesh | meshQuad (MeshToQuadMesh) | Body/Face Groups, Target Edge Length, Preserve Sharp Edges, Preserve Boundaries, Preview. Quad edges drawn from `mesh.quadPair` |
 | ParaMeshBaseFeatureCreateCommand | Direct Edit | meshBase (BaseMeshFeature) | Body: enters DIRECT MESH EDITING on a snapshot of the body |
 | ParaMeshBaseFeatureStopCommand | Finish Direct Edit | | `when:'meshedit'` |
@@ -73,5 +73,7 @@ attract, orient, analyze ...) and `csg.js` `boolean(A, B, 'join'|'cut'|'intersec
 (`fromMesh` / `toMesh`). Node test: `tests/e2e/out/mesh/algo-test.mjs`.
 
 ## Limits
-Organic conversion (T-Spline) is not available. Shell offsets vertices along mitred normals (very thick walls on
+Organic conversion turns the mesh into a T-spline cage (quad pairs from Convert To Quad Mesh become quads, other triangles
+stay triangles) and converts it with the form module's `cageToShape`: the body is the smooth limit surface, so it sits a
+little inside the mesh; up to 2,000 cage faces. Shell offsets vertices along mitred normals (very thick walls on
 concave regions can self-intersect). Booleans need closed meshes (Repair first). Convert Mesh accepts up to 20000 faces.

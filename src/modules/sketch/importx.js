@@ -18,6 +18,7 @@ function pickFile(accept) {
     inp.type = "file";
     inp.accept = accept;
     inp.style.display = "none";
+    inp.addEventListener("cancel", () => { inp.remove(); resolve(null); }); // picker dismissed
     inp.addEventListener("change", () => {
       const f = inp.files && inp.files[0];
       inp.remove();

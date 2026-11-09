@@ -70,7 +70,7 @@ export const store = {
     const s = ls();
     if (s) {
       try { s.setItem(key, value); return true; } catch (e) {
-        if (e && (e.name === "QuotaExceededError" || /quota/i.test(e.message || ""))) throw new Error("Browser storage is full — delete some saved designs and try again");
+        if (e && (e.name === "QuotaExceededError" || /quota/i.test(e.message || ""))) throw new Error("Browser storage is full: delete some saved designs and try again");
       }
     }
     memory.set(key, value);

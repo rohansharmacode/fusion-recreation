@@ -12,7 +12,7 @@ export const REFINEMENT = { low: { dev: 0.002, ang: 20 }, medium: { dev: 0.0006,
 export function tessellate(K, shape, { dev, ang, maxEdge = 0 } = {}) {
   const bb = K.bboxOf(shape);
   const size = bb ? Math.hypot(bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]) : 100;
-  const m = shape.mesh({ tolerance: Math.max(1e-4, dev || size * 0.0006), angularTolerance: Math.max(0.5, ang || 10) });
+  const m = shape.mesh({ tolerance: Math.max(1e-4, dev || size * 0.0006), angularTolerance: (Math.max(0.5, ang || 10) * Math.PI) / 180 }); // OCCT's angular deflection is in radians
   const P = Array.from(m.vertices);
   const T = Array.from(m.triangles);
   const G = new Array(T.length / 3).fill(0);

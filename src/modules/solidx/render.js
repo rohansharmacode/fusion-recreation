@@ -200,6 +200,14 @@ export function createConstructionView(app) {
       const s = vp.toScreen(p);
       return s ? [s[0], s[1]] : null;
     },
-    dispose() { offs.forEach((o) => o && o()); removePick(); clear(); vp.groups.construction.remove(root); },
+    dispose() {
+      offs.forEach((o) => o && o()); removePick(); clear(); vp.groups.construction.remove(root);
+      if (previewPlane) {
+        vp.groups.construction.remove(previewPlane);
+        previewPlane.traverse((x) => { try { if (x.geometry) x.geometry.dispose(); if (x.material) x.material.dispose(); } catch { /* ignore */ } });
+        previewPlane = null;
+      }
+      if (tex) { try { tex.dispose(); } catch { /* ignore */ } tex = null; }
+    },
   };
 }

@@ -1,4 +1,4 @@
-// Change Parameters — Fusion's PARAMETERS dialog (2706 layout, light theme):
+// Change Parameters: Fusion's PARAMETERS dialog (2706 layout, light theme):
 //   top row: filter toggles (fx all · user fx · ★ favourites), "Filter all parameters",
 //            + (add user parameter), copy, delete, import, export, ☑ Automatic Compute
 //   columns: Parameter ▾ | Name | Unit | Expression | Value | Comments

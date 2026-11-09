@@ -97,19 +97,55 @@ export async function parse3MF(buf) {
   }
   if (!models.length) throw new Error("The 3MF file contains no 3D model");
   const out = [];
-  for (const xml of models) {
-    for (const mesh of xml.split(/<mesh[\s>]/).slice(1)) {
-      const vs = [];
-      const vr = /<vertex\b([^>]*)\/?>/g;
-      let m;
-      const attr = (s, a) => { const r = new RegExp(`\\b${a}\\s*=\\s*"([^"]*)"`).exec(s); return r ? Number(r[1]) : NaN; };
-      while ((m = vr.exec(mesh))) vs.push([attr(m[1], "x"), attr(m[1], "y"), attr(m[1], "z")]);
-      const tr = /<triangle\b([^>]*)\/?>/g;
-      while ((m = tr.exec(mesh))) {
-        const a = vs[attr(m[1], "v1")], b = vs[attr(m[1], "v2")], c = vs[attr(m[1], "v3")];
-        if (a && b && c) out.push(...a, ...b, ...c);
-      }
+  const attr = (s, a) => { const r = new RegExp(`\\b${a}\\s*=\\s*"([^"]*)"`).exec(s); return r ? Number(r[1]) : NaN; };
+  const sattr = (s, a) => { const r = new RegExp(`\\b${a}\\s*=\\s*"([^"]*)"`).exec(s); return r ? r[1] : null; };
+  // 3MF transforms are 12 numbers in row-vector order: p' = [x y z 1] * M (3x4 written by rows m00 m01 m02 m10 ...)
+  const parseT = (s) => { const t = s && s.trim().split(/\s+/).map(Number); return t && t.length === 12 && t.every(Number.isFinite) ? t : null; };
+  const mulT = (a, b) => { // a then b
+    if (!a) return b; if (!b) return a;
+    const r = new Array(12);
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) r[i * 3 + j] = a[i * 3] * b[j] + a[i * 3 + 1] * b[3 + j] + a[i * 3 + 2] * b[6 + j] + (i === 3 ? b[9 + j] : 0);
+    return r;
+  };
+  const meshTris = (mesh, T) => {
+    const vs = [];
+    const vr = /<vertex\b([^>]*)\/?>/g;
+    let m;
+    while ((m = vr.exec(mesh))) {
+      const x = attr(m[1], "x"), y = attr(m[1], "y"), z = attr(m[1], "z");
+      vs.push(T ? [x * T[0] + y * T[3] + z * T[6] + T[9], x * T[1] + y * T[4] + z * T[7] + T[10], x * T[2] + y * T[5] + z * T[8] + T[11]] : [x, y, z]);
     }
+    const tr = /<triangle\b([^>]*)\/?>/g;
+    while ((m = tr.exec(mesh))) {
+      const a = vs[attr(m[1], "v1")], b = vs[attr(m[1], "v2")], c = vs[attr(m[1], "v3")];
+      if (a && b && c) out.push(...a, ...b, ...c);
+    }
+  };
+  for (const xml of models) {
+    // objects: <object id=".."> holding a <mesh> or <components> (component objectid + transform)
+    const objects = new Map();
+    const or = /<object\b([^>]*)>([\s\S]*?)<\/object>/g;
+    let m;
+    while ((m = or.exec(xml))) {
+      const id = sattr(m[1], "id");
+      const body = m[2];
+      const comps = [];
+      const cr = /<component\b([^>]*)\/?>/g;
+      let c;
+      while ((c = cr.exec(body))) comps.push({ obj: sattr(c[1], "objectid"), T: parseT(sattr(c[1], "transform")) });
+      objects.set(id, { mesh: /<mesh[\s>]/.test(body) ? body : null, comps });
+    }
+    const items = [];
+    const ir = /<item\b([^>]*)\/?>/g;
+    while ((m = ir.exec(xml))) items.push({ obj: sattr(m[1], "objectid"), T: parseT(sattr(m[1], "transform")) });
+    const emit = (id, T, depth) => {
+      const o = objects.get(id);
+      if (!o || depth > 16) return;
+      if (o.mesh) meshTris(o.mesh, T);
+      for (const c of o.comps) emit(c.obj, mulT(c.T, T), depth + 1);
+    };
+    if (items.length && objects.size) for (const it of items) emit(it.obj, it.T, 0);
+    else for (const mesh of xml.split(/<mesh[\s>]/).slice(1)) meshTris(mesh, null);
   }
   if (!out.length) throw new Error("The 3MF file contains no triangles");
   return Float32Array.from(out);
@@ -163,6 +199,7 @@ export function openInsertMesh(app, store, view, opts = {}) {
   let staged = null; // tmp: id of the parsed file's data
   let loadError = null;
   let dlgRef = null;
+  let readTicket = 0;
   if (f0) {
     // editing: the stored data stands in for the file until another one is chosen
     const md = M.meshDataOf(app.doc, f0.data);
@@ -177,8 +214,9 @@ export function openInsertMesh(app, store, view, opts = {}) {
     const f = fileInput.files && fileInput.files[0];
     fileInput.value = "";
     if (!f || !dlgRef || dlgRef.closed) return;
+    const ticket = ++readTicket;
     readMeshFile(f).then((r) => {
-      if (dlgRef.closed) return;
+      if (dlgRef.closed || ticket !== readTicket) return; // a newer pick superseded this read
       if (staged) M.unstageMeshData(staged);
       mesh = r;
       staged = M.stageMeshData({ positions: r.positions, indices: r.indices });
@@ -187,7 +225,7 @@ export function openInsertMesh(app, store, view, opts = {}) {
       dlgRef.refresh();
       dlgRef.previewNow();
     }).catch((e) => {
-      if (dlgRef.closed) return;
+      if (dlgRef.closed || ticket !== readTicket) return;
       loadError = e.message || String(e);
       dlgRef.refresh();
       dlgRef.previewNow();
@@ -337,8 +375,11 @@ export function openInsertMesh(app, store, view, opts = {}) {
           const f = doc.features.find((x) => x.id === editId);
           if (!f) throw new Error("The mesh feature no longer exists");
           const patch = { ...def };
+          const old = f.data;
           if (fresh) patch.data = M.storeMeshData(doc, fresh); else patch.data = f.data;
           Object.assign(f, patch);
+          // a new file replaces the triangles: drop the old record unless something else still refers to it
+          if (fresh && old && old !== f.data && doc.meshData && doc.meshData[old] && !JSON.stringify(doc.features).includes(`"${old}"`)) delete doc.meshData[old];
           if (fresh && doc.bodies[f.newBody]) doc.bodies[f.newBody].name = name;
           return f;
         });

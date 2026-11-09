@@ -278,9 +278,13 @@ export function subdivideFaces(c, faceIdx, { k = 2, exact = false } = {}) {
     P.push(faceCentroid(c, f));
     if (exact) targets.push([C, lim(nv + ne + f)]);
     const quads = [];
+    // corner regions to the centre: every edge point is used (the neighbours get all of them too, so no
+    // T-junction cracks); edge point s (the middle one) is shared by the two regions of each edge
+    const m = k - 1, s = Math.ceil((m - 1) / 2);
     for (let i = 0; i < n; i++) {
       const a = fc[i], b = fc[(i + 1) % n], p = fc[(i + n - 1) % n];
-      quads.push([a, pts(a, b)[0], C, pts(p, a)[0]]);
+      const ab = pts(a, b), pa = pts(p, a);
+      quads.push([a, ...ab.slice(0, s + 1), C, ...pa.slice(s)]);
     }
     F[f] = quads[0];
     for (const q of quads.slice(1)) { newFaces.push(F.length); F.push(q); }
@@ -337,7 +341,9 @@ export function insertPoint(c, A, B) {
   F[g] = fc.slice(0, j + 1);
   F.push([...fc.slice(j), a]);
   const cs = new Set((c.crease || []).map(([u, w]) => ek(u, w)));
-  const crease = [...(c.crease || [])];
+  // a creased edge that got a point is replaced by its two halves (the old pair would name a gone edge)
+  const split = new Set([[A, a], [B, b]].filter(([q]) => q.v === undefined && cs.has(ek(q.a, q.b))).map(([q]) => ek(q.a, q.b)));
+  const crease = (c.crease || []).filter(([u, w]) => !split.has(ek(u, w)));
   for (const [q, x] of [[A, a], [B, b]]) if (q.v === undefined && cs.has(ek(q.a, q.b))) crease.push([q.a, x], [x, q.b]);
   return { cage: finish(c, P, F, { crease }), edge: [a, b] };
 }
@@ -543,7 +549,12 @@ export function eraseAndFill(c, faceIdx, mode = "reduced") {
   let cur = del.cage;
   const loops = boundaryLoops(cur).filter((l) => l.some((v) => !before.has(del.vmap.indexOf(v))));
   if (!loops.length) throw new Error("Erasing these faces leaves no hole to fill");
-  for (const l of loops) {
+  // a collapse welds and renumbers the cage: the next hole is found again by vertex position each time
+  const pkey = (p) => p.map((x) => x.toFixed(6)).join(",");
+  const oldBoundary = new Set([...before].map((v) => pkey(c.v[v])));
+  for (let n = 0; n < loops.length; n++) {
+    const l = n === 0 ? loops[0] : boundaryLoops(cur).find((L) => L.some((v) => !oldBoundary.has(pkey(cur.v[v]))));
+    if (!l) break;
     const P = cur.v.map((p) => p.slice()), F = cur.f.map((x) => x.slice());
     const r = fillLoop(P, F, l, mode);
     cur = r.collapse ? weld({ ...cur, v: P, f: F }, r.collapse, { mode: "mid" }) : tidy({ ...cur, v: P, f: F });

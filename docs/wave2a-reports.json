@@ -901,5 +901,135 @@
         "problem": "Automatic snap fit stores placeholder point id 'o'."
       }
     ]
+  },
+  "review:form": {
+    "findings": [
+      {
+        "file": "src/modules/form/ops.js",
+        "line": 283,
+        "severity": "medium",
+        "problem": "subdivideFaces on non-quad faces with count > 2 uses only the first edge point while neighbours get all k-1 (296-297): T-junction cracks."
+      },
+      {
+        "file": "src/modules/form/ops.js",
+        "line": 549,
+        "severity": "medium",
+        "problem": "eraseAndFill collapse: weld() compacts indices, loops from 544 are stale for later holes."
+      },
+      {
+        "file": "src/modules/form/cmd-modify.js",
+        "line": 99,
+        "severity": "medium",
+        "problem": "Insert Point exact mode fits to the new control positions, not the old limit points: surface shifts."
+      },
+      {
+        "file": "src/modules/form/cmd-create.js",
+        "line": 313,
+        "severity": "medium",
+        "problem": "Extrude of T-spline edges ignores Direction, back distance and Taper (353-357) silently."
+      },
+      {
+        "file": "src/modules/viewport/bodies.js",
+        "line": 363,
+        "severity": "medium",
+        "problem": "Body group rebuild/removal does not dispose o.extra; renderCage (form/view.js 43-100) leaks GPU objects every preview (also 387)."
+      },
+      {
+        "file": "src/modules/form/index.js",
+        "line": 130,
+        "severity": "medium",
+        "problem": "Delete of a converted form body falls back to the original delete but the body stays in the Form feature and reappears on recompute (uncertain, check)."
+      },
+      {
+        "file": "src/modules/form/cmd-edit.js",
+        "line": 227,
+        "severity": "low",
+        "problem": "d._drag cleared only on a final callback; a drag without one blocks later drags."
+      },
+      {
+        "file": "src/modules/form/cmd-edit.js",
+        "line": 322,
+        "severity": "low",
+        "problem": "edgeLoop/edgeRing called with -1 for a stale edge ref (also 331): TypeError."
+      },
+      {
+        "file": "src/modules/form/cmd-create.js",
+        "line": 350,
+        "severity": "low",
+        "problem": "extrudeTsEdges does not check cageOf result or edge existence."
+      },
+      {
+        "file": "src/modules/form/brep.js",
+        "line": 216,
+        "severity": "low",
+        "problem": "Evicted cage shapes not deleted (OCC leak)."
+      },
+      {
+        "file": "src/modules/form/brep.js",
+        "line": 161,
+        "severity": "low",
+        "problem": "Open-shell branch of sewFaces does not delete cast shells."
+      },
+      {
+        "file": "src/modules/form/brep.js",
+        "line": 213,
+        "severity": "low",
+        "problem": "seedBBox from sample points + 0.2% may not cover patches between samples."
+      },
+      {
+        "file": "src/modules/form/cmd-sym.js",
+        "line": 78,
+        "severity": "low",
+        "problem": "Mirror/Circular - Duplicate replaces the body instead of duplicating (also 98)."
+      },
+      {
+        "file": "src/modules/form/common.js",
+        "line": 113,
+        "severity": "low",
+        "problem": "dlg.formChange not reset when compute() throws; OK can commit the previous change."
+      },
+      {
+        "file": "src/modules/form/cmd-util.js",
+        "line": 190,
+        "severity": "low",
+        "problem": "Convert makes one undo step per body."
+      },
+      {
+        "file": "src/modules/form/ops.js",
+        "line": 341,
+        "severity": "low",
+        "problem": "insertPoint keeps a stale crease pair of the split edge."
+      },
+      {
+        "file": "src/modules/form/ops.js",
+        "line": 747,
+        "severity": "low",
+        "problem": "analyze() hard-codes tpoints: 0 shown as a real metric."
+      },
+      {
+        "file": "src/modules/form/cmd-create.js",
+        "line": 118,
+        "severity": "low",
+        "problem": "Identical ternary branches, duplicate imports (8), void-suppressed imports (465)."
+      },
+      {
+        "file": "src/modules/form/cmd-util.js",
+        "line": 90,
+        "severity": "low",
+        "problem": "Dead code and pre/bodyRefs/bodyPre duplicated in cmd-modify.js:11, cmd-sym.js:8, cmd-util.js:12."
+      },
+      {
+        "file": "src/modules/form/tsm.js",
+        "line": 17,
+        "severity": "low",
+        "problem": "writeTSM drops frozen and iso lists."
+      },
+      {
+        "file": "tests/e2e/scenarios/form.mjs",
+        "line": 301,
+        "severity": "low",
+        "problem": "Insert Point check nearly vacuous (+1 or 5)."
+      }
+    ]
   }
 }

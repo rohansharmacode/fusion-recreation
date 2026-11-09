@@ -56,7 +56,7 @@ The current default "Light Gray" theme is the Weave/HIG theme (`HIGLightTheme.xb
 - [ ] Tooltips have background `#EFEFEF→#ECECEC` and border `#606060` `[HIG]`.
 - [ ] The UI font is Artifakt Element, a sans-serif. Fall back to Segoe UI. Base size is about 12 px and panel labels about 11 px `[K]`.
 - [ ] Nothing shows an Autodesk logo, wordmark or the original icon artwork (ARCHITECTURE rule). Help → About says
-      "Unofficial hackathon recreation — not affiliated with or endorsed by Autodesk".
+      "Unofficial hackathon recreation: not affiliated with or endorsed by Autodesk".
 
 ## 1. Application bar (top strip)
 

@@ -207,7 +207,7 @@ function thinFeature(kind, st, f, P, doc) {
       const cur = st.bodies.get(j.id);
       const res = G.filletJunction(cur.shape, tool, j.before, r);
       if (res.shape !== cur.shape) st.bodies.set(j.id, { ...cur, shape: res.shape });
-      if (res.warning) warning = res.warning;
+      if (res.warning) warning = warning ? `${warning}. ${res.warning}` : res.warning; // keep a draft warning too
     }
     K.del(tool);
     return { affected: j.ids, ...(warning ? { warning } : {}) };

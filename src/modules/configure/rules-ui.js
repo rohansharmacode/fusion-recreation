@@ -246,14 +246,14 @@ export function openRules(app, ctl) {
     if (type === "number") {
       if (b.op === "range") {
         const v = b.value && typeof b.value === "object" && !Array.isArray(b.value) ? b.value : (b.value = {});
-        wrap.append(h("span", { class: "cfg-rb-kw2", text: "min" }), numInput(v.min, (n) => { if (n === null) delete v.min; else v.min = n; }, "—"),
-          h("span", { class: "cfg-rb-kw2", text: "max" }), numInput(v.max, (n) => { if (n === null) delete v.max; else v.max = n; }, "—"));
-        if (isSet) wrap.append(h("span", { class: "cfg-rb-kw2", text: "increment" }), numInput(v.step, (n) => { if (n === null) delete v.step; else v.step = n; }, "—"));
+        wrap.append(h("span", { class: "cfg-rb-kw2", text: "min" }), numInput(v.min, (n) => { if (n === null) delete v.min; else v.min = n; }, "-"),
+          h("span", { class: "cfg-rb-kw2", text: "max" }), numInput(v.max, (n) => { if (n === null) delete v.max; else v.max = n; }, "-"));
+        if (isSet) wrap.append(h("span", { class: "cfg-rb-kw2", text: "increment" }), numInput(v.step, (n) => { if (n === null) delete v.step; else v.step = n; }, "-"));
       } else if (b.op === "anyOf") {
         const i = h("input", { class: "cfg-rx-list", value: Array.isArray(b.value) ? b.value.join(", ") : "", placeholder: "10, 20, 30", spellcheck: "false" });
         i.addEventListener("click", stop);
         i.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Enter") i.blur(); });
-        i.addEventListener("change", () => { b.value = i.value.split(/[,;\s]+/).map((x) => Number(x)).filter(Number.isFinite); banner = null; render(); });
+        i.addEventListener("change", () => { b.value = i.value.split(/[,;\s]+/).filter((x) => x.trim() !== "").map((x) => Number(x)).filter(Number.isFinite); banner = null; render(); });
         wrap.append(i);
       } else wrap.append(numInput(b.value, (n) => { b.value = n; }));
       if (u) wrap.append(h("span", { class: "cfg-rb-unit", text: u }));

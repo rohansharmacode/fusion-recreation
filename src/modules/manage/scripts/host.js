@@ -76,7 +76,6 @@ export function createScriptHost(app) {
     const m = app.ui.modals;
     const job = queue.shift();
     if (!m) { app.toast(job.text, "info", 5000); job.resolve(DialogResults.DialogOK); pump(); return; }
-    showing = true;
     const buttons = {
       [MessageBoxButtonTypes.OKButtonType]: [{ action: "ok", label: "OK", primary: true }],
       [MessageBoxButtonTypes.OKCancelButtonType]: [{ action: "ok", label: "OK", primary: true }, { action: "cancel", label: "Cancel" }],
@@ -85,7 +84,13 @@ export function createScriptHost(app) {
       [MessageBoxButtonTypes.YesNoCancelButtonType]: [{ action: "yes", label: "Yes", primary: true }, { action: "no", label: "No" }, { action: "cancel", label: "Cancel" }],
     }[job.buttons] || [{ action: "ok", label: "OK", primary: true }];
     const kind = ["info", "question", "info", "warning", "error"][job.icon] || "info";
-    m.confirm({ id: "ScriptMessageBox", title: job.title || "Fusion", kind, message: esc(job.text).replace(/\n/g, "<br>"), buttons, width: 440 }).then((a) => {
+    let shown;
+    try { shown = m.confirm({ id: "ScriptMessageBox", title: job.title || "Fusion", kind, message: esc(job.text).replace(/\n/g, "<br>"), buttons, width: 440 }); } catch {
+      // the modal failed: fall back to a toast so the queue keeps moving
+      app.toast(job.text, "info", 5000); job.resolve(DialogResults.DialogOK); pump(); return;
+    }
+    showing = true;
+    Promise.resolve(shown).then((a) => {
       showing = false;
       job.resolve(a === "yes" ? DialogResults.DialogYes : a === "no" ? DialogResults.DialogNo : a === "ok" ? DialogResults.DialogOK : DialogResults.DialogCancel);
       pump();
@@ -180,6 +185,7 @@ export function createScriptHost(app) {
           void positionID; void isBefore;
           const p = panelSpec(id);
           if (!p) throw new ScriptError(`The toolbar panel "${id}" does not exist`);
+          if (!Array.isArray(p.dropdown)) p.dropdown = [];
           if (!p.dropdown.includes(def.id)) p.dropdown.push(def.id);
           controls.push({ panelId: id, id: def.id });
           try { app.ui.toolbar && app.ui.toolbar.refresh(); } catch { /* ignore */ }
@@ -247,7 +253,7 @@ export function createScriptHost(app) {
       const items = [];
       const self = this;
       this.listItems = {
-        add(n, isSelected = false) { const it = { name: String(n), isSelected: !!isSelected, index: items.length, deleteMe() { items.splice(items.indexOf(it), 1); return true; } }; if (isSelected) for (const o of items) o.isSelected = false; items.push(it); return it; },
+        add(n, isSelected = false) { const it = { name: String(n), isSelected: !!isSelected, index: items.length, deleteMe() { const k = items.indexOf(it); if (k < 0) return false; items.splice(k, 1); return true; } }; if (isSelected) for (const o of items) o.isSelected = false; items.push(it); return it; },
         get count() { return items.length; },
         item(i) { return items[i] || null; },
         clear() { items.length = 0; return true; },

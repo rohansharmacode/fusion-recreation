@@ -533,8 +533,11 @@ export class App extends EventTarget {
     if (M.isInstanceId(id)) id = M.instanceBase(id); // bodies of a pasted occurrence share their component's body data
     if (!this.doc.bodies[id] && this.previewing && this._previewMeta && this._previewMeta[id]) return this._previewMeta[id];
     if (!this.doc.bodies[id]) {
-      this.doc.counters.body = (this.doc.counters.body || 0) + 1;
-      this.doc.bodies[id] = { name: `Body${this.doc.counters.body}`, visible: true, appearance: "steel-satin", material: "steel" };
+      // default names share M.nextBody's name counter (counters.bodyName), so names never repeat
+      const c = this.doc.counters;
+      if (c.bodyName === undefined) c.bodyName = c.body || 0;
+      c.bodyName += 1;
+      this.doc.bodies[id] = { name: `Body${c.bodyName}`, visible: true, appearance: "steel-satin", material: "steel" };
     }
     return this.doc.bodies[id];
   }

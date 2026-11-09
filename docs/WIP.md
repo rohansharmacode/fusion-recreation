@@ -21,9 +21,9 @@ ask the user before deploying.
   `src/modules/{animation,simulation,manufacture,generative}` (and their entries in `src/modules.js` and
   `ALL_MODULES` in `scripts/build.mjs`) after wave 1; the workspace switcher shows them as placeholders.
 - Deferred by the user (build last, only if the user approves later): cloud-based features. Leave these as stubs:
-  `PIM*` (item number, release, change orders, dashboard, details), `TaskManagement*`, McMaster-Carr insert,
-  cloud rendering, Data Panel. The note at the top of `src/modules/manage/pim.js` and `tasks.js` says the same; remove the
-  note at the end and keep the ids as stubs.
+  McMaster-Carr insert, cloud rendering, Data Panel.
+- Approved by the user on 2026-11-09: the local equivalents of `PIM*` (item number, release, change orders, dashboard,
+  details) and `TaskManagement*` that the manage builder built (`src/modules/manage/pim.js`, `tasks.js`) stay registered.
 - Token economy: the user wants minimal token use. Use local evidence and local tests; web lookups only when needed.
 
 ## The user's working rules (apply them)
@@ -48,7 +48,13 @@ ask the user before deploying.
 - sketch (remaining sketch tools): DONE on the Windows PC run, reviewed (`build:sketch`, `review:sketch`).
 - foundation part 2 (components): DONE on the Windows PC run (`build:foundation-2`); its review covers parts 1 and 2.
 - Windows PC run (2026-11-09): paths and the shared agent brief are in `docs/workflows/agent-context.md`. Wave 2a (DONE)
-  builders run in parallel; their reports and reviews go to `docs/wave2a-reports.json`. One integration run follows.
+  builders ran in parallel; their reports and reviews are in `docs/wave2a-reports.json`.
+- Integration run (2026-11-09): DONE. All 188 review findings checked (99 fixed, 89 rejected), one line each in
+  `docs/integration-report.md`. Unused module slots removed, CRLF files normalised to LF, no U+2014 left.
+  Engine tests and all 32 QA scenarios pass; release is four files. Booted app: 497 real commands, 528 stubs
+  (61 in Design, 467 in placeholder workspaces).
+- Next: wave 2b (assembly, insertx, PCB tools, rough edges), then wave 3 (Render, Drawing). Also open: the six
+  SURFACE > CREATE primitives (`SurfPrimitive*`) are still stubs.
 - Cloud prep: `tests/e2e/harness.mjs` falls back to Chromium off Windows (or with `QA_BROWSER=chromium`), and
   `docs/fusion-evidence.json` holds command names, short dialog labels and toolbar layouts extracted from the
   local Fusion install by `scripts/fusion-evidence.mjs` (names and labels only). Check both exist; if the harness

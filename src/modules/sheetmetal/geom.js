@@ -54,8 +54,20 @@ export function bendT(d, b) {
 export function flangeM(d, fid) {
   const f = d.flanges[fid];
   if (f && f.M) return f.M; // explicit placement (descriptions of solids that are not sheet metal yet)
-  let m = d.frame;
-  for (const b of chain(d, fid)) m = mul(m, bendT(d, b));
+  // walk up to the root, or to an ancestor with an explicit placement (a flange detached by Rip): the bends
+  // below it are composed onto that placement, so descendants of a detached flange stay where they were
+  const bs = [];
+  let base = d.frame;
+  let g = f, guard = 0;
+  while (g && g.bend && guard++ < 1000) {
+    const b = d.bends[g.bend];
+    if (!b) break;
+    bs.unshift(b);
+    g = d.flanges[b.parent];
+    if (g && g.M) { base = g.M; break; }
+  }
+  let m = base;
+  for (const b of bs) m = mul(m, bendT(d, b));
   return m;
 }
 /** Flat -> world transform that applies to points of bend b's zone (its parent's). */
@@ -573,7 +585,7 @@ export function rebuild(shape, oldD, newD) {
         parts.push(refoldStrip(oldD, newD, b, P.strips.get(src), mpOld, mpNew));
       }
     }
-  } finally {
+  } catch (e) { del(parts); throw e; } finally {
     for (const m of [P.flanges, P.strips, P.bends]) for (const s of m.values()) if (s) del(s);
   }
   if (!parts.length) throw new Error("The sheet metal body has no material left");
@@ -639,7 +651,6 @@ export function flatLoops(solid, fd) {
 export function seedsForPoly(poly, n = 6) {
   const tris = triangulate(poly);
   const pts = tris.map(([a, b, c]) => [(poly[a][0] + poly[b][0] + poly[c][0]) / 3, (poly[a][1] + poly[b][1] + poly[c][1]) / 3]);
-  pts.sort(() => 0);
   const step = Math.max(1, Math.floor(pts.length / n));
   const out = [];
   for (let i = 0; i < pts.length && out.length < n; i += step) out.push(pts[i]);

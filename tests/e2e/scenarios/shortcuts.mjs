@@ -51,7 +51,7 @@ const scenario = defineScenario({
     await t.settle(300);
     const txt = await t.app(() => document.body.innerText);
     t.check("About command registered", about === true);
-    t.check("About says 'Unofficial hackathon recreation — not affiliated with or endorsed by Autodesk'", /unofficial/i.test(txt) && /not affiliated/i.test(txt) && /Autodesk/.test(txt), "text not found");
+    t.check("About says 'Unofficial hackathon recreation: not affiliated with or endorsed by Autodesk'", /unofficial/i.test(txt) && /not affiliated/i.test(txt) && /Autodesk/.test(txt), "text not found");
     await t.shot("about");
     await t.escapeAll();
 

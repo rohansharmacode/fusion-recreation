@@ -1,9 +1,12 @@
 // Original cross-section schematics for the plastic dialogs (Boss, Lip, Snap Fit): they explain the
 // letter labels of the inputs (A, B, ...) like the pictures in Fusion's dialogs. Plain line art.
 const W = 236, H = 112;
-const wrap = (inner) => `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true" class="pl-schematic">`
+// each schematic gets its own marker id (one shared id repeated in every SVG is invalid and breaks the
+// arrows of the others when the first SVG is hidden)
+let markerN = 0;
+const wrap = (inner) => (`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true" class="pl-schematic">`
   + '<defs><marker id="plArr" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0L6 3L0 6z" fill="#1f86e0"/></marker></defs>'
-  + `<g fill="none" stroke="#5b6773" stroke-width="1">${inner}</g></svg>`;
+  + `<g fill="none" stroke="#5b6773" stroke-width="1">${inner}</g></svg>`).replaceAll("plArr", `plArr${++markerN}`);
 const dim = (x1, y1, x2, y2, t, tx, ty) => `<path d="M${x1} ${y1}L${x2} ${y2}" stroke="#1f86e0" marker-start="url(#plArr)" marker-end="url(#plArr)"/>`
   + `<text x="${tx}" y="${ty}" fill="#1f86e0" stroke="none" font-size="10" font-family="Arial" text-anchor="middle">${t}</text>`;
 const solid = (d) => `<path d="${d}" fill="#dfe6ee" stroke="#5b6773"/>`;

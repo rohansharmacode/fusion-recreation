@@ -235,7 +235,13 @@ const scenario = defineScenario({
     await tool("ParaMeshMergeFaceGroupsCommand", "ParaMeshPreparePanel", gs, null, () => t.app(({ b, g }) => { const m = window.app.result.state.meshBodies.get(b).mesh; return m.groups[g[0].tri] === m.groups[g[1].tri]; }, { b: B, g: gs }));
     await tool("ParaMeshCloseCracksCommand", "ParaMeshModifyPanel", [{ kind: "body", body: S }], null, () => closedMesh(S));
     await tool("ParaMeshEraseAndFillCommand", "ParaMeshModifyPanel", Array.from({ length: 12 }, (_, i) => ({ kind: "meshFace", body: S, tri: i, group: 0, triOnly: true })), null, () => closedMesh(S));
-    await tool("ParaMeshAlignCommand", "ParaMeshModifyPanel", [], async () => { await t.app((g) => { const d = window.app.ui.dialog.current; d.pickRef("from", g); d.pickRef("to", { kind: "originPlane", name: "XY" }); }, gs[0]); }, () => t.app((b) => { const m = window.app.result.state.meshBodies.get(b).mesh; let z = Infinity; for (let i = 2; i < m.positions.length; i += 3) z = Math.min(z, m.positions[i]); return Math.abs(z) < 1e-3 || true; }, B));
+    await tool("ParaMeshAlignCommand", "ParaMeshModifyPanel", [], async () => { await t.app((g) => { const d = window.app.ui.dialog.current; d.pickRef("from", g); d.pickRef("to", { kind: "originPlane", name: "XY" }); }, gs[0]); }, () => t.app(({ b, g }) => {
+      // the From face group lands on the XY plane
+      const m = window.app.result.state.meshBodies.get(b).mesh;
+      const I = m.indices, zs = [];
+      for (let t2 = 0; t2 < m.groups.length; t2++) if (m.groups[t2] === g) for (let j = 0; j < 3; j++) zs.push(m.positions[3 * (I ? I[3 * t2 + j] : 3 * t2 + j) + 2]);
+      return zs.length > 0 && zs.every((z) => Math.abs(z) < 1e-3);
+    }, { b: B, g: gs[0].group }));
     await tool("ParaMeshAttractToReferenceCommand", "ParaMeshModifyPanel", [{ kind: "body", body: S }], async () => { await t.app((b) => window.app.ui.dialog.current.pickRef("reference", { kind: "body", body: b }), B); });
     await tool("ParaMeshToQuadMeshCommand", "ParaMeshModifyPanel", [{ kind: "body", body: B }], null, () => t.app((b) => !!window.app.result.state.meshBodies.get(b).mesh.quadPair, B));
     await tool("ParaMeshTextureCommand", "ParaMeshModifyPanel", [{ kind: "body", body: S }], async () => {
@@ -326,6 +332,16 @@ const scenario = defineScenario({
     const cvf = await lastFeature(t);
     const solid = await t.app((id) => { const b = window.app.body(id); return b ? { kind: b.kind, faces: window.app.K.facesOf(b.shape).length, v: window.app.bodyInfo(id).volume } : null; }, cvf.newBody);
     t.check("solid with 6 planar faces, 125 mm^3", solid && solid.kind === "solid" && solid.faces === 6 && near(solid.v, 125, 0.5), JSON.stringify(solid));
+
+    t.step("Convert Mesh (Organic) of the box mesh -> smooth solid inside the box");
+    await select(t, [{ kind: "body", body: B }]);
+    await run(t, "ParaMeshConvertCommand", "ParaMeshModifyPanel");
+    t.require("Convert Mesh dialog (Organic)", await t.waitFor(dlgSel("ParaMeshConvertCommand"), { timeout: 3000 }));
+    t.check("Organic is offered", await t.app(() => { const d = window.app.ui.dialog.current; d.set("method", "organic", { user: true }); return d.values.method === "organic"; }));
+    await ok(t, "ParaMeshConvertCommand");
+    const orf = await lastFeature(t);
+    const org = await t.app((id) => { const b = window.app.body(id); const r = window.app.featureResult(window.app.doc.features[window.app.doc.features.length - 1].id) || {}; return b ? { kind: b.kind, faces: window.app.K.facesOf(b.shape).length, v: window.app.bodyInfo(id).volume, warning: r.warning || null } : { error: r.error }; }, orf.newBody);
+    t.check("Organic gives a smooth solid smaller than the box (subdivision limit surface)", org && org.kind === "solid" && org.faces > 6 && org.v > 10 && org.v < 125 && !org.warning, JSON.stringify(org));
 
     // ------------------------------------------------------------------ save / open
     t.step("save / open round trip re-evaluates every mesh feature");

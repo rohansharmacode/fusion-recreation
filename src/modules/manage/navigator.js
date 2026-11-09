@@ -154,7 +154,8 @@ function openNavigator(app) {
     svg.setPointerCapture(ev.pointerId);
   });
   svg.addEventListener("pointermove", (ev) => { if (!drag) return; st.pan = [drag.pan[0] + ev.clientX - drag.x, drag.pan[1] + ev.clientY - drag.y]; applyView(); });
-  svg.addEventListener("pointerup", () => { drag = null; });
+  let panned = false; // the click that ends a pan drag keeps the selection
+  svg.addEventListener("pointerup", (ev) => { panned = !!drag && Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y) > 3; drag = null; });
   svg.addEventListener("wheel", (ev) => {
     ev.preventDefault();
     const r = view.getBoundingClientRect();
@@ -166,6 +167,7 @@ function openNavigator(app) {
     applyView();
   }, { passive: false });
   svg.addEventListener("click", (ev) => {
+    if (panned) { panned = false; return; }
     const id = nodeAt(ev.target);
     const n = id && st.graph.nodes.find((x) => x.id === id);
     st.sel = n ? n.id : null;

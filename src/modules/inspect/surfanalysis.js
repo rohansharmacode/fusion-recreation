@@ -301,7 +301,10 @@ export function createSurfaceDisplay(app, store) {
   const owned = [];                 // disposables of the current build
   let legendEl = null;
   let lastKey = "";
-  let depthTargets = [];
+  const depthCache = new Map();     // key (direction + geometry ids) -> {rt, res}: depth maps reused across slider ticks
+  let depthUsed = null;             // keys used by the running refresh
+  const geoEntries = new Set();     // every live geoCache entry (disposed when a refresh no longer uses it)
+  let geoUsed = null;
   const ROT = new THREE.Matrix3();
 
   function attach() {
@@ -344,6 +347,8 @@ export function createSurfaceDisplay(app, store) {
       e = { geo, md, curv: null };
       geoCache.set(md, e);
     }
+    geoEntries.add(e);
+    if (geoUsed) geoUsed.add(e);
     if (curv && !e.curv) {
       try {
         e.curv = bodyCurvature(app.K.R.getOC(), b.shape, md);
@@ -608,6 +613,10 @@ export function createSurfaceDisplay(app, store) {
   }
 
   function depthMap(bodies, dir, box) {
+    const key = `${dir.map((x) => x.toFixed(6)).join(",")}|${bodies.map((b) => { const e = geometryOf(b); return e ? e.geo.uuid : "-"; }).join(",")}`;
+    const hit = depthCache.get(key);
+    if (depthUsed) depthUsed.add(key);
+    if (hit) return hit.res;
     const v = vp();
     const size = 2048;
     const rt = new THREE.WebGLRenderTarget(size, size, { depthBuffer: true });
@@ -640,8 +649,9 @@ export function createSurfaceDisplay(app, store) {
     }
     mat.dispose();
     const L = new THREE.Matrix4().multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
-    depthTargets.push(rt);
-    return { tex: rt.depthTexture, L, texel: (2 * R) / size, bias: 2.5 / (4 * R + 2) * ((2 * R) / size) };
+    const res = { tex: rt.depthTexture, L, texel: (2 * R) / size, bias: 2.5 / (4 * R + 2) * ((2 * R) / size) };
+    depthCache.set(key, { rt, res });
+    return res;
   }
   function buildAccessibility(a, legends) {
     const d0 = directionOf(a.direction, a.dir);
@@ -860,7 +870,8 @@ export function createSurfaceDisplay(app, store) {
   function refresh() {
     if (!attach()) return;
     clear();
-    for (const rt of depthTargets.splice(0)) { try { rt.depthTexture && rt.depthTexture.dispose(); rt.dispose(); } catch { /* ignore */ } }
+    depthUsed = new Set();
+    geoUsed = new Set();
     const legends = [];
     const list = store.activeSurfaceAnalyses();
     const faces = stylesShowFaces();
@@ -880,6 +891,11 @@ export function createSurfaceDisplay(app, store) {
       } catch (e) { console.warn(`[inspect] ${a.type} analysis display failed`, e); }
     }
     renderLegends(legends);
+    // free GPU resources the new display no longer uses (old body meshes, depth maps of other directions)
+    for (const [k, d] of depthCache) if (!depthUsed.has(k)) { try { d.rt.depthTexture && d.rt.depthTexture.dispose(); d.rt.dispose(); } catch { /* ignore */ } depthCache.delete(k); }
+    for (const e of geoEntries) if (!geoUsed.has(e)) { try { e.geo.dispose(); } catch { /* ignore */ } geoEntries.delete(e); geoCache.delete(e.md); }
+    depthUsed = null;
+    geoUsed = null;
     const v = vp();
     if (v) v.requestRender();
     lastKey = list.map((a) => a.id || "preview").join(",");

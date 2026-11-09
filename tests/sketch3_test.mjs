@@ -399,5 +399,24 @@ const regs = (sk) => S.regions(sk).regions;
   check("3-tangent circle: a pick on the third line at the incircle's touch point gives the incircle", t && near(t.r, rIn, 1e-9), t ? t.r.toFixed(4) : "");
 }
 
+// ---------- Trim / Break of a closed control point spline ----------
+{
+  const mk = () => {
+    const sk = S.newSketch();
+    const ids = [[0, 0], [20, 0], [20, 20], [0, 20]].map((q) => S.addPoint(sk, q[0], q[1]));
+    const s = S.addCVSpline(sk, ids, { degree: 3, closed: true });
+    S.addLine(sk, S.addPoint(sk, 10, -10), S.addPoint(sk, 10, 30));
+    return { sk, s };
+  };
+  const { sk, s } = mk();
+  S.trimAt(sk, s, [3, 3]);
+  const cv = sk.curves[s];
+  const a = cv && pt(sk, cv.pts[0]), b = cv && pt(sk, cv.pts[cv.pts.length - 1]);
+  check("trim of a closed CV spline opens it at the cutting line and keeps the far side", cv && !cv.closed && near(a[0], 10, 1e-6) && near(b[0], 10, 1e-6) && cv.pts.every((q) => sk.points[q].x >= 10 - 1e-6), cv ? cv.pts.map((q) => pt(sk, q).map((x) => x.toFixed(2)).join(" ")).join(", ") : "gone");
+  const m = mk();
+  const res = S.breakAt(S, m.sk, m.s, [3, 3]);
+  check("break of a closed CV spline gives two open pieces sharing their cut points", res && res.length === 2 && res.every((id) => m.sk.curves[id] && !m.sk.curves[id].closed) && new Set(res.flatMap((id) => { const c = m.sk.curves[id]; return [c.pts[0], c.pts[c.pts.length - 1]]; })).size === 2, res ? String(res.length) : "null");
+}
+
 console.log(fails ? `\n${fails} FAILED, ${passes} passed` : `\nall ${passes} passed`);
 process.exit(fails ? 1 : 0);

@@ -935,6 +935,13 @@ export function triGrid(W, cellSize = 0) {
 }
 /** Closest point of triangle abc to p (Ericson). */
 export function closestOnTri(p, a, b, c) {
+  const q = closestOnTri0(p, a, b, c);
+  if (Number.isFinite(q[0]) && Number.isFinite(q[1]) && Number.isFinite(q[2])) return q;
+  // degenerate triangle (zero-length edge): the nearest corner
+  const d = (x) => (x[0] - p[0]) ** 2 + (x[1] - p[1]) ** 2 + (x[2] - p[2]) ** 2;
+  return [a, b, c].reduce((m, x) => (d(x) < d(m) ? x : m));
+}
+function closestOnTri0(p, a, b, c) {
   const ab = sub(b, a), ac = sub(c, a), ap = sub(p, a);
   const d1 = dot(ab, ap), d2 = dot(ac, ap);
   if (d1 <= 0 && d2 <= 0) return a;
@@ -1029,10 +1036,19 @@ function sizing(W, adaptive) {
   return hv;
 }
 function compactKeep(W, sel) {
+  // compact keeps triangle order but drops dead / degenerate triangles: drop their selection flags the same way
+  let keep = null;
+  if (sel) {
+    keep = [];
+    for (let t = 0; t < W.T.length / 3; t++) {
+      const a = W.T[3 * t], b = W.T[3 * t + 1], c = W.T[3 * t + 2];
+      if (a < 0 || b < 0 || c < 0 || a === b || b === c || a === c) continue;
+      keep.push(sel[t] ?? 1);
+    }
+  }
   const C = compact({ P: W.P, T: W.T, G: W.G, hasGroups: W.hasGroups });
-  // compact keeps triangle order (dead ones were already removed), so sel stays aligned
   W.P = C.P; W.T = C.T; W.G = C.G;
-  return { sel: sel && sel.length === tcount(W) ? sel : Uint8Array.from({ length: tcount(W) }, (_, i) => (sel ? sel[i] ?? 1 : 1)) };
+  return { sel: keep && keep.length === tcount(W) ? Uint8Array.from(keep) : Uint8Array.from({ length: tcount(W) }, () => 1) };
 }
 /** Move free vertices towards the neighbour centroid within their tangent plane. */
 export function relaxTangential(W, free, k = 0.5) {

@@ -118,6 +118,9 @@ function layout(f, P, D) {
     const d = num("dist", 10);
     if (!(d > 0)) throw new Error("The distance must be greater than zero");
     const N = Math.ceil(rmax / d) + 2;
+    // lattice points inside the covering circle (before the face filters): refuse millions up front
+    const est = (Math.PI * rmax * rmax) / (d * d) * (dist === "tri" ? 1.155 : 0.77);
+    if (est > 1e6) throw new Error(`The pattern has more than ${MAX_INSTANCES} objects; increase the distances`);
     if (dist === "tri") {
       for (let j = -N; j <= N; j++) for (let i = -N; i <= N; i++) out.push([cu + i * d + (j & 1 ? d / 2 : 0), cv + (j * d * Math.sqrt(3)) / 2]);
     } else {

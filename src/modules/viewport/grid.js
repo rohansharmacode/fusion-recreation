@@ -2,7 +2,7 @@
 // plane while sketching):
 //  * 1px lines in rgba(0.2,0.2,0.2,0.08) (the environment's LayoutGrid ARGB), ONE adaptive level of
 //    spacing at a time from the 1-5-10 sequence (… 10, 50, 100, 500 … mm) chosen so lines stay at
-//    least ~45px apart — 50 mm at Fusion's default zoom (3.6 px/mm), like the reference captures.
+//    least ~45px apart: 50 mm at Fusion's default zoom (3.6 px/mm), like the reference captures.
 //    Grid Settings > fixed spacing draws major + minor lines instead.
 //  * the red X / green Y axis lines through the grid origin spanning the whole view,
 //  * the grey origin glyph (circle with two filled quadrants lying in the plane),
@@ -392,7 +392,7 @@ export class LayoutGrid {
     const nrm = (v) => { const l = Math.hypot(v[0], v[1]) || 1; return [v[0] / l, v[1] / l]; };
     const uX = nrm(ex), uY = nrm(ey);
     // screen-space text whose baseline follows the plane's Y axis on screen, kept readable
-    // (top view: every number reads top-to-bottom, glyph tops towards +X — reference capture)
+    // (top view: every number reads top-to-bottom, glyph tops towards +X: reference capture)
     let r = [-uY[0], -uY[1]];
     if (r[0] < -1e-6 || (Math.abs(r[0]) <= 1e-6 && r[1] < 0)) r = [-r[0], -r[1]];
     const ang = Math.atan2(r[1], r[0]);

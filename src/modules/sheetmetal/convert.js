@@ -296,7 +296,8 @@ function applyLoft(st, f, P, doc) {
   }
   let solid;
   try { solid = K.R.makeSolid(faces); } finally { del(faces); }
-  if (K.volumeOf(solid) < 0) { const s2 = K.R.makeSolid([solid]); del(solid); solid = s2; }
+  // inside-out facets: reverse the solid (makeSolid expects faces or shells, not a solid)
+  if (K.volumeOf(solid) < 0) { const rr = solid.wrapped.Reversed(); const s2 = K.R.cast(rr); try { rr.delete(); } catch { /* ignore */ } del(solid); solid = s2; }
   // flat pattern: unfold the facet strip (edge lengths kept), bend lines between the facets
   const pos = new Map();
   const put = (p, q) => pos.set(keyOf(p), q);
@@ -322,7 +323,7 @@ function applyLoft(st, f, P, doc) {
     const shared = t.filter((p) => prev.some((q) => keyOf(q) === keyOf(p)));
     const newP = t.find((p) => !shared.some((q) => keyOf(q) === keyOf(p)));
     const oldP = prev.find((p) => !shared.some((q) => keyOf(q) === keyOf(p)));
-    if (shared.length !== 2 || !newP) break;
+    if (shared.length !== 2 || !newP) throw new Error("The lofted flange cannot be unfolded: its facets do not form one strip");
     // a closed loop comes back to its first points: give the seam its own flat copies
     const q = place(shared[0], shared[1], newP, oldP);
     if (i === tris.length - 1 && A.closed) { flatPos.push([get(t[0]) || q, get(t[1]) || q, get(t[2]) || q]); continue; }
@@ -470,7 +471,7 @@ function reroot(d, fid) {
     b.q = V2.mul(b.q, -1);
     b.parent = child; b.child = parent;
     d.flanges[parent].bend = b.id;
-    d.flanges[child].bend = null;
+    // (the old child's own bend was set by the previous step of the walk; only the new root loses its bend)
   }
   d.flanges[fid].bend = null;
   d.root = fid;
@@ -538,7 +539,8 @@ function applyContour(st, f, P, doc) {
       i += 2;
     } else {
       const th = Math.atan2(V2.cross(dirOf(e), dirOf(nx)), V2.dot(dirOf(e), dirOf(nx)));
-      if (Math.abs(th) < 1e-9) { segs[segs.length - 1].len += 0; i += 1; continue; }
+      // collinear lines: one straight segment (the next line is extended back to this one's start)
+      if (Math.abs(th) < 1e-9) { path[i + 1] = { ...nx, a: e.a }; segs.pop(); i += 1; continue; }
       const sgn = th >= 0 ? 1 : -1;
       const rc = sgn > 0 ? Rr + w0 + T : Rr - w0;
       segs[segs.length - 1].turn = { A: Math.abs(th), sgn, rc, arc: false };

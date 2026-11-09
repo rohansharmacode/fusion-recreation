@@ -10,7 +10,7 @@
 //
 // Options: only (comma list of modules, default all), outDir (build output, default build/e2e),
 // port (default 5300), shots (screenshot dir), width/height (default 1600x900), build (default true),
-// headless (default true), release (true: minified release build; outDir defaults to "release" —
+// headless (default true), release (true: minified release build; outDir defaults to "release" -
 // with build:false it just serves an existing release/ dir, e.g. launch({ release: true, build: false })).
 import fs from "node:fs";
 import path from "node:path";

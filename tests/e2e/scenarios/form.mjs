@@ -298,7 +298,7 @@ const scenario = defineScenario({
     for (const q of ip) await t.canvasClick(q.x, q.y);
     const ipFaces = (await cageOfB(pB)).f;
     await ok(t, "TSplineInsertPointCommand");
-    t.check("Insert Point (two canvas clicks) splits a face with a new edge", (await cageOfB(pB)).f === ipFaces + 1 || (await cageOfB(pB)).f === 5, JSON.stringify(await cageOfB(pB)));
+    t.check("Insert Point (two canvas clicks) splits a face with a new edge", (await cageOfB(pB)).f === ipFaces + 1, JSON.stringify({ before: ipFaces, after: (await cageOfB(pB)).f }));
     // Merge Edge: the facing boundary edges of the two planes
     const nb0 = (await form(t)).n;
     await openDlg("TSplineMergeEdgeCmd", "modify");

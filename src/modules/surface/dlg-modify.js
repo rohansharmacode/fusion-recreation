@@ -300,7 +300,7 @@ export function openValidate(app, opts = {}) {
     const v = dlg.values;
     const ids = [...new Set((v.bodies || []).map((r) => r.body))];
     const tol = dlg.num("gap");
-    const key = JSON.stringify([ids, v.level, Number.isFinite(tol) ? tol : 0.01]);
+    const key = JSON.stringify([ids, v.level, Number.isFinite(tol) ? tol : 0.01, !!v.repair]);
     if (cache.key === key) return cache.text;
     if (!ids.length) { cache = { key, text: "" }; return ""; }
     let invalid = 0, inter = 0, open = 0, small = 0;

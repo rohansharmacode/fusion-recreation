@@ -252,6 +252,8 @@ const scenario = defineScenario({
         const ev = await t.app(() => { const v = window.app.ui.dialog.current.values; return { n: (v.faces || []).length, des: v.designation }; });
         t.check("Edit Feature shows the face and M10x1.5", ev.n === 1 && ev.des === "M10x1.5", JSON.stringify(ev));
         await t.click('.dlg[data-dialog="FusionThreadCommand"] [data-input="modeled"]');
+        // under load the fixed settle was not always enough: wait until the dialog really has Modeled on
+        t.check("Modeled is checked", await t.waitFor(() => { const d = window.app.ui.dialog.current; return !!(d && d.values.modeled); }, { timeout: 5000 }));
         await t.settle(400);
         await okDialog(t, "FusionThreadCommand");
         st = await t.state();

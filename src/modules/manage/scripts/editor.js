@@ -21,6 +21,9 @@ function highlight(src) {
   return out.join("") + "\n";
 }
 
+// unsaved editor text of closed editors (script id -> { base: source it was based on, text }): closing with X or Esc keeps the edits for the next open
+const DRAFTS = new Map();
+
 export function openCodeEditor(app, mg, id) {
   const { store, host } = mg;
   let rec = store.get(id);
@@ -29,7 +32,9 @@ export function openCodeEditor(app, mg, id) {
   let saved = rec.source;
   let errLine = null;
   const ta = el("textarea", { class: "mg-ed-text", spellcheck: "false", autocapitalize: "off", autocomplete: "off", wrap: "off", "data-input": "source" });
-  ta.value = rec.source;
+  const draft = DRAFTS.get(id);
+  if (draft && rec.source !== draft.base) DRAFTS.delete(id);
+  ta.value = draft && rec.source === draft.base ? draft.text : rec.source;
   const hl = el("pre", { class: "mg-ed-hl", "aria-hidden": "true" });
   const gutter = el("div", { class: "mg-ed-gutter", "aria-hidden": "true" });
   const area = el("div", { class: "mg-ed-area" }, gutter, el("div", { class: "mg-ed-scroll" }, hl, ta));
@@ -46,7 +51,7 @@ export function openCodeEditor(app, mg, id) {
   const clearB = el("button", { type: "button", class: "mg-ed-link", "data-action": "clear-output", text: "Clear" });
   const body = el("div", { class: "mg-ed" }, bar, area, el("div", { class: "mg-ed-outhead" }, el("span", { text: "OUTPUT" }), el("span", { class: "mg-ed-sp" }), clearB), out, el("div", { class: "mg-ed-foot" }, status));
 
-  const pal = palette(app, { id: pid, title: titleText(), body, width: 760, height: 560, className: "mg-ed-pal", foot: false, onClose: () => { offLog(); offScript(); } });
+  const pal = palette(app, { id: pid, title: titleText(), body, width: 760, height: 560, className: "mg-ed-pal", foot: false, onClose: () => { offLog(); offScript(); if (ta.value !== saved) DRAFTS.set(id, { base: saved, text: ta.value }); else DRAFTS.delete(id); } });
   if (pal.body !== body.parentNode) { /* already open: palette() returned the existing window */ return pal; }
 
   function titleText() { return `${rec.name}.js${ta.value !== saved ? " ●" : ""}`; }

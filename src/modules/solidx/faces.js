@@ -234,7 +234,7 @@ export const FACE_FEATURES = {
     apply(st, f, P) {
       const size = M.fval(P, f, "size");
       const affected = [];
-      let found = 0, skipped = 0;
+      let found = 0, removed = 0;
       for (const id of f.bodies || []) {
         const b = solidOf(st, id);
         const feats = findFeatures(b.shape, { size, fillets: f.fillets !== false, chamfers: f.chamfers !== false, holes: f.holes !== false });
@@ -242,6 +242,7 @@ export const FACE_FEATURES = {
         if (!feats.length) continue;
         let shape = null;
         try { shape = X.rebuildByCells(b.shape, feats.flatMap((x) => x.faces)); } catch { shape = null; }
+        if (shape) removed += feats.length;
         if (!shape) {
           // one feature at a time (each re-detected on the current shape)
           shape = b.shape;
@@ -249,16 +250,18 @@ export const FACE_FEATURES = {
             const cur = findFeatures(shape, { size, fillets: f.fillets !== false, chamfers: f.chamfers !== false, holes: f.holes !== false });
             if (!cur.length) break;
             let next = null;
-            try { next = X.rebuildByCells(shape, cur[0].faces); } catch { next = null; skipped++; }
+            try { next = X.rebuildByCells(shape, cur[0].faces); } catch { next = null; }
             if (!next) break;
             shape = next;
+            removed++;
           }
         }
         if (shape !== b.shape) { st.bodies.set(id, { id, shape, from: f.id }); affected.push(id); }
       }
       if (!found) return { affected, warning: "No features smaller than the feature size were found." };
       if (!affected.length) throw new Error("No features were able to be removed from this part.");
-      return skipped ? { affected, warning: "Not all features were able to be removed from this part.", removed: found - skipped } : { affected, removed: found };
+      // removed counts what really went (the one-at-a-time fallback stops at the first failure)
+      return removed < found ? { affected, warning: "Not all features were able to be removed from this part.", removed } : { affected, removed };
     },
     touches: (f) => f.bodies || [],
   },

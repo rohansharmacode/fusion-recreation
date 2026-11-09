@@ -17,8 +17,10 @@ export function grid(bb, h, pad = 2) {
 /** Node spacing so that the grid over bb has at most maxNodes nodes (and at most `want`). */
 export function spacingFor(bb, want, maxNodes = 1.4e6, pad = 2) {
   const d = [0, 1, 2].map((i) => Math.max(1e-6, bb.max[i] - bb.min[i]));
-  let h = want;
-  for (let it = 0; it < 40; it++) {
+  // start no finer than the volume allows, then grow until the budget holds (40 steps of 8% could stop
+  // 100x over budget on a big body with a small cell size)
+  let h = Math.max(want, Math.cbrt((d[0] * d[1] * d[2]) / maxNodes));
+  for (let it = 0; it < 400; it++) {
     const n = d.reduce((m, x) => m * (Math.ceil(x / h) + 2 * pad + 1), 1);
     if (n <= maxNodes) break;
     h *= 1.08;

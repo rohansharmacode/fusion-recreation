@@ -243,7 +243,7 @@ const scenario = defineScenario({
     await t.click(`[data-table="top"] [data-row-name="${r3}"]`, { button: "right" });
     await t.settle(200);
     const txt = await t.overlayText();
-    t.check("row menu: Activate, Rename, Duplicate, Delete", /Activate/.test(txt) && /Rename/.test(txt) && /Duplicate/.test(txt) && /Delete/.test(txt), txt.replace(/s+/g, " ").slice(0, 120));
+    t.check("row menu: Activate, Rename, Duplicate, Delete", /Activate/.test(txt) && /Rename/.test(txt) && /Duplicate/.test(txt) && /Delete/.test(txt), txt.replace(/\s+/g, " ").slice(0, 120));
     t.check("Rename", await menuItem("Rename"));
     await t.settle(100);
     await t.page.keyboard.press("Control+A");

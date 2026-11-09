@@ -2,7 +2,7 @@
 import { solveSketch, curvePoints, degenerateCurves } from "./solver.js";
 import { computeRegions, curveGeom, intersect } from "./regions.js";
 import { pcurveNearest, pcurveSamples, outwardTangent, splineFit, splineGeom, ellipseFrame, ellipseGeom, ellipseAngle, isFreeform } from "./curves.js";
-import { splitCurve2 } from "./ops2.js";
+import { splitCurve2, splitClosedCv } from "./ops2.js";
 import { patternValues as _patternValues } from "./solver2.js";
 export { splineFit, splineGeom, ellipseFrame, ellipseGeom, isFreeform };
 export * from "./ops2.js";
@@ -426,8 +426,8 @@ export function splitFreeform(sk, id, g, keep) {
   const ids = [];
   if (cv.type === "cvspline" || cv.type === "conic") {
     if (cv.type === "cvspline" && cv.closed) {
-      // a closed control point spline opens at the cut: one open piece through the kept range
-      ids.push(id);
+      // a closed control point spline opens at the cut: open pieces through the kept ranges
+      ids.push(...splitClosedCv(sk, id, g, keep));
     } else ids.push(...splitCurve2(sk, id, g, keep));
   } else if (g.sub === "ellipse") {
     if (cv.type === "ellipse") {

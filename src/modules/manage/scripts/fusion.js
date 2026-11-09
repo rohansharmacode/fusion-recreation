@@ -970,7 +970,16 @@ export function createFusion(app, host) {
   class UserParameter extends Parameter {
     get _up() { return app.doc.params.find((p) => p.name === this._n) || fail(`User parameter "${this._n}" does not exist`); }
     get expression() { return this._up.expr; }
-    set expression(v) { ses().edit(() => { this._up.expr = String(v); }); ensure(); const r = app.result; try { r.params.value(this._n); } catch (e) { fail(`Invalid expression: ${e.message}`); } }
+    set expression(v) {
+      const old = this._up.expr;
+      ses().edit(() => { this._up.expr = String(v); });
+      ensure();
+      try { app.result.params.value(this._n); } catch (e) {
+        ses().edit(() => { this._up.expr = old; }); // roll back like UserParameters.add
+        ensure();
+        fail(`Invalid expression: ${e.message}`);
+      }
+    }
     get comment() { return this._up.comment || ""; }
     set comment(v) { ses().edit(() => { this._up.comment = String(v); }); }
     get unit() { const up = this._up; return up.unit || (up.kind === "angle" ? "deg" : up.kind === "none" ? "" : "mm"); }

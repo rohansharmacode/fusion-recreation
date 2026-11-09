@@ -361,7 +361,9 @@ export function sweepShell(profile, spine, { orientation = "perpendicular" } = {
   try {
     if (orientation === "parallel") {
       // fixed trihedron: the profile keeps its orientation along the path
-      const i = edgeInfo(explore(spine, "edge")[0]);
+      const es = explore(spine, "edge");
+      const i = edgeInfo(es[0]);
+      del(es);
       const n = Math.abs(i.ta[2]) < 0.9 ? V.norm(V.cross(i.ta, [0, 0, 1])) : V.norm(V.cross(i.ta, [1, 0, 0]));
       const a = ax2(i.a, i.ta, n);
       tmp.push(a);
@@ -381,7 +383,10 @@ export function sweepShell(profile, spine, { orientation = "perpendicular" } = {
 export function trimWire(wire, frac) {
   const edges = explore(wire, "edge");
   if (frac >= 1 - 1e-9) { del(edges); return wire; }
-  const ordered = chainWires(edges)[0].edges;
+  if (!edges.length) throw new Error("The path has no edges");
+  const chains = chainWires(edges);
+  del(chains.map((c) => c.wire)); // only the ordered edges are used
+  const ordered = chains[0].edges;
   const lens = ordered.map(lengthOf);
   let want = lens.reduce((a, b) => a + b, 0) * Math.max(1e-3, frac);
   const keep = [];
@@ -491,7 +496,16 @@ export function stitch(shapes, tol = TOL, { solids = true, freeShape = false } =
   const pieces = [];
   try {
     const shells = explore(shape, "shell");
-    const loose = explore(shape, "face").filter((f) => !shells.some((s) => containsFace(s, f)));
+    // faces that belong to a shell, bucketed by hash code (one pass instead of faces x shells x faces)
+    const inShell = new Map();
+    const shellFaces = shells.flatMap((s) => facesOf(s));
+    for (const f of shellFaces) { const h = f.hashCode; if (!inShell.has(h)) inShell.set(h, []); inShell.get(h).push(f); }
+    const loose = [];
+    for (const f of explore(shape, "face")) {
+      if ((inShell.get(f.hashCode) || []).some((g) => g.wrapped.IsSame(f.wrapped))) del(f);
+      else loose.push(f);
+    }
+    del(shellFaces);
     for (const sh of shells) {
       if (solids && isClosedShell(sh)) {
         const so = solidOfShell(sh);
@@ -502,10 +516,6 @@ export function stitch(shapes, tol = TOL, { solids = true, freeShape = false } =
     pieces.push(...loose);
     return { bodies: pieces, free, freeShape: fs || null };
   } finally { if (!pieces.includes(shape)) del(shape); }
-}
-function containsFace(shell, face) {
-  const fs = facesOf(shell);
-  try { return fs.some((f) => f.wrapped.IsSame(face.wrapped)); } finally { del(fs); }
 }
 
 /** Shape with every face reversed (a surface's front and back sides swap). */
@@ -538,8 +548,9 @@ export function thickenShape(shape, t, { join = "sharp", sym = false } = {}) {
   const O = OC();
   let base = shape, owned = null;
   if (sym) { owned = base = offsetShape(shape, -t / 2, { join }); }
+  const none = new O.NCollection_List_TopoDS_Shape([]);
   const tries = [
-    (b) => b.MakeThickSolidByJoin(base.wrapped, new O.NCollection_List_TopoDS_Shape([]), t, 1e-4, O.BRepOffset_Mode.BRepOffset_Skin, join === "sharp", false, join === "sharp" ? O.GeomAbs_JoinType.GeomAbs_Intersection : O.GeomAbs_JoinType.GeomAbs_Arc, false),
+    (b) => b.MakeThickSolidByJoin(base.wrapped, none, t, 1e-4, O.BRepOffset_Mode.BRepOffset_Skin, join === "sharp", false, join === "sharp" ? O.GeomAbs_JoinType.GeomAbs_Intersection : O.GeomAbs_JoinType.GeomAbs_Arc, false),
     (b) => b.MakeThickSolidBySimple(base.wrapped, t),
   ];
   try {
@@ -550,7 +561,9 @@ export function thickenShape(shape, t, { join = "sharp", sym = false } = {}) {
         if (!b.IsDone()) continue;
         let s = cast(b.Shape());
         const solids = K.solidsOf(s);
-        if (!solids.length) { del(s); continue; }
+        const nSolids = solids.length;
+        if (solids.some((x) => x !== s)) del(solids.filter((x) => x !== s));
+        if (!nSolids) { del(s); continue; }
         let v = 0;
         try { v = K.volumeOf(s); } catch { v = 0; }
         if (!(Math.abs(v) > 1e-9)) { del(s); continue; }
@@ -558,7 +571,7 @@ export function thickenShape(shape, t, { join = "sharp", sym = false } = {}) {
         return s;
       } catch { /* next method */ } finally { del(b); }
     }
-  } finally { if (owned) del(owned); }
+  } finally { if (owned) del(owned); del(none); }
   throw new Error("Thicken operation can be applied only on manifold surfaces");
 }
 
@@ -655,11 +668,13 @@ export function untrimmedFace(face, ext = 0, { keepHoles = false, outerOnly = fa
     if (!mf.IsDone()) throw new Error("Untrim failed");
     let out = new R.Face(mf.Face());
     if (keepHoles) {
-      const holes = explore(face, "wire").slice(1);
-      if (holes.length) {
-        const ow = O.BRepTools.OuterWire(face.wrapped);
-        tmp.push(ow);
-        const inner = holes.filter((w) => !w.wrapped.IsSame(ow));
+      // every wire except the real outer one is a hole (the explorer order does not put the outer wire first)
+      const holes = explore(face, "wire");
+      const ow = O.BRepTools.OuterWire(face.wrapped);
+      tmp.push(ow);
+      const inner = holes.filter((w) => !w.wrapped.IsSame(ow));
+      if (!inner.length) del(holes);
+      else {
         const mk = new O.BRepBuilderAPI_MakeFace(out.wrapped);
         tmp.push(mk);
         for (const w of inner) mk.Add(w.wrapped);
@@ -879,7 +894,7 @@ export function boundedCells(tools) {
     split = splitBy(box, tools);
     for (const s of K.solidsOf(split)) {
       const bb = K.bboxOf(s);
-      const touches = [0, 1, 2].some((i) => bb.min[i] <= mn[i] + 1e-6 || bb.max[i] >= mx[i] - 1e-6);
+      const touches = !bb || [0, 1, 2].some((i) => bb.min[i] <= mn[i] + 1e-6 || bb.max[i] >= mx[i] - 1e-6);
       if (touches) { if (s !== split) del(s); continue; }
       let v = 0;
       try { v = K.volumeOf(s); } catch { v = 0; }
@@ -1006,7 +1021,8 @@ export function silhouette(shape, d) {
   if (!segs.length) return { segs: [], plane: null, pts };
   // planar parting line perpendicular to d?
   const hs = pts.map((p) => V.dot(p, dd));
-  const h0 = Math.min(...hs), h1 = Math.max(...hs);
+  let h0 = Infinity, h1 = -Infinity; // a loop: spreading a large mesh's samples would overflow the stack
+  for (const h of hs) { if (h < h0) h0 = h; if (h > h1) h1 = h; }
   const size = Math.max(1, diag(shape));
   let plane = null;
   if (h1 - h0 < 2e-3 * size) {

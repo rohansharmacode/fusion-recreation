@@ -1,5 +1,5 @@
 // Small original SVG glyphs used inside command dialogs (operation types, directions,
-// hole types ...). Drawn from scratch for this recreation — no Autodesk artwork.
+// hole types ...). Drawn from scratch for this recreation: no Autodesk artwork.
 // Every glyph is a 16x16 viewBox; g(name, size) returns the markup.
 
 const B = "#2f86de"; // body blue

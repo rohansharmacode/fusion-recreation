@@ -155,10 +155,15 @@ function latticeMesh(st, f, P) {
   const thick = num(P, f, "thickness", 1);
   const solidity = num(P, f, "solidity", 0.3);
   if (!isTPMS(cell) && !(thick > 0)) throw new Error("The thickness must be greater than zero");
-  if (isTPMS(cell) && !(solidity > 0 && solidity < 1)) throw new Error("The solidity must be between 0 and 1");
   const grad = f.distribution === "path" && cell !== "custom";
+  // the uniform Solidity row is hidden in gradient mode (start / end solidity are checked there instead)
+  if (isTPMS(cell) && !grad && !(solidity > 0 && solidity < 1)) throw new Error("The solidity must be between 0 and 1");
   const startV = grad ? num(P, f, isTPMS(cell) ? "startSolidity" : "startThickness", isTPMS(cell) ? solidity : thick) : 0;
   const endV = grad ? num(P, f, isTPMS(cell) ? "endSolidity" : "endThickness", isTPMS(cell) ? solidity : thick) : 0;
+  if (grad) {
+    if (isTPMS(cell)) { if (!(startV > 0 && startV < 1 && endV > 0 && endV < 1)) throw new Error("The solidity must be between 0 and 1"); }
+    else if (!(startV > 0 && endV > 0)) throw new Error("The thickness must be greater than zero");
+  }
   let path = null;
   if (grad) path = buildPath(st, f.path || [], f.edges || []);
   const tr = ["lx", "ly", "lz"].map((k) => num(P, f, k, 0));

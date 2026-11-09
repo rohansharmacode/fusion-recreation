@@ -232,7 +232,7 @@ export function buildAppbar(app, svc) {
 
   function helpMenuItems() {
     return [
-      { header: true, note: true, className: "ab-disclaimer", label: "Unofficial hackathon recreation — not affiliated with or endorsed by Autodesk" },
+      { header: true, note: true, className: "ab-disclaimer", label: "Unofficial hackathon recreation: not affiliated with or endorsed by Autodesk" },
       "-",
       { key: "Walkthrough", label: "Take a Tour", onClick: later("Take a Tour") },
       { key: "Learning", label: "Learning and Documentation", items: [

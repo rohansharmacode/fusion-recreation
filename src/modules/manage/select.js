@@ -441,10 +441,10 @@ function openSeedAndBoundary(app, ctx = {}) {
       if (!result) throw new Error("Cannot create a selection set from the current seed and boundary objects");
       let refs = result.slice();
       if (d.values.include) {
-        const extra = (d.values.boundary || []).filter((r) => r.kind === "face");
-        const seen = new Set(refs.map((r) => `${r.body}:${r.index}`));
-        for (const r of extra) if (!seen.has(`${r.body}:${r.index}`)) refs.push(r);
-        // boundary edges are not faces: add the faces that own them
+        // Fusion: "include the boundary objects in the selection set" (faces and edges as picked)
+        const extra = (d.values.boundary || []).filter((r) => r.kind === "face" || r.kind === "edge");
+        const seen = new Set(refs.map((r) => `${r.kind}:${r.body}:${r.index}`));
+        for (const r of extra) if (!seen.has(`${r.kind}:${r.body}:${r.index}`)) refs.push(r);
       }
       return refs;
     },

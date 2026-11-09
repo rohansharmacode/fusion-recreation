@@ -30,6 +30,14 @@ export function resolveFaceRef(st, ref) {
   if (!face) throw new Error("Missing faces");
   return { face, body: ref.body, index: idx, shape: b.shape };
 }
+/** Index of a face ref in its body, without making a face wrapper (callers that only need the index). */
+function faceRefIndex(st, ref) {
+  const b = st.bodies.get(ref.body);
+  if (!b) throw new Error("Missing faces");
+  const idx = M.locateFace(b.shape, ref, true);
+  if (idx < 0) throw new Error("Missing faces");
+  return idx;
+}
 /** Faces adjacent to edge `index` of a body (indices into its faces). */
 export function edgeFaces(shape, index) {
   const g = K.topoOf(shape).edges[index];
@@ -93,6 +101,7 @@ export function surfaceResult(st, f, shape, doc) {
 function sewnOrSingle(parts) {
   if (parts.length === 1) return parts[0];
   const { shape } = G.sew(parts);
+  if (!parts.includes(shape)) del(parts); // the sewn shape owns its own handles
   return shape;
 }
 const surfaceMaker = (f) => ["new", "join", "newComponent"].includes(f.operation || "new");
@@ -586,7 +595,7 @@ function untrimApply(st, f, P, doc) {
         }
       } else {
         for (const r of list) {
-          const { index } = resolveFaceRef(st, r);
+          const index = faceRefIndex(st, r);
           const face = faces[index];
           if (type === "internal") repl.set(index, G.untrimmedFace(face, 0, { outerOnly: true }));
           else if (type === "external") repl.set(index, G.untrimmedFace(face, ext, { keepHoles: true }));
@@ -641,7 +650,7 @@ function unstitchApply(st, f, P, doc) {
       const faces = G.facesOf(b.shape);
       let sel;
       if (whole.has(id)) sel = new Set(faces.map((_, i) => i));
-      else sel = new Set((picked.get(id) || []).map((r) => resolveFaceRef(st, r).index));
+      else sel = new Set((picked.get(id) || []).map((r) => faceRefIndex(st, r)));
       const rest = faces.filter((_, i) => !sel.has(i));
       const loose = faces.filter((_, i) => sel.has(i));
       bag.push(...rest);
@@ -666,7 +675,7 @@ function mergeApply(st, f, P, doc) {
   for (const [id, refs] of M.groupByBody(f.faces || [])) {
     const b = st.bodies.get(id);
     if (!b) throw new Error("Missing faces");
-    const idx = [...new Set(refs.map((r) => resolveFaceRef(st, r).index))];
+    const idx = [...new Set(refs.map((r) => faceRefIndex(st, r)))];
     if (idx.length < 2) throw new Error("Select two or more adjacent faces to merge");
     const s = mergeFaces(b.shape, idx);
     st.bodies.set(id, { id, shape: s, from: f.id });
@@ -771,7 +780,7 @@ function validateApply(st, f, P, doc) {
     const faces = G.facesOf(b.shape);
     const fixed = faces.map((fc) => fixedFace(fc));
     const { bodies } = G.stitch(fixed, Math.max(1e-6, tol), { solids: true });
-    del(faces);
+    del(faces, fixed.filter((x) => !faces.includes(x) && !bodies.includes(x)));
     if (bodies.length === 1) st.bodies.set(id, { id, shape: bodies[0], from: f.id });
     else st.bodies.set(id, { id, shape: G.compound(bodies), from: f.id });
     affected.push(id);

@@ -189,9 +189,9 @@ function writeText(sk, dlg, shaped) {
         for (const p of cv.frame.slice(1)) { const P = sk.points[p]; const dx = P.x - o[0], dy = P.y - o[1]; P.x = o[0] + cs * dx - sn * dy; P.y = o[1] + sn * dx + cs * dy; }
       }
     }
-    const frame = cv.frame;
+    const frame = cv.frame, frameLines = cv.frameLines;
     Object.keys(cv).forEach((k) => delete cv[k]);
-    Object.assign(cv, { ...base, mode: "box", frame });
+    Object.assign(cv, { ...base, mode: "box", frame, ...(frameLines ? { frameLines } : {}) });
     return editId;
   }
   const fr = dlg.values.frame;

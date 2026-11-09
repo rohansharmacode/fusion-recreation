@@ -556,7 +556,10 @@ export function meshDataOf(doc, id) {
   if (typeof id === "string" && id.startsWith("tmp:")) return STAGED.get(id) || null;
   const rec = doc && doc.meshData && doc.meshData[id];
   if (!rec || typeof rec.positions !== "string") return null;
-  const fp = (s) => (s ? `${s.length}:${s.slice(0, 48)}:${s.slice(-48)}` : "-");
+  const hit = MESH_REC_CACHE.get(rec);
+  if (hit && hit.src === rec.positions) return hit.m;
+  // full-string hash: a prefix / suffix fingerprint collides for local edits of a mesh with the same size
+  const fp = (s) => { if (!s) return "-"; let a = 2166136261; for (let i = 0; i < s.length; i++) a = Math.imul(a ^ s.charCodeAt(i), 16777619) >>> 0; return `${s.length}:${a.toString(36)}`; };
   const key = `${fp(rec.positions)}|${fp(rec.indices)}|${fp(rec.groups)}`;
   let m = MESH_DATA_CACHE.get(key);
   if (!m) {
@@ -564,8 +567,10 @@ export function meshDataOf(doc, id) {
     if (MESH_DATA_CACHE.size > 32) MESH_DATA_CACHE.delete(MESH_DATA_CACHE.keys().next().value);
     MESH_DATA_CACHE.set(key, m);
   }
+  MESH_REC_CACHE.set(rec, { src: rec.positions, m });
   return m;
 }
+const MESH_REC_CACHE = new WeakMap(); // doc.meshData record -> decoded data (skips the hash for a known record)
 export const MESH_UNIT_MM = { mm: 1, cm: 10, m: 1000, in: 25.4, ft: 304.8 };
 const num0 = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
 /**
@@ -743,7 +748,7 @@ const APPLY = {
       let s;
       if (!faces.length) throw new Error("Shell without removed faces is not supported; select at least one face");
       try { s = quietFinder(() => K.shellFaces(b.shape, faces, thick)); } finally { K.del(faces); }
-      if (K.isEmptyShape(s)) throw new Error("Shell failed — try a smaller thickness");
+      if (K.isEmptyShape(s)) throw new Error("Shell failed: try a smaller thickness");
       st.bodies.set(bid, { id: bid, shape: s, from: f.id });
     }
   },
@@ -1524,7 +1529,7 @@ export function edgeFeature(st, f, P, kind) {
     try {
       s = quietFinder(() => (kind === "fillet" ? K.filletEdges(b.shape, edges, r) : K.chamferEdges(b.shape, edges, r)));
     } finally { K.del(edges); }
-    if (K.isEmptyShape(s)) throw new Error(`${kind === "fillet" ? "Fillet" : "Chamfer"} failed — try a smaller value`);
+    if (K.isEmptyShape(s)) throw new Error(`${kind === "fillet" ? "Fillet" : "Chamfer"} failed: try a smaller value`);
     st.bodies.set(bid, { id: bid, shape: s, from: f.id });
   }
 }
@@ -1644,13 +1649,18 @@ export function occBodiesDeep(st, oid) {
 const SHAPE_X = new WeakMap(); // shape -> Map(matrix key -> transformed shape)
 const MESH_X = new WeakMap();
 const mKey = (M) => M.map((v) => Number(v).toFixed(9)).join(",");
+// at most X_KEEP matrices per input (a drag makes one per pointer move): the oldest entry is dropped from the
+// cache, not deleted, so a state that still holds it keeps a valid shape (replicad frees it on GC)
+const X_KEEP = 6;
+const xGet = (m, k) => { const v = m.get(k); m.delete(k); m.set(k, v); return v; };
+const xSet = (m, k, v) => { m.set(k, v); while (m.size > X_KEEP) m.delete(m.keys().next().value); };
 /** Rigidly transformed copy of an OCCT shape (cached per input shape and matrix; the input is kept). */
 export function transformShape(shape, M) {
   if (!shape || isIdentityM(M)) return shape;
   let m = SHAPE_X.get(shape);
   if (!m) { m = new Map(); SHAPE_X.set(shape, m); }
   const k = mKey(M);
-  if (m.has(k)) return m.get(k);
+  if (m.has(k)) return xGet(m, k);
   // rotation part as axis + angle (OCCT gp_Trsf rotation), then the translation
   const tr = M[0] + M[5] + M[10];
   const ang = Math.acos(Math.max(-1, Math.min(1, (tr - 1) / 2)));
@@ -1670,7 +1680,7 @@ export function transformShape(shape, M) {
   }
   const t = [M[3], M[7], M[11]];
   if (Math.hypot(...t) > 1e-12) { const n = K.translated(s, t); if (s !== shape) K.del(s); s = n; }
-  m.set(k, s);
+  xSet(m, k, s);
   return s;
 }
 /** Transformed copy of a mesh body mesh (cached). */
@@ -1686,9 +1696,9 @@ export function transformMesh(mesh, M) {
       for (let i = 0; i < n.length; i += 3) { const a = mesh.normals; n[i] = M[0] * a[i] + M[1] * a[i + 1] + M[2] * a[i + 2]; n[i + 1] = M[4] * a[i] + M[5] * a[i + 1] + M[6] * a[i + 2]; n[i + 2] = M[8] * a[i] + M[9] * a[i + 1] + M[10] * a[i + 2]; }
       out.normals = n;
     }
-    m.set(k, out);
+    xSet(m, k, out);
   }
-  return m.get(k);
+  return xGet(m, k);
 }
 const rotV = (M, v) => [M[0] * v[0] + M[1] * v[1] + M[2] * v[2], M[4] * v[0] + M[5] * v[1] + M[6] * v[2], M[8] * v[0] + M[9] * v[1] + M[10] * v[2]];
 /** Plane {o, x, n} moved by M. */
@@ -1826,7 +1836,7 @@ export class Evaluator {
       if (i >= upto) { results[f.id] = { rolled: true }; continue; }
       if (f.suppressed) {
         // A suppressed feature passes the state through. Record that in the cache so that
-        // (un)suppressing it invalidates everything after it — otherwise later features would
+        // (un)suppressing it invalidates everything after it: otherwise later features would
         // reuse cached states computed with (or without) it.
         results[f.id] = { suppressed: true };
         const ssig = `suppressed:${f.id}`;

@@ -92,7 +92,7 @@ export function faceUVMesh(O, face) {
     return { uv, tris, n };
   } catch {
     return null;
-  } finally { del(loc); }
+  } finally { del(tri, loc); }
 }
 
 /**

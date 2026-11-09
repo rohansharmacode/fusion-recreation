@@ -1,7 +1,19 @@
 # Work in progress: "add everything" (handover to a cloud session, 2026-11-09)
 
-If you are the cloud session: read this file fully, then continue. Branch: `wip/everything`. Do not merge into `main`
-or deploy to `gh-pages` until the full QA suite passes, and ask the user before deploying.
+If you are the session that continues this work (on the user's Windows PC or in the cloud): read this file fully, then
+continue. Branch: `wip/everything`. Do not merge into `main` or deploy to `gh-pages` until the full QA suite passes, and
+ask the user before deploying.
+
+## On the Windows PC (preferred: it runs 24/7)
+- Clone `rohansharmacode/fusion-recreation`, `git checkout wip/everything`, `npm install`. Microsoft Edge is used by the
+  QA harness as on the laptop, so no Chromium step is needed.
+- Fusion evidence: if Fusion is installed on the PC, its files are under
+  `%LOCALAPPDATA%\Autodesk\webdeploy\production\<hash>\` (find the folder that holds `Fusion\UI\FusionUI\Resources\Toolbar\TabToolbars.xml`).
+  Set that as `INSTALL` in the workflow scripts. If Fusion is not installed, use `src/modules/shell/spec.js` and the
+  public Autodesk help pages instead.
+- Reference screenshots: the user has `fusion-refs.zip` (33 real-Fusion captures + NOTES.md). Unzip it outside the repo
+  and set that folder as `REFS` in the workflow scripts. Never commit these files.
+- Set `ROOT` in the workflow scripts to the PC checkout path. Everything else below applies, except the Chromium notes.
 
 ## Goal and user decisions
 - Every command that is still a stub becomes a real implementation that matches Fusion 2706 (Light Gray) as closely as possible.

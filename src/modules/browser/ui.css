@@ -1,0 +1,86 @@
+/* Shared by the browser and timeline modules: context menu, tooltip, confirm box, inline rename. */
+/* ---------- context menu (Fusion: white, thin grey border, icon column, shortcut column) ---------- */
+.br-ctx {
+  position: fixed;
+  z-index: 1200;
+  box-sizing: border-box;
+  min-width: 222px;
+  padding: 2px 0 2px;
+  background: #fff;
+  border: 1px solid #d4d4d4;
+  border-radius: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  font-size: 12.3px;
+  color: #2a2a2a;
+  user-select: none;
+  cursor: default;
+}
+.br-ctx-item { position: relative; display: flex; align-items: center; height: 24px; padding: 0 12px 0 0; white-space: nowrap; }
+.br-ctx-item:hover, .br-ctx-item.open { background: #d1ebfa; }
+.br-ctx-item.disabled { color: var(--c-text-disabled, #a0a0a4); }
+.br-ctx-item.disabled .br-ctx-icon { opacity: 0.45; }
+.br-ctx-item.disabled:hover { background: transparent; }
+.br-ctx-icon { flex: none; width: 22px; margin-left: 0; margin-right: 7px; height: 16px; display: inline-flex; align-items: center; justify-content: center; color: #1e1e1e; }
+.br-ctx-icon .ico { display: block; }
+.br-ctx-label { flex: 1 1 auto; min-width: 124px; }
+.br-ctx-hint { flex: none; width: 50px; margin-left: 6px; color: #2a2a2a; }
+.br-ctx-arrow { position: absolute; right: 9px; top: 50%; margin-top: -7px; line-height: 0; }
+.br-ctx-sep { height: 1px; margin: 0 5px 0 4px; background: #505050; }
+
+/* timeline variant: Qt-style list (smaller type, icon rows taller than text rows) */
+.br-ctx.tl-ctx { min-width: 200px; font-size: 11px; padding: 1px 0 1px; }
+.br-ctx.tl-ctx .br-ctx-item { height: 20px; }
+.br-ctx.tl-ctx .br-ctx-item.has-icon { height: 23px; }
+.br-ctx.tl-ctx .br-ctx-icon { width: 22px; margin-right: 7px; }
+.br-ctx.tl-ctx .br-ctx-label { min-width: 120px; }
+.br-ctx.tl-ctx .br-ctx-hint { width: 32px; margin-left: 5px; }
+.br-ctx.tl-ctx .br-ctx-sep { margin: 0 4px 0 5px; background: #555; }
+.br-ctx.br-ctx-sub { min-width: 120px; }
+.br-ctx.br-ctx-sub .br-ctx-label { min-width: 60px; }
+
+/* ---------- tooltip ---------- */
+.br-tip {
+  position: fixed;
+  z-index: 1300;
+  display: none;
+  max-width: 320px;
+  padding: 6px 9px;
+  background: #fff;
+  border: 1px solid #606060;
+  border-radius: 2px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  font-size: 12px;
+  line-height: 1.35;
+  color: #1e1e1e;
+  pointer-events: none !important;
+}
+.br-tip b { font-weight: 600; }
+.br-tip-sub { color: #6a6a6a; font-size: 11px; }
+.br-tip-err { color: #b3201c; margin-top: 3px; }
+.br-tip-warn { color: #8a5d00; margin-top: 3px; }
+
+/* ---------- confirm box ---------- */
+.br-modal-back { position: fixed; inset: 0; z-index: 1400; background: rgba(0, 0, 0, 0.12); display: flex; align-items: center; justify-content: center; }
+.br-modal { width: 420px; max-width: calc(100vw - 40px); background: #fff; border: 1px solid #8c8c8c; border-radius: 3px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.3); }
+.br-modal-title { height: 30px; display: flex; align-items: center; padding: 0 12px; background: #3c3c3c; color: #fff; font-weight: 600; border-radius: 3px 3px 0 0; }
+.br-modal-body { display: flex; gap: 12px; padding: 16px 16px 6px; line-height: 1.45; }
+.br-modal-icon { flex: none; padding-top: 2px; }
+.br-modal-msg ul { margin: 6px 0; padding-left: 20px; }
+.br-modal-btns { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px 14px; }
+.br-btn { min-width: 76px; height: 26px; padding: 0 12px; border: 1px solid #a0a0a0; border-radius: 2px; background: #f4f4f4; cursor: pointer; }
+.br-btn:hover { background: #d1ebfa; border-color: #0160bf; }
+.br-btn.primary { background: var(--c-accent, #0696d7); border-color: #0577ab; color: #fff; }
+.br-btn.primary:hover { background: #0a86c2; }
+.br-btn:focus-visible { outline: 2px solid #4195db; outline-offset: 1px; }
+
+.br-rename {
+  width: 100%;
+  height: 19px;
+  font: inherit;
+  padding: 0 3px;
+  border: 1px solid var(--c-accent-dark, #0160bf);
+  border-radius: 1px;
+  outline: none;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(65, 149, 219, 0.35);
+}

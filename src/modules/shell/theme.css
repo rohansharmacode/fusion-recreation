@@ -1,0 +1,94 @@
+/* Theme refinement (shell module). Loaded after src/app/layout.css, so these :root values win.
+   Shared tokens keep their pass-1 values (other modules are tuned against them); the shell tokens below
+   were sampled from Fusion 2706 Light Gray screenshots (JPEG colours rounded) unless noted. */
+:root {
+  --c-app-bg: #efefef;            /* Container1 */
+  --c-container2: #e1e1e1;        /* Container2 */
+  --c-border: #bbbbbb;            /* Container3 */
+  --c-border-strong: #a6a6a6;     /* Container4 */
+  --c-panel: #fefefe;             /* WidgetContainer2 */
+  --c-panel-alt: #f2f2f2;         /* WidgetContainer9 */
+  --c-panel-header: #e1e1e1;      /* Container2 */
+  --c-hover: #d1ebfa;             /* HoverBackground (top) */
+  --c-hover-grad: linear-gradient(#d1ebfa, #c6e8f7);          /* HoverBackground / DropDownMenuHoverBackground */
+  --c-hover-border: #0160bf;      /* HoverOutline1 / DropDownMenuHoverBorder */
+  --c-pressed: #c3dcf4;           /* PressedBackground (top) */
+  --c-pressed-grad: linear-gradient(#c3dcf4, #aed1f1);        /* PressedBackground / ClickContainer1 */
+  --c-active: #bbd8f3;            /* ActiveContainer2 */
+  --c-selected: #cae2f7;          /* WidgetContainer5 */
+  --c-text: #191919;              /* FontNormal1 */
+  --c-text-bold: #262626;         /* FontBold1 */
+  --c-text-dim: #737373;          /* FontLight1 */
+  --c-text-disabled: #a0a0a4;     /* WidgetContainerDisable4 */
+  --c-accent: #0696d7;            /* GradientBarClickOutline (Weave blue-500) */
+  --c-accent-dark: #0160bf;       /* SearchBoxFocusedBorder / FontActive1 */
+  --c-focus: #4195db;             /* FocusOutline1 */
+  --c-separator: rgba(0, 0, 0, 0.2);   /* Separator2 */
+  --c-separator-light: rgba(0, 0, 0, 0.12);
+  --c-checkmark: #2d2d2d;
+  --c-triangle: #2d2d2d;
+  --c-dropdown-border: #a0a0a0;
+  --c-scroll-bg: #f5f5f5;         /* ScrollBarBackground */
+  --c-scroll-handle: #bababa;     /* ScrollBarHandleNormalBackground */
+  --c-danger: #d9302c;
+  --c-warning: #e6a700;
+  --c-ok: #3a9d23;
+
+  /* ---- shell (sampled from the reference screenshots) ---- */
+  --c-appbar-bg: #e6e6e6;         /* grey blocks of the application bar */
+  --c-toolbar-bg: #ffffff;        /* toolbar + active document tab */
+  --c-ab-icon: #3c3c3c;           /* application bar glyphs */
+  --c-ab-icon-disabled: #a6a6a6;  /* Undo/Redo with nothing to undo */
+  --c-ab-text: #3c3c3c;           /* document name */
+  --c-avatar: #1f1fab;            /* profile circle */
+  --c-tb-text: #505050;           /* tab captions, panel captions, COMMENTS */
+  --c-tb-strong: #1c1c1c;         /* active tab, DESIGN */
+  --c-tab-underline: #141414;     /* 3 px underline under the active tab */
+  --c-caret: #4a4a4a;
+  --c-ws-border: #c2c2c2;         /* DESIGN switcher outline */
+  --c-tb-divider: #d0d0d0;        /* vertical panel dividers */
+  --c-open: #effffe;              /* open panel caption strip / checked button fill */
+  --c-checked-border: #78c9f8;    /* checked button (SELECT) outline */
+  --c-veil: rgba(128, 128, 128, 0.10);        /* HIG HoverContainer1 */
+  --c-veil-strong: rgba(128, 128, 128, 0.20); /* HIG DropDownButtonClickedBackground */
+  --c-menu-bg: #ffffff;
+  --c-menu-border: #d8d8d8;
+  --c-menu-text: #333333;
+  --c-menu-disabled: #acacac;
+  --c-menu-sep: #4f4f4f;          /* dropdown separators are dark in Fusion's QML menus */
+  --c-menu-arrow: #1e1e1e;
+  --c-menu-hover: #e2f4fc;
+  --c-menu-pressed: #cdeaf8;
+
+  --font-ui: "Artifakt Element", "Fira Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --fs-ui: 12px;
+  --fs-small: 11px;
+  --fs-ab: 11px;                  /* document name */
+  --fs-tab: 11.5px;               /* SOLID SURFACE ... */
+  --fs-plabel: 11.5px;            /* CREATE MODIFY ... */
+  --fw-plabel: 400;
+  --fs-ws: 12px;                  /* DESIGN */
+  --fs-menu: 10.75px;             /* dropdown rows */
+  --fs-cm: 12px;                  /* COMMENTS */
+  --ls-caps: 0.3px;               /* uppercase captions run slightly wider in Artifakt */
+  --ls-plabel: 0.35px;
+  --h-menu-row: 19.25px;
+  --tb-tabs-left: 12px;
+  --tb-tab-pad: 12px;
+  --tb-tab-gap: 22.5px;
+  --tb-btn-gap: 3.4px;
+  --tb-plabel-pad: 7.25px;
+  --shadow-float: 0 2px 8px rgba(0, 0, 0, 0.22);
+  --shadow-menu: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --radius: 2px;
+  --h-appbar: 30px;
+  --h-toolbar: 84px;
+}
+
+body { color: var(--c-text); background: var(--c-app-bg); }
+
+/* thin Fusion-like scrollbars for panels that scroll */
+.sh-menu, .dp-list, .cm-list { scrollbar-width: thin; scrollbar-color: var(--c-scroll-handle) var(--c-scroll-bg); }
+.sh-menu::-webkit-scrollbar, .dp-list::-webkit-scrollbar, .cm-list::-webkit-scrollbar { width: 8px; height: 8px; }
+.sh-menu::-webkit-scrollbar-track, .dp-list::-webkit-scrollbar-track, .cm-list::-webkit-scrollbar-track { background: var(--c-scroll-bg); }
+.sh-menu::-webkit-scrollbar-thumb, .dp-list::-webkit-scrollbar-thumb, .cm-list::-webkit-scrollbar-thumb { background: var(--c-scroll-handle); border-radius: 4px; }

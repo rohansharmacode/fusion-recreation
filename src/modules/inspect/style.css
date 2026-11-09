@@ -1,0 +1,159 @@
+/* inspect module: Measure, Section Analysis, Center of Mass, Appearance, Physical Material, Properties.
+   Dialog chrome comes from the dialogs framework (.dlg ...); these rules only style the custom rows.
+   Prefix: insp- */
+
+/* custom rows laid out like framework label/control rows (.dlg-row: label column + control column
+   + the 33 px right margin where Fusion keeps its scroll bar) */
+.insp-crow, .insp-rrow, .insp-subhead {
+  display: grid;
+  grid-template-columns: var(--dlg-label-w, 77px) var(--dlg-ctl-w, 118px);
+  align-items: center;
+  min-height: 29px;
+  padding: 0 33px 0 9px;
+}
+.insp-dlg .dlg-row-custom > .dlg-ctl { width: 100%; display: block; }
+.insp-bg .insp-bg-btn svg { display: block; }
+
+/* hide the selection rows that only carry picked entities */
+.insp-measure .dlg-row[data-row="sel"],
+.insp-appearance .dlg-row[data-row="targets"],
+.insp-material .dlg-row[data-row="targets"] { display: none !important; }
+
+/* results (measure) */
+.insp-results { width: 100%; }
+.insp-group-sub { margin-left: auto; padding-right: 33px; font-weight: 400; color: #6a6a6a; }
+.insp-val {
+  height: 25px;
+  line-height: 23px;
+  padding: 0 4px 0 3px;
+  border: 1px solid transparent;
+  border-right-color: #f1f1f1;
+  border-bottom-color: #f1f1f1;
+  background: #fff;
+  color: #222;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  user-select: text; -webkit-user-select: text;
+}
+.insp-val:hover { border-color: #d6d6d6; }
+.insp-val.copied { border-color: var(--dlg-blue, #3a8de4); background: #eaf7fc; }
+.insp-subgroup { margin-top: 0; }
+.insp-restart { margin-left: auto; }
+.insp-measure .dlg-foot .dlg-sp { display: none; }
+
+/* on-canvas labels */
+.insp-label {
+  position: absolute;
+  left: 0; top: 0;
+  padding: 1px 5px;
+  background: #fff;
+  border: 1px solid #9a9a9a;
+  border-radius: 2px;
+  color: #333;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+/* swatch panels (appearance / physical material) */
+.insp-panel { width: 292px; }
+.insp-appearance, .insp-material { --dlg-ctl-w: 150px; }
+.insp-section { --dlg-ctl-w: 128px; }
+.insp-props { --dlg-ctl-w: 196px; }
+.insp-com { --dlg-ctl-w: 128px; }
+.insp-panel .insp-group-body { padding: 0 33px 0 9px; }
+.insp-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px 2px;
+  padding: 4px 2px 6px;
+}
+.insp-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 4px 2px 3px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  cursor: grab;
+  user-select: none; -webkit-user-select: none;
+  min-width: 0;
+}
+.insp-tile:hover { background: var(--c-hover, #cae2f7); }
+.insp-tile.active { border-color: var(--c-accent, #0696d7); background: #e3f1fb; }
+.insp-ball { width: 38px; height: 38px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18); flex: none; }
+.insp-tile-name {
+  width: 100%;
+  font-size: 10.5px;
+  line-height: 12px;
+  text-align: center;
+  color: #333;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: none;
+}
+.insp-empty { color: var(--c-text-dim, #6a6a6a); padding: 4px 0 6px 2px; font-style: italic; }
+.insp-search {
+  display: flex; align-items: center; gap: 4px;
+  height: 24px; margin: 4px 0 4px;
+  border: 1px solid var(--c-border, #bbb); border-radius: 2px; background: #fff;
+  padding: 0 6px; color: #777;
+}
+.insp-search input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; font: inherit; color: var(--c-text, #1e1e1e); }
+.insp-search:focus-within { border-color: var(--c-accent-dark, #0160bf); }
+.insp-libsel {
+  display: flex; align-items: center; gap: 6px;
+  height: 24px; padding: 0 6px; margin: 2px 0;
+  border: 1px solid var(--c-border, #bbb); border-radius: 2px; background: #fff;
+}
+.insp-libsel span { flex: 1; }
+.insp-tree-row {
+  display: flex; align-items: center; gap: 4px;
+  height: 24px; padding-left: 2px;
+  cursor: pointer; user-select: none; -webkit-user-select: none;
+  white-space: nowrap;
+}
+.insp-tree-row:hover { background: #f0f6fb; }
+.insp-tree-row .insp-caret { display: inline-flex; color: #555; transition: transform 0.12s; }
+.insp-tree-node.collapsed > .insp-tree-row .insp-caret { transform: rotate(-90deg); }
+.insp-tree-node.collapsed > .insp-tree-kids { display: none; }
+.insp-tree-kids { padding-left: 14px; }
+.insp-tree-count { margin-left: auto; padding-right: 4px; color: var(--c-text-dim, #8a8a8a); font-size: 11px; }
+.insp-list-row {
+  display: flex; align-items: center; gap: 7px;
+  height: 26px; padding: 0 4px;
+  border: 1px solid transparent; border-radius: 2px;
+  cursor: grab; user-select: none; -webkit-user-select: none; white-space: nowrap;
+}
+.insp-list-row:hover { background: var(--c-hover, #cae2f7); }
+.insp-list-row.active { border-color: var(--c-accent, #0696d7); background: #e3f1fb; }
+.insp-list-row .insp-ball { width: 20px; height: 20px; }
+.insp-list { padding: 2px 0 4px; }
+.insp-list-row .insp-list-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.insp-list-row .insp-list-extra { color: var(--c-text-dim, #8a8a8a); font-size: 11px; }
+.insp-drag-ghost {
+  position: fixed; z-index: 60; pointer-events: none;
+  width: 30px; height: 30px; border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35), inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+  transform: translate(-50%, -50%);
+}
+.insp-scroll { max-height: 300px; overflow-y: auto; overflow-x: hidden; }
+
+/* properties */
+.insp-props .dlg-text { color: var(--c-text, #1e1e1e); user-select: text; -webkit-user-select: text; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.insp-props .dlg-row { min-height: 26px; }
+.insp-props .dlg-body { max-height: calc(100vh - 220px); }
+.insp-mtx { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px 8px; width: 100%; padding: 2px 0 4px; font-variant-numeric: tabular-nums; }
+.insp-mtx > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: text; -webkit-user-select: text; }
+.insp-mtx .insp-mtx-k { color: var(--c-text-dim, #6a6a6a); margin-right: 3px; }
+.insp-unit-note { color: var(--c-text-dim, #6a6a6a); font-weight: 400; margin-left: 4px; }
+
+/* section analysis colour swatch */
+.insp-color { width: 40px; height: 22px; padding: 0; border: 1px solid var(--c-border, #bbb); border-radius: 2px; background: none; cursor: pointer; }

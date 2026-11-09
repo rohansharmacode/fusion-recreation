@@ -1,0 +1,132 @@
+/* Sketch environment: overlay labels, heads-up inputs, palette, mini dialogs.
+   Metrics and colours measured on Fusion 2706 (Light Gray theme) captures. */
+.sk-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; font-family: var(--font-ui); z-index: 2; }
+.sk-svg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.sk-svg .sk-dimline { fill: none; stroke: #3c3c3c; stroke-width: 1; }
+.sk-svg .sk-ext { fill: none; stroke: #7a7a7a; stroke-width: 1; }
+.sk-svg .sk-arrow { fill: #1e1e1e; stroke: none; }
+.sk-svg .preview.sk-dimline { stroke: #3c3c3c; }
+.sk-svg .preview.sk-arrow { fill: #1e1e1e; }
+.sk-svg .sk-hudline { fill: none; stroke: #9a9a9a; stroke-width: 1; }
+.sk-svg .sk-hudext { fill: none; stroke: #b4b4b4; stroke-width: 1; }
+.sk-svg .sk-hudarrow { fill: #6a6a6a; stroke: none; }
+.sk-svg .sk-hudref { fill: none; stroke: #9a9a9a; stroke-width: 1; stroke-dasharray: 4 3; }
+.sk-svg .sk-cross { fill: none; stroke: #6e6e6e; stroke-width: 1; }
+.sk-svg .sk-infer { fill: none; stroke: #0080c7; stroke-width: 1; stroke-dasharray: 3 3; }
+
+/* dimension text: black, two decimals, aligned with the dimension line, on its far side */
+.sk-dim { position: absolute; transform: translate(-50%, -50%); padding: 0 2px; font-size: 15px; line-height: 17px; color: #000; background: transparent;
+  white-space: nowrap; pointer-events: auto; cursor: default; border-radius: 1px; transform-origin: 50% 50%; }
+.sk-dim:hover, .sk-dim.hover { color: #0596d6; }
+.sk-dim.sel { color: #fff; background: #0596d6; }
+.sk-dim.driven { color: #3d3d3d; }
+.sk-dim.preview { color: #000; pointer-events: none; }
+.sk-overlay.tool-active .sk-dim, .sk-overlay.tool-active .sk-glyph { pointer-events: none; }
+
+/* sketch origin point (quartered circle) */
+.sk-origin { position: absolute; width: 17px; height: 17px; transform: translate(-50%, -50%); pointer-events: none; }
+.sk-origin.hover circle:first-child { stroke: #0596d6; }
+
+/* constraint glyphs: small grey badges offset from the geometry */
+.sk-glyph { position: absolute; transform: translate(-50%, -50%); width: 14px; height: 14px; display: flex; align-items: center; justify-content: center;
+  background: #f4f4f4; border: 1px solid #8c8c8c; border-radius: 3px; color: #5a5a5a; pointer-events: auto; cursor: default; box-sizing: border-box; }
+.sk-glyph svg { width: 10px; height: 10px; }
+.sk-glyph[data-type="horizontal"] { width: 23px; height: 11px; border-radius: 3px; border-color: #737373; background: #e6e6e6; }
+.sk-glyph[data-type="vertical"] { width: 11px; height: 23px; border-radius: 3px; border-color: #737373; background: #e6e6e6; }
+.sk-glyph[data-type="horizontal"] svg { width: 19px; height: 7px; }
+.sk-glyph[data-type="vertical"] svg { width: 7px; height: 19px; }
+.sk-glyph:hover, .sk-glyph.hover { border-color: #0596d6; color: #0596d6; background: #e8f4fb; }
+.sk-glyph.sel { border-color: #0596d6; background: #0596d6; color: #fff; }
+.sk-glyph[data-type="fix"] { color: #5c8a1e; }
+
+/* inference marks */
+.sk-snap { position: absolute; transform: translate(10px, -26px); width: 14px; height: 14px; display: flex; align-items: center; justify-content: center;
+  background: #f4f4f4; border: 1px solid #8c8c8c; border-radius: 3px; color: #5a5a5a; }
+.sk-snap svg { width: 10px; height: 10px; }
+.sk-snapbox { position: absolute; width: 9px; height: 9px; transform: translate(-50%, -50%); border: 1.5px solid #0080c7; background: rgba(255, 255, 255, 0.4); box-sizing: border-box; }
+
+/* heads-up value boxes: opaque white, no frame; the active one has a blue underline and selected text.
+   The text starts at the anchor (dimension midpoint); the box reaches 30 px to its left. */
+/* tool HUD boxes never swallow canvas clicks (they move with the cursor); typing reaches them through focus */
+.sk-hud { position: absolute; transform: translate(-30px, -50%); pointer-events: none; z-index: 3; }
+.sk-input { width: 118px; height: 19px; font-size: 12px; font-family: var(--font-ui); color: #000; border: none; border-bottom: 2px solid transparent; background: #fff; padding: 0 2px 0 30px;
+  outline: none; box-shadow: none; border-radius: 0; box-sizing: border-box; line-height: 17px; }
+.sk-input.active, .sk-input:focus { border-bottom-color: #78b2ef; }
+.sk-input.err { border-bottom-color: var(--c-danger, #d9302c); color: var(--c-danger, #d9302c); }
+.sk-input::selection { background: #87e2fc; color: #000; }
+.sk-dim-edit { transform: translate(-50%, -50%); pointer-events: auto; }
+.sk-dim-edit .sk-input { width: 104px; padding: 0 4px; text-align: center; border-bottom-color: #78b2ef; }
+
+/* cursor prompt (tooltip box near the cursor) */
+.sk-prompt { position: absolute; padding: 0 5px; height: 17px; line-height: 15px; font-size: 12px; color: #2b2b2b; background: #fff; border: 1px solid #d0d0d0;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.18); white-space: nowrap; pointer-events: none; border-radius: 0; box-sizing: border-box; font-family: var(--font-ui); }
+
+/* window selection */
+.sk-window { position: absolute; border: 1px solid #1f7ad8; background: rgba(60, 140, 230, 0.1); pointer-events: none; }
+.sk-window.crossing { border-style: dashed; background: rgba(60, 200, 120, 0.1); border-color: #2a9d55; }
+
+/* ---------- Sketch Palette: docked at the right edge of the canvas ---------- */
+.sk-palette { position: fixed; z-index: 7; width: 240px; display: flex; flex-direction: column; background: #fff; font-family: var(--font-ui); font-size: 12px;
+  color: #1e1e1e; user-select: none; box-sizing: border-box; }
+.sk-pal-head { flex: none; height: 23px; display: flex; align-items: center; padding: 0 1px 0 8px; background: #fff; }
+.sk-pal-min { width: 14px; height: 14px; border: none; background: transparent; padding: 0; margin-right: 5px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.sk-pal-min span { display: block; width: 8px; height: 2px; background: #595959; }
+.sk-pal-min:hover, .sk-pal-collapse:hover { background: var(--c-hover, #cae2f7); }
+.sk-pal-title { flex: 1; font-size: 12px; font-weight: 400; letter-spacing: 0.4px; color: #4a4a4a; white-space: nowrap; }
+.sk-pal-collapse { border: none; background: transparent; cursor: pointer; width: 16px; height: 16px; padding: 0; display: flex; align-items: center; justify-content: center; }
+/* the scroll area carries a thin grey track at its right edge (also when nothing scrolls) */
+.sk-pal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 0 0 2px;
+  background: linear-gradient(to left, #fff 2px, #f1f1f1 2px, #f1f1f1 7px, #fff 7px); }
+.sk-pal-body::-webkit-scrollbar { width: 7px; }
+.sk-pal-body::-webkit-scrollbar-track { background: linear-gradient(to left, #fff 2px, #f1f1f1 2px); }
+.sk-pal-body::-webkit-scrollbar-thumb { background: linear-gradient(to left, #fff 2px, #c4c4c4 2px); }
+.sk-palette.minimized .sk-pal-body, .sk-palette.minimized .sk-pal-foot { display: none; }
+.sk-palette.collapsed { width: auto; }
+.sk-palette.collapsed .sk-pal-body, .sk-palette.collapsed .sk-pal-foot, .sk-palette.collapsed .sk-pal-min { display: none; }
+.sk-palette.collapsed .sk-pal-collapse svg { transform: scaleX(-1); }
+.sk-pal-group { padding-bottom: 9px; }
+.sk-pal-group:last-child { padding-bottom: 0; }
+.sk-pal-ghead { display: flex; align-items: center; height: 29px; padding: 0 8px 0 11px; font-weight: 600; cursor: pointer; color: #1e1e1e; white-space: nowrap; }
+.sk-caret { flex: none; width: 0; height: 0; border-left: 4.5px solid transparent; border-right: 4.5px solid transparent; border-top: 7px solid #2b2b2b; margin-right: 4px; transition: transform .1s; }
+.sk-pal-group:not(.open) .sk-caret { transform: rotate(-90deg); }
+.sk-pal-group:not(.open) .sk-pal-rows { display: none; }
+.sk-pal-row { display: flex; align-items: center; justify-content: space-between; min-height: 29px; padding: 0 17px 0 12px; }
+.sk-pal-row label { flex: 1; cursor: default; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-pal-row.disabled label { color: #1e1e1e; }
+.sk-pal-ctl { display: flex; align-items: center; justify-content: flex-start; gap: 6px; width: 62px; flex: none; }
+.sk-pal-gap { display: none; }
+.sk-cb { -webkit-appearance: none; appearance: none; width: 13px; height: 13px; margin: 0 0 0 6px; border: 1px solid #c9c9c9; border-radius: 1px; background: #fff; cursor: pointer; position: relative; flex: none; }
+.sk-cb:checked { background: #464646; border-color: #464646; }
+.sk-cb:checked::after { content: ""; position: absolute; left: 3.6px; top: 0.6px; width: 3.2px; height: 6.6px; border: solid #fff; border-width: 0 2.2px 2.2px 0; transform: rotate(42deg); }
+.sk-cb:disabled { cursor: default; border-color: #c9c9c9; }
+.sk-cb:hover:not(:disabled) { border-color: #0696d7; }
+.sk-pal-icon { width: 25px; height: 25px; display: flex; align-items: center; justify-content: center; border: 1px solid transparent; background: transparent; border-radius: 0; cursor: pointer; padding: 0; flex: none; }
+.sk-pal-icon:hover:not(:disabled) { border-color: #87c3ee; background: #e5f2fb; }
+.sk-pal-icon.on { border-color: #72bdf0; background: #e3f2fd; }
+.sk-pal-icon:disabled { opacity: 0.45; cursor: default; }
+.sk-pal-feat { align-items: flex-start; padding-top: 2px; padding-bottom: 2px; }
+.sk-pal-feat label { line-height: 25px; }
+.sk-pal-modes { flex-wrap: wrap; row-gap: 3px; column-gap: 6px; }
+.sk-pal-foot { flex: none; display: flex; justify-content: flex-end; padding: 0 13px 7px; background: #fff; }
+.sk-finish { height: 23px; padding: 0 12px; border: 1px solid #bdbdbd; background: #fff; color: #2b2b2b; border-radius: 3px; cursor: pointer; font-size: 12px; font-weight: 400; }
+.sk-finish:hover { border-color: #0696d7; background: #f3f9fd; }
+.sk-finish:active { background: #e1effa; }
+
+/* sketch command mini-dialogs (Mirror) sit to the left of the docked palette */
+.sk-dlg { width: 300px; background: var(--c-panel, #fefefe); border: 1px solid var(--c-border, #bbb); box-shadow: var(--shadow-float); margin-right: 248px; font-size: var(--fs-ui, 12px); }
+.sk-dlg-head { height: 28px; display: flex; align-items: center; justify-content: space-between; padding: 0 6px 0 10px; background: var(--c-panel-header, #e1e1e1); font-weight: 600; font-size: 11px; letter-spacing: 0.4px; }
+.sk-dlg-x { border: none; background: transparent; font-size: 16px; cursor: pointer; color: #555; }
+.sk-dlg-body { padding: 6px 0; }
+.sk-dlg-row { display: flex; align-items: center; justify-content: space-between; padding: 3px 10px; gap: 10px; }
+.sk-selbtn { display: flex; align-items: center; gap: 6px; min-width: 150px; height: 24px; padding: 0 8px; border: 1px solid #c5c5c5; background: #fff; cursor: pointer; border-radius: 2px; }
+.sk-selbtn.active { border-color: #0696d7; background: #e8f4fc; }
+.sk-selbtn.filled .sk-seltext { color: #0a5fa8; }
+.sk-selarrow { color: #0696d7; font-weight: bold; }
+.sk-dlg-foot { display: flex; justify-content: flex-end; gap: 6px; padding: 8px 10px; border-top: 1px solid #e3e3e3; }
+.sk-btn { min-width: 64px; height: 24px; border: 1px solid #b5b5b5; background: #f6f6f6; border-radius: 2px; cursor: pointer; }
+.sk-btn[data-action="ok"] { background: #0696d7; border-color: #0a7cc2; color: #fff; }
+.sk-btn:disabled { opacity: 0.5; cursor: default; }
+.sk-snap[data-kind="horizontal"] { width: 23px; height: 11px; }
+.sk-snap[data-kind="vertical"] { width: 11px; height: 23px; }
+.sk-snap[data-kind="horizontal"] svg { width: 19px; height: 7px; }
+.sk-snap[data-kind="vertical"] svg { width: 7px; height: 19px; }

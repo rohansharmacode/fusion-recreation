@@ -1,0 +1,75 @@
+/* Base layout + shared theme tokens. Module CSS must use these variables.
+   Values come from Fusion's LightTheme.xbel where known; the shell module may refine
+   values in its own theme.css (loaded later, overrides :root). */
+:root {
+  /* Artifakt Element (Fusion's UI face) when installed; otherwise Fira Sans, an open face by the same
+     designers with near-identical metrics (loaded from Google Fonts by the shell module). */
+  --font-ui: "Artifakt Element", "Fira Sans", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --fs-ui: 12px;
+  --fs-small: 11px;
+
+  --c-app-bg: #efefef;        /* Container1 */
+  --c-container2: #e1e1e1;    /* Container2 */
+  --c-border: #bbbbbb;        /* Container3 */
+  --c-border-strong: #a6a6a6; /* Container4 */
+  --c-panel: #fefefe;         /* WidgetContainer2 */
+  --c-panel-alt: #f2f2f2;     /* WidgetContainer9 */
+  --c-panel-header: #e1e1e1;
+  --c-hover: #cae2f7;         /* WidgetContainer5 */
+  --c-pressed: #b3d4f0;
+  --c-text: #1e1e1e;
+  --c-text-dim: #6a6a6a;
+  --c-text-disabled: #a0a0a0;
+  --c-accent: #0696d7;
+  --c-accent-dark: #0160bf;   /* SearchBoxFocusedBorder */
+  --c-danger: #d9302c;
+  --c-warning: #e6a700;
+  --c-ok: #3a9d23;
+  --shadow-float: 0 2px 8px rgba(0, 0, 0, 0.22);
+  --radius: 2px;
+
+  /* Measured on Fusion 2706 (Light Gray) captures: app bar 30, toolbar 84, canvas, timeline 46 px. */
+  --h-appbar: 30px;
+  --h-toolbar: 84px;
+  --h-timeline: 46px;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+body { font-family: var(--font-ui); font-size: var(--fs-ui); color: var(--c-text); background: var(--c-app-bg); user-select: none; -webkit-user-select: none; }
+input, select, textarea, button { font-family: inherit; font-size: inherit; color: inherit; }
+
+#app { position: fixed; inset: 0; display: grid; grid-template-rows: var(--h-appbar) auto 1fr var(--h-timeline); }
+#appbar { grid-row: 1; position: relative; z-index: 20; min-width: 0; }
+#toolbar { grid-row: 2; position: relative; z-index: 15; min-width: 0; }
+#workspace { grid-row: 3; position: relative; overflow: hidden; min-height: 0; }
+#timeline { grid-row: 4; position: relative; z-index: 10; min-width: 0; }
+
+#canvas-host { position: absolute; inset: 0; }
+#canvas-host canvas { display: block; width: 100%; height: 100%; outline: none; }
+#browser-host { position: absolute; left: 6px; top: 6px; z-index: 5; }
+#comments-host { position: absolute; left: 8px; bottom: 7px; z-index: 5; }
+#viewcube-host { position: absolute; right: 8px; top: 8px; z-index: 5; }
+#navbar-host { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); z-index: 6; }
+#palette-host { position: absolute; right: 8px; top: 150px; z-index: 7; }
+#dialog-host { position: absolute; right: 8px; top: 150px; z-index: 8; }
+#overlay { position: fixed; inset: 0; pointer-events: none; z-index: 1000; }
+#overlay > * { pointer-events: auto; }
+
+/* toasts (core) */
+.toast-stack { position: fixed; left: 50%; top: 140px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none !important; }
+.toast { background: rgba(30, 30, 30, 0.88); color: #fff; padding: 7px 14px; border-radius: 3px; box-shadow: var(--shadow-float); max-width: 520px; transition: opacity .3s, transform .3s; }
+.toast-error { background: rgba(170, 28, 24, 0.94); }
+.toast-warning { background: rgba(160, 110, 0, 0.94); }
+.toast.out { opacity: 0; transform: translateY(-6px); }
+
+/* splash */
+#splash { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; background: linear-gradient(#f4f6f8, #d9dee4); transition: opacity .35s; }
+#splash.done { opacity: 0; pointer-events: none; }
+.splash-card { width: 360px; padding: 26px 28px; background: #fff; box-shadow: 0 6px 30px rgba(0,0,0,.18); border-radius: 4px; }
+.splash-title { font-size: 26px; font-weight: 300; letter-spacing: .5px; }
+.splash-sub { color: var(--c-text-dim); margin: 4px 0 18px; font-size: 11px; }
+.splash-bar { height: 4px; background: #e6e6e6; border-radius: 2px; overflow: hidden; }
+.splash-bar > div { height: 100%; width: 3%; background: var(--c-accent); transition: width .25s; }
+.splash-msg { margin-top: 10px; color: var(--c-text-dim); }
+#splash.error .splash-msg { color: var(--c-danger); }

@@ -1,0 +1,54 @@
+/* Loading screen (owned by packaging; markup in index.html, driven by src/main.js).
+   Neutral, Fusion-like light card. No Autodesk logo or wordmark — just "Design" and the disclaimer.
+   Bundled into app.css (render-blocking <link> in <head>), so it is styled at first paint. */
+#splash {
+  position: fixed; inset: 0; z-index: 2000;
+  display: flex; align-items: center; justify-content: center;
+  background: #f0f0f0;
+  font-family: var(--font-ui, "Segoe UI", Arial, sans-serif);
+  color: #3c3c3c;
+  transition: opacity .35s;
+}
+#splash.done { opacity: 0; pointer-events: none; }
+#splash .ld-card {
+  width: 460px; max-width: calc(100vw - 24px);
+  background: #fff; border: 1px solid #d4d4d4; border-radius: 3px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .12);
+  padding: 26px 28px 16px;
+}
+#splash .ld-head { display: flex; align-items: center; gap: 14px; }
+#splash .ld-mark { flex: none; width: 44px; height: 44px; }
+#splash .ld-title { font-size: 30px; font-weight: 300; line-height: 1.1; letter-spacing: .3px; color: #2d2d2d; }
+#splash .ld-sub { margin-top: 3px; font-size: 12px; color: #6a6a6a; }
+#splash .ld-bar { position: relative; margin-top: 26px; height: 3px; background: #e3e3e3; border-radius: 2px; overflow: hidden; }
+#splash .ld-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: #0696d7; transition: width .25s ease-out; }
+/* before app.js has started (or if it never does), the bar runs indeterminate */
+#splash .ld-fill.ld-indet { width: 30%; animation: ld-slide 1.3s ease-in-out infinite; transition: none; }
+@keyframes ld-slide { 0% { left: -30%; } 100% { left: 100%; } }
+#splash .ld-row { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; font-size: 11px; color: #6a6a6a; min-height: 15px; }
+#splash .splash-msg { margin: 0; color: #6a6a6a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#splash .ld-pct { flex: none; font-variant-numeric: tabular-nums; }
+#splash .ld-note, #splash .ld-slow { display: none; margin-top: 12px; padding: 7px 9px; background: #f4f8fb; border: 1px solid #d6e6f2; border-radius: 2px; font-size: 11px; color: #3c3c3c; line-height: 1.4; }
+/* phones / tablets / tiny windows: say where it works best */
+@media (max-width: 899px), (max-height: 499px), (pointer: coarse) { #splash .ld-note { display: block; } }
+/* CSS-only hint if app.js never starts (blocked script, very old browser); main.js hides it */
+#splash .ld-slow { display: block; max-height: 0; margin-top: 0; padding-top: 0; padding-bottom: 0; border-width: 0; overflow: hidden; opacity: 0; animation: ld-show 0s linear 25s forwards; }
+#splash.js .ld-slow { display: none; }
+#splash.js.slow .ld-slow { display: block; max-height: none; margin-top: 12px; padding: 7px 9px; border-width: 1px; opacity: 1; animation: none; }
+@keyframes ld-show { to { max-height: 200px; margin-top: 12px; padding-top: 7px; padding-bottom: 7px; border-width: 1px; opacity: 1; } }
+#splash .ld-legal { margin-top: 18px; padding-top: 10px; border-top: 1px solid #ececec; font-size: 10.5px; color: #8a8a8a; line-height: 1.4; }
+
+/* error state */
+#splash .ld-err { display: none; margin-top: 22px; }
+#splash.error .ld-err { display: block; }
+#splash.error .ld-bar, #splash.error .ld-row, #splash.error .ld-slow { display: none; }
+#splash .ld-err-title { font-size: 13px; font-weight: 600; color: #1e1e1e; display: flex; align-items: center; gap: 7px; }
+#splash .ld-err-title::before { content: "!"; flex: none; width: 16px; height: 16px; border-radius: 50%; background: #d9302c; color: #fff; font-size: 11px; font-weight: 700; line-height: 16px; text-align: center; }
+#splash .ld-err-text { margin-top: 6px; white-space: normal; color: #3c3c3c; font-size: 12px; line-height: 1.45; }
+#splash .ld-err-detail { margin: 8px 0 0; max-height: 64px; overflow: auto; padding: 5px 7px; background: #f5f5f5; border: 1px solid #e3e3e3; font: 10.5px/1.35 Consolas, "Courier New", monospace; color: #6a6a6a; white-space: pre-wrap; word-break: break-word; user-select: text; -webkit-user-select: text; }
+#splash .ld-err-detail:empty { display: none; }
+#splash .ld-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+#splash .ld-btn { height: 26px; min-width: 76px; padding: 0 14px; border: 1px solid #0696d7; border-radius: 2px; background: #0696d7; color: #fff; font: inherit; font-size: 12px; cursor: pointer; }
+#splash .ld-btn:hover { background: #0687c2; }
+#splash .ld-btn:focus-visible { outline: 2px solid #8cc8ec; outline-offset: 1px; }
+#splash .ld-btn[disabled] { opacity: .6; cursor: default; }

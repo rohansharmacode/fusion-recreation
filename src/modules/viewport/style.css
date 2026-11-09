@@ -1,0 +1,100 @@
+/* Viewport module: canvas overlays, status text, grid numbers, ViewCube, navigation bar, menus, small dialogs. */
+.vp-host { overflow: hidden; background: #ffffff; }
+.vp-canvas { touch-action: none; }
+.vp-label-layer { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.vp-selregion, .vp-navtool-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; display: none; overflow: visible; }
+.vp-selregion .vp-window, .vp-navtool-overlay .vp-window { fill: rgba(6, 150, 215, 0.12); stroke: #0696d7; stroke-width: 1; }
+.vp-selregion .vp-crossing { fill: rgba(58, 157, 35, 0.10); stroke: #3a9d23; stroke-width: 1; stroke-dasharray: 5 3; }
+.vp-selregion .vp-lasso { fill: rgba(6, 150, 215, 0.10); stroke: #0696d7; stroke-width: 1; }
+.vp-selregion .vp-paint { fill: none; stroke: rgba(6, 150, 215, 0.45); stroke-width: 14; stroke-linecap: round; stroke-linejoin: round; }
+.vp-navtool-overlay .vp-orbit-ring { fill: none; stroke: #6aa84f; stroke-width: 1.5; opacity: 0.85; }
+.vp-navtool-overlay .vp-orbit-handle { fill: #fff; stroke: #6aa84f; stroke-width: 1.5; }
+
+/* bottom-right status text ("Body1", "Edge", "1 Profile | Area : 800.00 mm^2") */
+.vp-status { position: absolute; right: 17px; bottom: 9px; z-index: 4; max-width: 60%; pointer-events: none; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; font-family: var(--font-ui); font-size: 12.5px; font-weight: 600; line-height: 14px; color: #1b1b1b; }
+.vp-dark-env .vp-status, .vp-dark-env .vp-grid-label { color: #f0f0f0; }
+
+/* grid numbers along the sketch axes (positioned by grid.js with a CSS matrix) */
+.vp-grid-labels { position: absolute; inset: 0; pointer-events: none; }
+.vp-grid-label { position: absolute; left: 0; top: 0; transform-origin: 0 0; white-space: nowrap; font-family: var(--font-ui);
+  font-size: 15px; line-height: 15px; color: #1e1e1e; }
+
+/* ---------- ViewCube ---------- */
+.vc-root { position: relative; width: 110px; height: 108px; user-select: none; }
+.vc-canvas-wrap { position: absolute; left: 10px; top: 3px; width: 100px; height: 100px; }
+.vc-canvas { touch-action: none; display: block; width: 100px; height: 100px; }
+.vc-btn { position: absolute; display: flex; align-items: center; justify-content: center; padding: 0; margin: 0; border: 0;
+  background: transparent; color: #6e7378; cursor: pointer; border-radius: 3px; opacity: 0; transition: opacity .15s; pointer-events: none; }
+.vc-root.vc-active .vc-btn { opacity: 1; pointer-events: auto; }
+.vc-btn:hover { color: #0696d7; background: rgba(202, 226, 247, 0.7); }
+.vc-btn:focus, .nb-btn:focus, .nb-caret:focus { outline: none; }
+.vc-btn:focus-visible, .nb-btn:focus-visible, .nb-caret:focus-visible { outline: 1px solid #0696d7; }
+.vc-home { left: 8px; top: 4px; width: 18px; height: 17px; }
+.vc-home svg { width: 15px; height: 15px; }
+.vc-menu { left: 94px; top: 90px; width: 14px; height: 14px; }
+.vc-nudge { width: 14px; height: 14px; display: none; }
+.vc-root.vc-aligned .vc-nudge, .vc-root.vc-aligned .vc-roll { display: flex; }
+.vc-root:not(.vc-aligned) .vc-nudge, .vc-root:not(.vc-aligned) .vc-roll { display: none; }
+.vc-up { left: 53px; top: 13px; }
+.vc-down { left: 53px; top: 80px; transform: rotate(180deg); }
+.vc-left { left: 18px; top: 46px; transform: rotate(-90deg); }
+.vc-right { left: 88px; top: 46px; transform: rotate(90deg); }
+.vc-nudge svg { width: 10px; height: 10px; }
+.vc-roll { width: 15px; height: 15px; display: none; }
+.vc-roll svg { width: 12px; height: 12px; }
+.vc-roll-ccw { left: 78px; top: 4px; }
+.vc-roll-cw { left: 93px; top: 4px; }
+
+/* ---------- navigation bar (transparent: icons only, like Fusion) ---------- */
+.vp-navbar { display: flex; align-items: center; gap: 0; height: 22px; padding: 0; background: transparent; border: 0; box-shadow: none; }
+.vp-navbar button { font: inherit; }
+.nb-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 25px; height: 22px; padding: 0;
+  border: 1px solid transparent; border-radius: 2px; background: transparent; color: #4a4a4a; cursor: pointer; }
+.nb-btn .nb-ico { display: block; width: 19px; height: 19px; flex: none; }
+.nb-btn:hover, .nb-caret:hover { background: rgba(202, 226, 247, 0.85); border-color: rgba(150, 196, 236, 0.9); }
+.nb-btn.active, .nb-btn.vp-menu-owner-open, .nb-split.vp-menu-owner-open .nb-caret, .nb-split.vp-menu-owner-open .nb-btn { background: #dff0fb; border-color: #a9d3f1; }
+.nb-drop { width: 30px; justify-content: flex-start; padding-left: 1px; gap: 1px; }
+.nb-drop .nb-caret-ico { flex: none; margin-left: 1px; color: #5c5c5c; }
+.nb-split { display: inline-flex; align-items: center; }
+.nb-caret { display: inline-flex; align-items: center; justify-content: center; width: 8px; height: 22px; padding: 0; border: 1px solid transparent;
+  border-radius: 2px; background: transparent; color: #5c5c5c; cursor: pointer; }
+.nb-sep { display: none; }
+/* dark environments: give the icons a light backing so they stay readable */
+.vp-navbar.nb-dark { background: rgba(244, 244, 244, 0.92); border-radius: 3px; box-shadow: 0 0 0 3px rgba(244, 244, 244, 0.92); }
+
+/* ---------- menus ---------- */
+.vp-menu { position: fixed; z-index: 1200; min-width: 150px; padding: 3px 0; background: #ffffff; border: 1px solid #cfcfcf;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12); font-family: var(--font-ui); font-size: 12.5px; color: #3c3c3c; }
+.vp-menu-nav[data-level="0"].vp-menu-display { min-width: 283px; }
+.vp-menu-item { display: flex; align-items: center; height: 24px; padding: 0 0 0 4px; cursor: default; white-space: nowrap; }
+.vp-menu-item:hover { background: #e5f1fb; }
+.vp-menu-item.disabled { color: var(--c-text-disabled, #a0a0a0); }
+.vp-menu-item.disabled:hover { background: transparent; }
+.vp-menu-mark { width: 17px; flex: none; display: inline-flex; justify-content: center; align-items: center; color: #262626; }
+.vp-menu-item.indent .vp-menu-mark { width: 24px; }
+.vp-menu-label { flex: 1; padding-left: 2px; padding-right: 28px; }
+.vp-menu-sc { color: #3c3c3c; padding-right: 22px; }
+.vp-menu-arrow { width: 22px; flex: none; display: inline-flex; justify-content: flex-start; color: #1e1e1e; }
+.vp-menu-item:not(.has-sub) .vp-menu-arrow { width: 0; }
+.vp-menu-sep { height: 1px; margin: 5px 3px 6px; background: #4a4a4a; box-shadow: 0 1px 0 rgba(74, 74, 74, 0.45); }
+.vp-menu-header { height: 24px; line-height: 24px; padding: 0 10px 0 19px; color: #3c3c3c; cursor: default; }
+
+/* ---------- small command dialogs (Grid Settings, Set Increments, Ground Plane Offset) ---------- */
+.vp-dlg { position: fixed; right: 12px; top: 160px; width: 300px; z-index: 1100; background: var(--c-panel, #fefefe);
+  border: 1px solid #b4b4b4; box-shadow: 0 3px 12px rgba(0, 0, 0, 0.22); font-family: var(--font-ui); font-size: var(--fs-ui, 12px); }
+.vp-dlg-head { display: flex; align-items: center; height: 30px; padding: 0 6px 0 10px; background: #e1e1e1; border-bottom: 1px solid #cfcfcf;
+  font-weight: 600; text-transform: uppercase; letter-spacing: .3px; }
+.vp-dlg-title { flex: 1; }
+.vp-dlg-x { border: 0; background: transparent; font-size: 16px; line-height: 1; cursor: pointer; color: #555; width: 22px; height: 22px; }
+.vp-dlg-x:hover { background: var(--c-hover, #cae2f7); }
+.vp-dlg-body { padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.vp-dlg-row { display: flex; align-items: center; gap: 8px; }
+.vp-dlg-label { flex: 0 0 130px; color: #333; }
+.vp-dlg-input { flex: 1 1 0; min-width: 0; width: 0; height: 22px; padding: 0 6px; border: 1px solid #bdbdbd; border-radius: 2px; background: #fff; }
+.vp-dlg-input:focus { outline: none; border-color: var(--c-accent, #0696d7); }
+.vp-dlg-input:disabled { background: #f0f0f0; color: #999; }
+.vp-dlg-foot { display: flex; justify-content: flex-end; gap: 6px; padding: 8px 10px; border-top: 1px solid #e0e0e0; }
+.vp-dlg-btn { min-width: 64px; height: 24px; border: 1px solid #b9b9b9; border-radius: 2px; background: #f7f7f7; cursor: pointer; }
+.vp-dlg-btn.primary { background: var(--c-accent, #0696d7); border-color: #0582bb; color: #fff; }
+.vp-dlg-btn:hover { filter: brightness(0.96); }

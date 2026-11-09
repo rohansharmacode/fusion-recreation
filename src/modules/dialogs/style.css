@@ -1,0 +1,293 @@
+/* Command dialogs: Fusion's docked command panel (light theme). Prefix: dlg-
+   Geometry measured on Fusion 2706 captures: the panel is docked at the right edge of the canvas just
+   below the ViewCube, white, no frame or shadow; 22 px header ("− EXTRUDE" ... »), 29 px rows, 25 px
+   controls, faint control borders, a thin divider before the Operation row, OK / Cancel bottom-right. */
+#workspace #dialog-host { top: 113px; right: 4px; }
+
+.dlg {
+  --dlg-label-w: 77px;
+  --dlg-ctl-w: 118px;
+  --dlg-blue: #3a8de4;
+  position: relative;
+  width: max-content;
+  min-width: 200px;
+  background: #fff;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: #222;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+}
+.dlg.floating { border: 1px solid #c4c4c4; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2); }
+
+/* header */
+.dlg-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 5px 0 5px;
+  flex: none;
+  cursor: default;
+}
+.dlg-title {
+  color: #6b6b6b;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.35px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dlg-sp { flex: 1; }
+.dlg-hbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 16px; padding: 0; border: 0; border-radius: 2px;
+  background: transparent; color: #3c3c3c; cursor: pointer;
+}
+.dlg-hbtn:hover { background: #e3eef8; }
+.dlg-hide { color: #5a5a5a; width: 12px; }
+
+.dlg-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #c9c9c9 transparent;
+}
+.dlg.collapsed .dlg-body, .dlg.collapsed .dlg-msg, .dlg.collapsed .dlg-foot { display: none; }
+.dlg.hidden-panel .dlg-body, .dlg.hidden-panel .dlg-msg, .dlg.hidden-panel .dlg-foot, .dlg.hidden-panel .dlg-title, .dlg.hidden-panel .dlg-min { display: none; }
+.dlg.hidden-panel { min-width: 0; }
+
+/* rows: label column + control column (+ the right margin where Fusion keeps its scroll bar) */
+.dlg-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--dlg-label-w) var(--dlg-ctl-w);
+  align-items: center;
+  min-height: 29px;
+  padding: 0 33px 0 9px;
+}
+.dlg-row-full { grid-template-columns: minmax(0, 1fr); }
+.dlg-row-custom { padding: 0; }
+.dlg-row.sep { margin-top: 9px; }
+.dlg-row.sep::before { content: ""; position: absolute; left: 2px; right: 16px; top: -5px; height: 1px; background: #f1f1f1; }
+.dlg-row.disabled .dlg-label, .dlg-row.disabled .dlg-ctl { opacity: 0.45; }
+.dlg-row.disabled .dlg-ctl { pointer-events: none; }
+.dlg-label { justify-self: start; min-width: 0; color: #222; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 8px; max-width: min(100%, var(--dlg-label-clip, 100%)); }
+.dlg-ctl { min-width: 0; display: flex; align-items: center; }
+.dlg-text { color: #6a6a6a; }
+
+/* value fields: borderless text like Fusion (faint right/bottom rule, blue frame while editing) */
+.dlg-input {
+  width: 100%;
+  height: 25px;
+  border: 1px solid transparent;
+  border-right-color: #f1f1f1;
+  border-bottom-color: #f1f1f1;
+  border-radius: 0;
+  padding: 0 4px 0 3px;
+  background: #fff;
+  color: #222;
+  outline: none;
+  user-select: text; -webkit-user-select: text;
+}
+.dlg-input:hover { border-color: #d6d6d6; }
+.dlg-input:focus { border-color: var(--dlg-blue); }
+.dlg-input::selection { background: #84e2fb; color: #111; }
+.dlg-input.invalid { color: var(--c-danger, #d9302c); border-color: var(--c-danger, #d9302c); background: #fff6f5; }
+.dlg-input:disabled { color: #a6a6a6; background: #fff; }
+
+/* selection button: "Select" / "1 selected"; the active one has a blue frame, a pale fill and a cursor */
+.dlg-sel {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 26px; padding: 0 7px; max-width: 100%;
+  border: 1px solid #c6c6c6; border-radius: 1px;
+  background: #fff; color: #222; cursor: pointer; text-align: left;
+  white-space: nowrap;
+}
+.dlg-sel:hover { border-color: #8cbde9; }
+.dlg-sel.active { border: 2px solid var(--dlg-blue); background: #eaf7fc; padding: 0 6px 0 4px; }
+.dlg-sel-arrow { display: none; width: 14px; height: 16px; flex: none; }
+.dlg-sel.active .dlg-sel-arrow { display: inline-flex; }
+.dlg-sel-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dlg-sel-x {
+  display: none; align-items: center; justify-content: center;
+  width: 16px; height: 16px; margin-left: 8px; padding: 0; border: 0; border-radius: 2px;
+  background: transparent; color: #5c5c5c; cursor: pointer; flex: none;
+}
+.dlg-sel-x.has { display: inline-flex; }
+.dlg-sel-x:hover { background: #e3eef8; color: #222; }
+
+/* dropdown: faint box, icon + text, small filled caret */
+.dlg-dd {
+  display: flex; align-items: center; gap: 4px;
+  width: 100%; height: 25px; padding: 0 4px 0 3px;
+  border: 1px solid #ededed; border-radius: 0;
+  background: #fff; cursor: pointer; outline: none;
+}
+.dlg-dd:hover { border-color: #cfcfcf; }
+.dlg-dd:focus-visible { border-color: var(--dlg-blue); }
+.dlg-dd.disabled { cursor: default; }
+.dlg-dd-icon { display: inline-flex; width: 16px; height: 16px; flex: none; align-items: center; justify-content: center; }
+.dlg-dd-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #222; }
+.dlg-dd-caret { display: inline-flex; justify-content: center; width: 10px; color: #3f3f3f; flex: none; }
+.dlg-dd-caret svg { flex: none; width: 16px; height: 16px; margin: 0 -3px; }
+.dlg-dd-menu {
+  position: fixed; z-index: 30;
+  background: #fff; border: 1px solid #bdbdbd;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+  padding: 2px 0; font-size: 12px; font-family: var(--font-ui); color: #222;
+}
+.dlg-dd-item { display: flex; align-items: center; gap: 6px; height: 25px; padding: 0 14px 0 6px; cursor: pointer; white-space: nowrap; }
+.dlg-dd-item:hover { background: #cae2f7; }
+.dlg-dd-item.current { background: #e8f3fc; }
+.dlg-dd-item.current:hover { background: #cae2f7; }
+.dlg-dd-item.disabled { color: #a6a6a6; cursor: default; }
+.dlg-dd-item.disabled:hover { background: transparent; }
+.dlg-dd-item.disabled .dlg-dd-icon { opacity: 0.45; }
+
+/* icon toggles (Type, Placement, Hole Type ...) */
+.dlg-bg { display: inline-flex; gap: 5px; align-items: center; }
+.dlg-bg-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 26px; padding: 0;
+  border: 1px solid transparent; border-radius: 1px; background: transparent; cursor: pointer; color: #333;
+}
+.dlg-bg-btn.text { width: auto; padding: 0 9px; border-color: #e0e0e0; }
+.dlg-bg-btn:hover { border-color: #b9dcf3; background: #f4fbff; }
+.dlg-bg-btn.on { border-color: #84cff4; background: #eaf8fe; }
+.dlg-bg-btn.na { cursor: default; }
+.dlg-bg-btn.na:hover { border-color: transparent; background: transparent; }
+
+/* check box: dark filled square with a white tick */
+.dlg-check {
+  appearance: none; -webkit-appearance: none;
+  width: 14px; height: 14px; margin: 0 0 0 3px;
+  border: 1px solid #8d8d8d; border-radius: 2px; background: #fff; cursor: pointer;
+  display: inline-grid; place-content: center;
+}
+.dlg-check:checked { background: #3f3f3f; border-color: #3f3f3f; }
+.dlg-check:checked::after { content: ""; width: 7px; height: 4px; border: solid #fff; border-width: 0 0 1.6px 1.6px; transform: translateY(-1px) rotate(-45deg); }
+.dlg-check:hover { border-color: #3a8de4; }
+
+/* groups ("▼ Shape Settings") */
+.dlg-group-head {
+  display: flex; align-items: center; gap: 3px;
+  height: 29px; padding: 0 10px 0 3px;
+  font-weight: 700; cursor: pointer; color: #222;
+}
+.dlg-group-head:hover .dlg-group-label { color: #000; }
+.dlg-caret { display: inline-flex; transition: transform 0.1s; color: #333; }
+.dlg-group.collapsed > .dlg-group-head .dlg-caret { transform: rotate(-90deg); }
+.dlg-group.collapsed > .dlg-group-body { display: none; }
+.dlg-group.headless > .dlg-group-head { display: none; }
+.dlg-group.sep { margin-top: 9px; position: relative; }
+.dlg-group.sep::before { content: ""; position: absolute; left: 2px; right: 16px; top: -5px; height: 1px; background: #f1f1f1; }
+
+/* messages */
+.dlg-msg { display: none; }
+.dlg-msg.show { display: flex; align-items: flex-start; gap: 7px; margin: 4px 33px 2px 9px; padding: 5px 7px; line-height: 1.35; max-width: calc(var(--dlg-label-w) + var(--dlg-ctl-w)); }
+.dlg-msg.error { background: #fdeceb; border: 1px solid #f0b6b3; color: #8f1d19; }
+.dlg-msg.warning { background: #fff7e0; border: 1px solid #ecd28a; color: #6b4e00; }
+.dlg-msg.info { background: #eaf4fc; border: 1px solid #b7d7f1; color: #1d4c74; }
+.dlg-msg-icon { display: inline-flex; flex: none; margin-top: 1px; }
+
+/* footer: (i) ............ [OK] [Cancel] */
+.dlg-foot {
+  display: flex; align-items: center; gap: 14px;
+  flex: none;
+  padding: 8px 14px 8px 4px;
+}
+.dlg-info { width: 16px; height: 16px; color: #4a4a4a; cursor: default; }
+.dlg-info:hover { background: transparent; color: #222; }
+.dlg-btn {
+  min-width: 42px; height: 23px; padding: 0 11px;
+  border: 1px solid #c2c2c2; border-radius: 2px;
+  background: #fff; color: #222; cursor: pointer; font-size: 12px; font-weight: 400;
+}
+.dlg-btn:hover { background: #e9f3fc; border-color: #8cbde9; }
+.dlg-btn:focus-visible { outline: none; border-color: #3c3c3c; }
+.dlg-ok:disabled { color: #b3b3b3; border-color: #dedede; background: #fff; cursor: default; }
+.dlg-foot.ok-disabled .dlg-cancel { border-color: #3a3a3a; }
+.dlg-cancel { min-width: 61px; }
+
+.dlg-shake { animation: dlg-shake 0.28s; }
+@keyframes dlg-shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+
+/* hole: diagram with editable callouts */
+.dlg-hole-diagram { position: relative; width: 300px; height: 176px; margin: 15px 0 4px 5px; }
+.dlg[data-dialog="FusionHoleCommand"] .dlg-row[data-row="extent"] .dlg-dd { width: 100px; flex: none; }
+.dlg-flip { width: 20px; height: 20px; margin-left: 17px; color: #2f86de; }
+.dlg-flip.on { background: #eaf8fe; outline: 1px solid #84cff4; }
+.dlg-cut-list { padding: 0 33px 4px 30px; }
+.dlg-cut-row { display: flex; align-items: center; gap: 7px; height: 25px; }
+.dlg-cut-empty { color: #8a8a8a; height: 25px; line-height: 25px; }
+.dlg-hole-diagram svg { position: absolute; left: 0; top: 0; }
+.dlg-callout {
+  position: absolute; width: 74px; height: 20px; padding: 0 2px;
+  border: 1px solid transparent; background: transparent; color: #222; font-size: 12px; font-family: var(--font-ui);
+  outline: none; user-select: text; -webkit-user-select: text;
+}
+.dlg-callout:hover { border-color: #d6d6d6; background: #fff; }
+.dlg-callout:focus { border-color: var(--dlg-blue); background: #fff; }
+.dlg-callout.invalid { color: var(--c-danger, #d9302c); border-color: var(--c-danger, #d9302c); }
+.dlg-callout::selection { background: #84e2fb; color: #111; }
+
+/* fillet: selection-set table */
+.dlg-sets { width: 100%; padding: 5px 33px 4px 5px; }
+.dlg-sets-table { height: 78px; overflow-y: auto; }
+.dlg-set-row {
+  display: grid; grid-template-columns: 87px 85px 105px minmax(0, 1fr); align-items: center;
+  height: 27px; padding: 0 0 0 4px; cursor: default;
+}
+.dlg-set-row.current { background: #eaf8fd; }
+.dlg-set-count { white-space: nowrap; }
+.dlg-set-cell { display: flex; align-items: center; gap: 3px; min-width: 0; white-space: nowrap; overflow: hidden; }
+.dlg-set-cell .dlg-input { height: 23px; border-color: transparent; border-right-color: #f1f1f1; padding: 0 2px; background: transparent; }
+.dlg-set-cell .dlg-input:hover { border-color: #d6d6d6; }
+.dlg-set-cell .dlg-input:focus { border-color: var(--dlg-blue); background: #fff; }
+.dlg-set-cell.dim { color: #b0b0b0; justify-content: center; padding-right: 8px; }
+.dlg-set-cont { overflow: hidden; text-overflow: ellipsis; max-width: 71px; }
+.dlg-set-cell .dlg-dd-icon { width: 18px; }
+.dlg-sets-tools { display: flex; gap: 5px; height: 29px; align-items: center; padding-left: 2px; }
+.dlg-sets-tools .dlg-hbtn { width: 22px; height: 22px; color: #333; }
+.dlg-sets-tools .dlg-hbtn:disabled { opacity: 0.35; cursor: default; background: transparent; }
+
+/* ---------------------------------------------------------------- on-canvas pieces
+   (inside app.viewport.labelLayer, which is pointer-events:none) */
+.dlg-hud {
+  position: absolute;
+  display: flex; align-items: center;
+  height: 22px;
+  pointer-events: none;
+}
+.dlg-hud-grip { width: 3px; height: 18px; margin-right: 4px; border-left: 1px dotted #cfcfcf; border-right: 1px dotted #cfcfcf; pointer-events: auto; cursor: move; }
+.dlg-manip-input {
+  width: 114px; height: 21px; padding: 0 4px;
+  border: 0; border-bottom: 2px solid #4b8fe6; border-radius: 0;
+  background: #fff;
+  font-family: var(--font-ui); font-size: 13px; color: #1e1e1e; text-align: center;
+  pointer-events: auto; outline: none;
+  user-select: text; -webkit-user-select: text;
+}
+.dlg-manip-input::selection { background: #84e2fb; color: #111; }
+.dlg-manip-input.invalid { color: var(--c-danger, #d9302c); border-bottom-color: var(--c-danger, #d9302c); }
+.dlg-hud-more {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 20px; margin-left: 6px; padding: 0; border: 0; border-radius: 2px;
+  background: transparent; color: #444; cursor: pointer; pointer-events: auto;
+}
+.dlg-hud-more:hover { background: #e3eef8; }
+.dlg-prompt {
+  position: absolute;
+  padding: 1px 4px 2px;
+  background: #fff; color: #222;
+  border: 1px solid #c9c9c9;
+  font-family: var(--font-ui); font-size: 12px;
+  white-space: nowrap; pointer-events: none;
+}
+.dlg-glyph { display: block; }
+.dlg-dd.no-caret .dlg-dd-caret { display: none; }

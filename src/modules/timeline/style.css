@@ -1,0 +1,122 @@
+/* TIMELINE (bottom history bar). Fusion's light theme: a white strip with no border, dark grey
+   playback glyphs every 24px, 16px feature icons every 22px, a black funnel-and-stem history
+   marker, light grey brackets linking sketches to their features and a gear at the far right. */
+#timeline { background: #fff; border-top: 0; }
+/* everything is anchored to the bottom edge (the reference centres the strip 24px above it) */
+.tl-root {
+  position: relative;
+  height: 100%;
+  min-width: 0;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: #1e1e1e;
+  user-select: none;
+}
+.tl-controls { position: absolute; left: 4px; bottom: 11px; display: flex; align-items: center; }
+.tl-btn {
+  flex: none;
+  width: 24px; height: 24px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 2px;
+  background: transparent; cursor: pointer;
+}
+.tl-btn .ico { display: block; }
+.tl-btn:hover { background: #e3f0fa; }
+.tl-btn:active { background: #cfe5f7; }
+.tl-btn.idle { cursor: default; }
+.tl-btn.idle:hover, .tl-btn.idle:active { background: transparent; }
+.tl-root.playing [data-tl="play"] { background: #cfe5f7; }
+.tl-gear { position: absolute; right: 9px; bottom: 11px; }
+
+.tl-scroll {
+  position: absolute;
+  left: 124px;
+  right: 37px;
+  top: 0;
+  bottom: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: #c4c4c4 transparent;
+}
+.tl-scroll::-webkit-scrollbar { height: 5px; }
+.tl-scroll::-webkit-scrollbar-thumb { background: #c4c4c4; border-radius: 3px; }
+.tl-items {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-end;
+  height: 100%;
+  min-width: 100%;
+  padding: 0 14px 12px 13px;
+  box-sizing: border-box;
+}
+.tl-links { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 0; }
+.tl-links path { fill: none; stroke: #cbcbcb; stroke-width: 2; }
+
+.tl-item {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: 22px;
+  height: 23px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+  touch-action: none;
+}
+.tl-ico { display: inline-flex; line-height: 0; pointer-events: none; }
+.tl-ico .ico { display: block; }
+.tl-item:hover, .tl-item.hov { background: #d6f4fd; box-shadow: inset 0 0 0 1px #9ccff5; }
+.tl-item.sel, .tl-item.active { background: #8fe5fa; box-shadow: inset 0 0 0 1px #3d8ef3; }
+.tl-item.ctx { box-shadow: inset 0 0 0 1px #3d8ef3; }
+.tl-item.rolled .tl-ico { opacity: 0.35; filter: grayscale(0.9); }
+.tl-item.suppressed .tl-ico { opacity: 0.4; filter: grayscale(1); }
+.tl-item.implicit .tl-ico { opacity: 0.3; }
+.tl-strike { position: absolute; inset: 3px; pointer-events: none; background: linear-gradient(to top right, transparent calc(50% - 0.8px), #7c7c7c calc(50% - 0.8px), #7c7c7c calc(50% + 0.8px), transparent calc(50% + 0.8px)); }
+.tl-item.error { background: #fbd8d6; box-shadow: inset 0 0 0 1px #d9302c; }
+.tl-item.error.sel { background: #f4bdb9; }
+.tl-item.warning { background: #fcf0c9; box-shadow: inset 0 0 0 1px #e0a800; }
+.tl-item.warning.sel { background: #f6e2a3; }
+.tl-flag { position: absolute; right: -2px; top: -3px; line-height: 0; pointer-events: none; }
+.tl-swatch { position: absolute; left: 3px; right: 3px; bottom: -3px; height: 3px; border-radius: 1px; background: #6c8ebf; pointer-events: none; }
+.tl-item.flash { animation: tl-flash 1.2s ease-out; }
+@keyframes tl-flash { 0%, 40% { box-shadow: 0 0 0 3px rgba(6, 150, 215, 0.55); } 100% { box-shadow: 0 0 0 0 rgba(6, 150, 215, 0); } }
+.tl-item.dragging { opacity: 0.35; }
+
+/* history marker: black funnel head + stem */
+.tl-marker {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  align-self: flex-end;
+  width: 12px;
+  height: 32px;
+  margin: 0 0 -7px -5px;
+  cursor: ew-resize;
+  touch-action: none;
+  line-height: 0;
+}
+.tl-marker-svg { display: block; fill: #0d0d0d; }
+.tl-marker:hover .tl-marker-svg, .tl-marker.dragging .tl-marker-svg { fill: #0160bf; }
+.tl-marker.temp { cursor: default; }
+.tl-marker.temp .tl-marker-svg { fill: #6b6b6b; }
+.tl-root.dragging-marker, .tl-root.dragging-marker * { cursor: ew-resize !important; }
+.tl-root.reordering, .tl-root.reordering * { cursor: grabbing !important; }
+
+/* reorder feedback */
+.tl-drop { position: absolute; bottom: 12px; height: 23px; width: 3px; margin-left: -1px; border-radius: 1px; background: #0696d7; display: none; pointer-events: none; z-index: 3; }
+.tl-drop.show { display: block; }
+.tl-drop.bad { background: #d9302c; }
+.tl-ghost {
+  position: fixed;
+  z-index: 1250;
+  width: 22px; height: 23px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: inset 0 0 0 1px #3d8ef3, 0 2px 8px rgba(0, 0, 0, 0.25);
+  pointer-events: none !important;
+}
+.tl-ghost.bad { box-shadow: inset 0 0 0 1px #d9302c, 0 2px 8px rgba(0, 0, 0, 0.25); background: rgba(255, 235, 235, 0.95); }
+
+.tl-rename-pop { position: fixed; z-index: 1250; width: 180px; padding: 3px; background: #fff; border: 1px solid #8c8c8c; border-radius: 2px; box-shadow: 0 3px 10px rgba(0, 0, 0, 0.25); }

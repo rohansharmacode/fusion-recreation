@@ -1,0 +1,35 @@
+{
+  "name": "fusion-design-recreation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Unofficial browser recreation of Autodesk Fusion's Design workspace (hackathon entry). Not affiliated with or endorsed by Autodesk.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "release": "node scripts/build.mjs --release",
+    "analyze": "node scripts/build.mjs --release --out=build/analyze --analyze",
+    "serve": "node scripts/serve.mjs --dir=dist --port=5173",
+    "serve:release": "node scripts/serve.mjs --dir=release --port=5174",
+    "serve:artifact": "node scripts/serve.mjs --dir=release --port=5175 --artifact",
+    "test": "node tests/sketch_test.mjs && node tests/sketch_engine2.mjs && node tests/kernel_smoke.mjs && node tests/kernel2.mjs && node tests/dialogs_model.mjs",
+    "e2e": "node tests/e2e/run-all.mjs",
+    "e2e:release": "node tests/e2e/run-all.mjs --release --out=release",
+    "verify": "node scripts/verify-release.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "esbuild": "^0.28.2",
+    "replicad": "^1.2.1",
+    "replicad-opencascadejs": "^1.2.1",
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.65.0"
+  }
+}

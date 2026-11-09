@@ -1,0 +1,496 @@
+// Sketch modify tools: Trim, Extend, Offset, Sketch Fillet, Mirror, Project, Normal/Construction.
+import { ST, vp, activeData, mutateSketch, params, cursorOnPlane, projector, isSketchRef, refKey, fmtLen, setOpt } from "./ctx.js";
+import { Tool, endTool, addDim, arcPoly } from "./tools.js";
+import * as HUD from "./hud.js";
+import { setToolPreview, clearToolPreview, setExtraHover } from "./render.js";
+
+const TAU = Math.PI * 2;
+const curveFilter = (r) => !!r && r.kind === "sketchCurve" && r.sketch === ST.sketchId;
+
+function piecePolyline(piece) {
+  const g = piece.g;
+  if (g.kind === "line") {
+    const at = (t) => [g.a[0] + (g.b[0] - g.a[0]) * t, g.a[1] + (g.b[1] - g.a[1]) * t];
+    return [at(piece.whole ? 0 : piece.t0), at(piece.whole ? 1 : piece.t1)];
+  }
+  if (g.kind === "circle") {
+    if (piece.whole) return arcPoly(g.c, g.r, 0, TAU);
+    return arcPoly(g.c, g.r, piece.t0, piece.t1 - piece.t0);
+  }
+  const t0 = piece.whole ? 0 : piece.t0, t1 = piece.whole ? g.sweep : piece.t1;
+  return arcPoly(g.c, g.r, g.a0 + t0, t1 - t0);
+}
+
+// ---------------------------------------------------------------------------
+export class TrimTool extends Tool {
+  constructor() { super("TrimSketchCmd", "Trim"); }
+  prompt() { return "Select curve section to trim"; }
+  target(ctx) {
+    const d = activeData();
+    const h = vp().pick(ctx.x, ctx.y, { filter: (r) => curveFilter(r) && d.sk.curves[r.curve] && d.sk.curves[r.curve].type !== "point" });
+    if (!h) return null;
+    const hit = cursorOnPlane(ctx.x, ctx.y, d.plane);
+    if (!hit) return null;
+    const n = ST.app.S.nearestOnCurve(d.sk, h.ref.curve, hit.uv);
+    return { id: h.ref.curve, q: n ? n.p : hit.uv };
+  }
+  move(ctx) {
+    const d = activeData();
+    const t = this.target(ctx);
+    if (!t) { setToolPreview(null); return; }
+    let piece;
+    try { piece = ST.app.S.trimPiece(d.sk, t.id, t.q); } catch { piece = null; }
+    setToolPreview(piece ? { trim: [piecePolyline(piece)] } : null);
+  }
+  click(ctx) {
+    const t = this.target(ctx);
+    if (!t) return;
+    try { mutateSketch("Trim", (sk) => ST.app.S.trimAt(sk, t.id, t.q)); } catch (e) { ST.app.toast(`Trim: ${e.message || e}`, "error"); }
+    this.move(ctx);
+  }
+}
+
+// ---------------------------------------------------------------------------
+export class ExtendTool extends Tool {
+  constructor() { super("ExtendSketchCmd", "Extend"); }
+  prompt() { return "Select curve to extend"; }
+  target(ctx) {
+    const d = activeData();
+    const h = vp().pick(ctx.x, ctx.y, { filter: (r) => curveFilter(r) && ["line", "arc"].includes((d.sk.curves[r.curve] || {}).type) });
+    if (!h) return null;
+    const hit = cursorOnPlane(ctx.x, ctx.y, d.plane);
+    return hit ? { id: h.ref.curve, q: hit.uv } : null;
+  }
+  move(ctx) {
+    const S = ST.app.S;
+    const d = activeData();
+    const t = this.target(ctx);
+    if (!t) { setToolPreview(null); return; }
+    const w = S.cloneSketch(d.sk);
+    const ok = S.extendAt(w, t.id, t.q);
+    setToolPreview(ok ? { hi: [S.curvePolyline(w, t.id, 64)] } : { trim: [S.curvePolyline(d.sk, t.id, 64)] });
+  }
+  click(ctx) {
+    const S = ST.app.S;
+    const t = this.target(ctx);
+    if (!t) return;
+    const d = activeData();
+    const w = S.cloneSketch(d.sk);
+    if (!S.extendAt(w, t.id, t.q)) { ST.app.toast("There is no curve to extend to.", "warning", 2000); return; }
+    mutateSketch("Extend", (sk) => S.extendAt(sk, t.id, t.q));
+    this.move(ctx);
+  }
+}
+
+// ---------------------------------------------------------------------------
+export class OffsetTool extends Tool {
+  constructor() { super("Offset", "Offset"); this.ids = null; }
+  prompt() { return this.ids ? "Specify offset position" : "Select a curve to offset"; }
+  begin() {
+    const A = ST.app;
+    const pre = A.selection.items.filter((r) => curveFilter(r)).map((r) => r.curve);
+    if (pre.length) this.choose(pre);
+  }
+  choose(ids) {
+    const d = activeData();
+    this.ids = ids.filter((id) => d.sk.curves[id] && d.sk.curves[id].type !== "point");
+    if (!this.ids.length) { this.ids = null; return; }
+    ST.app.selection.set(this.ids.map((id) => ({ kind: "sketchCurve", sketch: ST.sketchId, curve: id })));
+    HUD.hudShow([{ id: "d", kind: "length", label: "Offset position" }], { onEnter: () => this.commit(), onChange: () => this.refresh() });
+    this.refreshPrompt();
+  }
+  reset() { this.ids = null; HUD.hudHide(); clearToolPreview(); ST.app.selection.clear(); this.refreshPrompt(); }
+  signed(sk, q) {
+    const S = ST.app.S;
+    let best = Infinity;
+    for (const id of this.ids) { const n = S.nearestOnCurve(sk, id, q); if (n && n.d < best) best = n.d; }
+    const rest = this.ids.filter((id) => sk.curves[id].type !== "circle");
+    let side = 1;
+    if (rest.length) {
+      const ch = S.orderChain(sk, rest);
+      if (ch) side = S.chainSide(sk, ch, q);
+    } else {
+      const cv = sk.curves[this.ids[0]];
+      const c = sk.points[cv.c];
+      side = Math.hypot(q[0] - c.x, q[1] - c.y) > Math.abs(cv.r) ? 1 : -1;
+    }
+    return { dist: best, side };
+  }
+  compute(ctx) {
+    const d = activeData();
+    const hit = cursorOnPlane(ctx.x, ctx.y, d.plane);
+    if (!hit) return null;
+    const { dist, side } = this.signed(d.sk, hit.uv);
+    const T = HUD.hudValues();
+    const mag = T.d && T.d.ok ? T.d.value : dist;
+    return { uv: hit.uv, mag, side, T };
+  }
+  move(ctx) {
+    const S = ST.app.S;
+    const d = activeData();
+    if (!this.ids) {
+      const h = vp().pick(ctx.x, ctx.y, { filter: curveFilter });
+      if (h) {
+        const ch = S.chainOf(d.sk, h.ref.curve);
+        setExtraHover(ch.ids.map((id) => refKey({ kind: "sketchCurve", sketch: ST.sketchId, curve: id })));
+      } else setExtraHover([]);
+      return;
+    }
+    const r = this.compute(ctx);
+    if (!r) return;
+    const w = S.cloneSketch(d.sk);
+    let res = null;
+    try { res = S.offsetChain(w, this.ids, r.side * r.mag); } catch { res = null; }
+    setToolPreview(res ? { polys: res.curves.map((id) => S.curvePolyline(w, id, 64)) } : null);
+    const proj = projector(d.plane);
+    const s = proj(r.uv[0], r.uv[1]);
+    HUD.hudSet("d", r.mag, [s[0] + 40, s[1] - 26]);
+  }
+  click(ctx) {
+    if (!this.ids) {
+      const d = activeData();
+      const h = vp().pick(ctx.x, ctx.y, { filter: curveFilter });
+      if (!h) return;
+      setExtraHover([]);
+      this.choose(ST.app.S.chainOf(d.sk, h.ref.curve).ids);
+      this.move(ctx);
+      return;
+    }
+    this.commit(ctx);
+  }
+  commit(ctx) {
+    const S = ST.app.S;
+    const r = this.compute(ctx || this.lastCtx || { x: 0, y: 0 });
+    if (!r || !(r.mag > 1e-9)) return;
+    const ids = this.ids;
+    const expr = r.T.d && r.T.d.ok ? r.T.d.expr : fmtLen(r.mag);
+    try {
+      mutateSketch("Offset", (sk, f, doc) => {
+        const res = S.offsetChain(sk, ids, r.side * r.mag);
+        if (!res) throw new Error("The curves could not be offset");
+        if (res.firstLine) addDim(sk, doc, "pointLine", [res.firstLine.point, res.firstLine.orig], expr, {});
+        return res;
+      });
+    } catch (e) { ST.app.toast(`Offset: ${e.message || e}`, "error", 2400); return; }
+    this.reset();
+  }
+  end() { setExtraHover([]); }
+}
+
+// ---------------------------------------------------------------------------
+export class FilletTool extends Tool {
+  constructor() { super("FilletSketchCmd", "Fillet"); this.corner = null; this.first = null; this.firstArc = null; this.lastR = null; }
+  prompt() { return this.corner ? "Specify fillet radius" : this.first ? "Select second line or arc" : "Select first line or arc"; }
+  cornerFrom(sk, a, b) {
+    const L1 = sk.curves[a], L2 = sk.curves[b];
+    if (!L1 || !L2 || L1.type !== "line" || L2.type !== "line") return null;
+    for (const p of [L1.p1, L1.p2]) if (p === L2.p1 || p === L2.p2) return p;
+    return null;
+  }
+  pick(ctx) {
+    const d = activeData();
+    return vp().pick(ctx.x, ctx.y, { filter: (r) => r && r.sketch === ST.sketchId && (r.kind === "sketchPoint" || (r.kind === "sketchCurve" && d.sk.curves[r.curve] && d.sk.curves[r.curve].type === "line")) });
+  }
+  isCorner(sk, pid) { return ST.app.S.curvesUsingPoint(sk, pid).filter((c) => sk.curves[c].type === "line").length === 2; }
+  move(ctx) {
+    const d = activeData();
+    if (!this.corner) {
+      const h = this.pick(ctx);
+      ST.app.selection.setHover(h ? h.ref : null);
+      return;
+    }
+    this.preview();
+  }
+  radius() {
+    const T = HUD.hudValues();
+    return T.r && T.r.ok ? T.r.value : this.defR;
+  }
+  preview() {
+    const S = ST.app.S;
+    const d = activeData();
+    const w = S.cloneSketch(d.sk);
+    const arc = S.filletCorner(w, this.corner, this.radius());
+    setToolPreview(arc ? { polys: [S.curvePolyline(w, arc, 32)] } : null);
+    const P = d.sk.points[this.corner];
+    if (P) {
+      const s = projector(d.plane)(P.x, P.y);
+      HUD.hudSet("r", this.radius(), [s[0] + 44, s[1] - 30]);
+    }
+  }
+  click(ctx) {
+    const d = activeData();
+    const S = ST.app.S;
+    if (this.corner) { this.commit(); return; }
+    const h = this.pick(ctx);
+    if (!h) return;
+    let corner = null;
+    if (h.ref.kind === "sketchPoint") { if (this.isCorner(d.sk, h.ref.point)) corner = h.ref.point; }
+    else if (!this.first) { this.first = h.ref.curve; ST.app.selection.set([h.ref]); this.refreshPrompt(); return; }
+    else corner = this.cornerFrom(d.sk, this.first, h.ref.curve);
+    if (!corner) { ST.app.toast("Select two lines that share an end point.", "warning", 2200); this.first = null; ST.app.selection.clear(); this.refreshPrompt(); return; }
+    this.corner = corner;
+    const lines = S.curvesUsingPoint(d.sk, corner).filter((c) => d.sk.curves[c].type === "line");
+    const lens = lines.map((l) => { const c = d.sk.curves[l]; return Math.hypot(d.sk.points[c.p1].x - d.sk.points[c.p2].x, d.sk.points[c.p1].y - d.sk.points[c.p2].y); });
+    this.defR = this.lastR || +(Math.min(...lens) * 0.2).toPrecision(2);
+    ST.app.selection.set(lines.map((l) => ({ kind: "sketchCurve", sketch: ST.sketchId, curve: l })));
+    HUD.hudShow([{ id: "r", kind: "length", label: "Fillet radius" }], { onEnter: () => this.commit(), onChange: () => this.preview() });
+    this.refreshPrompt();
+    this.preview();
+  }
+  commit() {
+    const S = ST.app.S;
+    const r = this.radius();
+    const T = HUD.hudValues();
+    const corner = this.corner;
+    const expr = T.r && T.r.ok ? T.r.expr : fmtLen(r);
+    const firstArc = this.firstArc;
+    let arcId = null;
+    try {
+      arcId = mutateSketch("Sketch Fillet", (sk, f, doc) => {
+        const arc = S.filletCorner(sk, corner, r);
+        if (!arc) throw new Error("The fillet radius is too large for these lines");
+        if (firstArc && sk.curves[firstArc]) S.addConstraint(sk, "equal", [firstArc, arc]);
+        else addDim(sk, doc, "radius", [arc], expr, {});
+        return arc;
+      });
+    } catch (e) { ST.app.toast(`Fillet: ${e.message || e}`, "error", 2400); return; }
+    this.firstArc = this.firstArc || arcId;
+    this.lastR = r;
+    this.corner = null;
+    this.first = null;
+    HUD.hudHide();
+    clearToolPreview();
+    ST.app.selection.clear();
+    this.refreshPrompt();
+  }
+  key(ev) { if (ev.key === "Enter" && this.corner) { this.commit(); return true; } return false; }
+  escape() { if (this.corner || this.first) { this.corner = null; this.first = null; HUD.hudHide(); clearToolPreview(); ST.app.selection.clear(); this.refreshPrompt(); return; } super.escape(); }
+}
+
+// ---------------------------------------------------------------------------
+// Mirror: small command dialog with Objects + Mirror Line selections
+// ---------------------------------------------------------------------------
+export class MirrorTool extends Tool {
+  constructor() { super("MirrorSketchCommand", "Mirror"); this.objects = []; this.line = null; this.active = "objects"; }
+  prompt() { return this.active === "objects" ? "Select objects to mirror" : "Select the mirror line"; }
+  begin() {
+    const A = ST.app;
+    this.objects = A.selection.items.filter(curveFilter).map((r) => r.curve);
+    if (this.objects.length) this.active = "line";
+    this.dlg = buildDialog("MirrorSketchCommand", "MIRROR", [
+      { id: "objects", label: "Objects", sel: true },
+      { id: "line", label: "Mirror Line", sel: true },
+    ], { ok: () => this.ok(), cancel: () => endTool(), activate: (id) => { this.active = id; this.sync(); } });
+    this.sync();
+  }
+  sync() {
+    const S = this.dlg;
+    if (!S) return;
+    S.setSel("objects", this.objects.length ? `${this.objects.length} selected` : "Select", this.active === "objects");
+    S.setSel("line", this.line ? "1 selected" : "Select", this.active === "line");
+    S.setOk(this.objects.length > 0 && !!this.line);
+    const sel = this.objects.map((id) => ({ kind: "sketchCurve", sketch: ST.sketchId, curve: id }));
+    if (this.line) sel.push({ kind: "sketchCurve", sketch: ST.sketchId, curve: this.line });
+    ST.app.selection.set(sel);
+    this.refreshPrompt();
+    this.preview();
+  }
+  preview() {
+    const S = ST.app.S;
+    const d = activeData();
+    if (!this.line || !this.objects.length) { clearToolPreview(); return; }
+    const w = S.cloneSketch(d.sk);
+    const created = S.mirrorEntities(w, this.objects.filter((id) => id !== this.line), this.line);
+    setToolPreview({ polys: created.map((id) => S.curvePolyline(w, id, 64)) });
+  }
+  move(ctx) {
+    const h = vp().pick(ctx.x, ctx.y, { filter: curveFilter });
+    ST.app.selection.setHover(h ? h.ref : null);
+  }
+  click(ctx) {
+    const d = activeData();
+    const h = vp().pick(ctx.x, ctx.y, { filter: curveFilter });
+    if (!h) return;
+    const id = h.ref.curve;
+    if (this.active === "objects") {
+      this.objects = this.objects.includes(id) ? this.objects.filter((x) => x !== id) : [...this.objects, id];
+    } else {
+      if (d.sk.curves[id].type !== "line") { ST.app.toast("The mirror line must be a line.", "warning", 2000); return; }
+      this.line = id;
+      this.objects = this.objects.filter((x) => x !== id);
+    }
+    this.sync();
+  }
+  ok() {
+    if (!this.objects.length || !this.line) return;
+    const objs = this.objects, line = this.line;
+    mutateSketch("Mirror", (sk) => ST.app.S.mirrorEntities(sk, objs, line));
+    endTool();
+  }
+  key(ev) { if (ev.key === "Enter") { this.ok(); return true; } return false; }
+  end() { if (this.dlg) this.dlg.close(); this.dlg = null; ST.app.selection.clear(); }
+}
+
+/** Minimal Fusion-style command dialog for sketch commands (hooks: .dlg[data-dialog], [data-action]). */
+export function buildDialog(id, title, rows, { ok, cancel, activate }) {
+  const host = ST.app.dom.dialogHost || document.body;
+  const el = document.createElement("div");
+  el.className = "dlg sk-dlg";
+  el.dataset.dialog = id;
+  el.innerHTML = `<div class="sk-dlg-head"><span>${title}</span><button class="sk-dlg-x" data-action="cancel" title="Cancel">×</button></div><div class="sk-dlg-body"></div><div class="sk-dlg-foot"><button class="sk-btn" data-action="ok">OK</button><button class="sk-btn" data-action="cancel">Cancel</button></div>`;
+  const body = el.querySelector(".sk-dlg-body");
+  const sels = {};
+  for (const r of rows) {
+    const row = document.createElement("div");
+    row.className = "sk-dlg-row";
+    row.innerHTML = `<label>${r.label}</label><button class="sk-selbtn" data-input="${r.id}"><span class="sk-selarrow">↖</span><span class="sk-seltext">Select</span></button>`;
+    const b = row.querySelector("button");
+    b.addEventListener("click", () => activate && activate(r.id));
+    sels[r.id] = b;
+    body.appendChild(row);
+  }
+  el.querySelectorAll('[data-action="cancel"]').forEach((b) => b.addEventListener("click", () => cancel && cancel()));
+  el.querySelector('[data-action="ok"]').addEventListener("click", () => ok && ok());
+  el.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+  host.appendChild(el);
+  ST.app.emit("dialog", { open: true, id });
+  ST.app.emit("layout", {});
+  return {
+    el,
+    setSel(rid, text, active) { const b = sels[rid]; if (!b) return; b.querySelector(".sk-seltext").textContent = text; b.classList.toggle("active", !!active); b.classList.toggle("filled", text !== "Select"); },
+    setOk(on) { el.querySelector('[data-action="ok"]').disabled = !on; },
+    close() { el.remove(); ST.app.emit("dialog", { open: false, id }); ST.app.emit("layout", {}); },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Project: body edges / faces -> fixed projected curves
+// ---------------------------------------------------------------------------
+export class ProjectTool extends Tool {
+  constructor() { super("ProjectNewCmd", "Project"); }
+  prompt() { return "Select edges or faces to project (Esc to finish)"; }
+  filter(r) { return !!r && (r.kind === "edge" || r.kind === "face" || r.kind === "body"); }
+  move(ctx) {
+    const h = vp().pick(ctx.x, ctx.y, { filter: (r) => this.filter(r) });
+    ST.app.selection.setHover(h ? h.ref : null);
+  }
+  click(ctx) {
+    const h = vp().pick(ctx.x, ctx.y, { filter: (r) => this.filter(r) });
+    if (!h) return;
+    projectRefs([h.ref]);
+  }
+  key(ev) { if (ev.key === "Enter") { endTool(); return true; } return false; }
+}
+
+export function projectRefs(refs) {
+  const A = ST.app;
+  const d = activeData();
+  if (!d) return 0;
+  const edges = [];
+  for (const r of refs) {
+    const b = A.body(r.body);
+    if (!b) continue;
+    try {
+      if (r.kind === "edge") { const e = b.shape.edges[r.index]; if (e) edges.push(e); }
+      else if (r.kind === "face") { const f = b.shape.faces[r.index]; if (f) edges.push(...f.edges); }
+      else if (r.kind === "body") edges.push(...b.shape.edges);
+    } catch (e) { console.error(e); }
+  }
+  if (!edges.length) { A.toast("Nothing to project.", "info", 1600); return 0; }
+  const items = [];
+  for (const e of edges) { try { const it = edgeToSketch(e, d.plane); if (it) items.push(it); } catch (err) { console.error(err); } }
+  if (!items.length) return 0;
+  let n = 0;
+  mutateSketch("Project", (sk) => { n = addProjected(sk, items); });
+  if (!n) A.toast("The selected geometry is already projected.", "info", 1800);
+  return n;
+}
+
+function edgeToSketch(e, plane) {
+  const K = ST.app.K;
+  const S = ST.app.S;
+  const uv = (p) => K.toLocal(plane, p);
+  const tup = (v) => (v && v.toTuple ? v.toTuple() : v);
+  const at = (t) => tup(e.pointAt(t));
+  const type = e.geomType;
+  const s = tup(e.startPoint), t = tup(e.endPoint);
+  const closed = K.V.len(K.V.sub(s, t)) < 1e-7;
+  if (type === "LINE") {
+    const a = uv(s), b = uv(t);
+    if (Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-7) return { kind: "point", a };
+    return { kind: "line", a, b };
+  }
+  if (type === "CIRCLE") {
+    const p0 = closed ? at(0) : s, p1 = closed ? at(1 / 3) : at(0.5), p2 = closed ? at(2 / 3) : t;
+    const nn = K.V.norm(K.V.cross(K.V.sub(p1, p0), K.V.sub(p2, p0)));
+    if (Math.abs(K.V.dot(nn, plane.n)) > 0.9999) {
+      if (closed) { const ci = S.circleFrom3(uv(p0), uv(p1), uv(p2)); return ci ? { kind: "circle", c: ci.c, r: ci.r } : null; }
+      const arc = S.arcFrom3(uv(p0), uv(p1), uv(p2));
+      return arc ? { kind: "arc", c: arc.c, r: arc.r, a: uv(p0), b: uv(p2), ccw: arc.ccw } : null;
+    }
+  }
+  const n = 32;
+  const pts = [];
+  for (let i = 0; i <= n; i++) pts.push(uv(at(i / n)));
+  return { kind: "poly", pts, closed };
+}
+
+function addProjected(sk, items) {
+  const S = ST.app.S;
+  const find = (u, v) => Object.entries(sk.points).find(([, p]) => p.proj && Math.abs(p.x - u) < 1e-6 && Math.abs(p.y - v) < 1e-6);
+  const pt = (q) => { const f = find(q[0], q[1]); if (f) return f[0]; return S.addPoint(sk, q[0], q[1], { fixed: true, proj: true }); };
+  const dupLine = (a, b) => Object.values(sk.curves).some((cv) => cv.proj && cv.type === "line" && ((cv.p1 === a && cv.p2 === b) || (cv.p1 === b && cv.p2 === a)));
+  let n = 0;
+  for (const it of items) {
+    if (it.kind === "point") {
+      const id = pt(it.a);
+      if (!Object.values(sk.curves).some((cv) => cv.type === "point" && cv.p === id)) { const k = S.addSketchPoint(sk, id); sk.curves[k].proj = true; n++; }
+    } else if (it.kind === "line") {
+      const a = pt(it.a), b = pt(it.b);
+      if (a === b || dupLine(a, b)) continue;
+      const id = S.addLine(sk, a, b);
+      sk.curves[id].proj = true;
+      n++;
+    } else if (it.kind === "circle") {
+      const c = pt(it.c);
+      if (Object.values(sk.curves).some((cv) => cv.proj && cv.type === "circle" && cv.c === c && Math.abs(cv.r - it.r) < 1e-6)) continue;
+      const id = S.addCircle(sk, c, it.r);
+      sk.curves[id].proj = true;
+      n++;
+    } else if (it.kind === "arc") {
+      const c = pt(it.c), a = pt(it.a), b = pt(it.b);
+      const id = S.addArcDir(sk, c, a, b, it.ccw);
+      sk.curves[id].r = it.r;
+      sk.curves[id].proj = true;
+      n++;
+    } else if (it.kind === "poly") {
+      const ids = it.pts.map((q, i) => (it.closed && i === it.pts.length - 1 ? null : pt(q)));
+      if (it.closed) ids[ids.length - 1] = ids[0];
+      for (let i = 0; i + 1 < ids.length; i++) {
+        if (ids[i] === ids[i + 1] || dupLine(ids[i], ids[i + 1])) continue;
+        const id = S.addLine(sk, ids[i], ids[i + 1]);
+        sk.curves[id].proj = true;
+        n++;
+      }
+    }
+  }
+  return n;
+}
+
+// ---------------------------------------------------------------------------
+// Normal / Construction (X)
+// ---------------------------------------------------------------------------
+export function toggleConstruction() {
+  const A = ST.app;
+  const curves = A.selection.items.filter((r) => curveFilter(r)).map((r) => r.curve);
+  const d = activeData();
+  if (curves.length && d) {
+    const toCons = curves.some((id) => d.sk.curves[id] && !d.sk.curves[id].cons);
+    mutateSketch("Normal/Construction", (sk) => { for (const id of curves) if (sk.curves[id] && !sk.curves[id].proj && sk.curves[id].type !== "point") sk.curves[id].cons = toCons; });
+    return;
+  }
+  setOpt("construction", !ST.opts.construction);
+  A.toast(ST.opts.construction ? "New sketch geometry is construction geometry" : "New sketch geometry is normal geometry", "info", 1600);
+}
+
+export { isSketchRef, params, TAU };

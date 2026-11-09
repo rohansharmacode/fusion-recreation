@@ -1,0 +1,125 @@
+/* BROWSER: Fusion's design tree floats transparently over the canvas (no panel box). Only the
+   header strip is opaque white. Geometry follows the reference captures: header centred 16px
+   below the canvas top, 23px rows, chevron columns every 17px, 24px icon columns. */
+.br-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 285px;
+  max-height: 70vh;
+  margin: -1px 0 0 -6px; /* the host sits 6px in; the browser is flush with the canvas edge */
+  background: transparent;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: #3a3a3a;
+}
+.br-panel.resizing { user-select: none; }
+
+.br-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 23px;
+  padding: 0 1px 0 6px;
+  background: #fff;
+  cursor: default;
+}
+.br-title { flex: 1 1 auto; margin-left: 9px; font-size: 12px; font-weight: 400; letter-spacing: 0.1px; color: #3a3a3a; white-space: nowrap; }
+.br-hbtn {
+  flex: none; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 2px;
+  background: transparent; display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.br-hbtn .ico { display: block; }
+.br-hbtn:hover { background: #e5eef7; }
+/* collapsed («): only the » button remains */
+.br-panel.collapsed { width: auto !important; }
+.br-panel.collapsed .br-title, .br-panel.collapsed .br-min, .br-panel.collapsed .br-body, .br-panel.collapsed .br-resize { display: none; }
+.br-panel.collapsed .br-header { padding-right: 4px; }
+/* minimised (−): header only */
+.br-panel.minimized .br-body { display: none; }
+
+.br-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 4px 0 4px;
+  scrollbar-width: thin;
+  scrollbar-color: #c4c4c4 transparent;
+}
+.br-resize { position: absolute; top: 0; right: -3px; width: 6px; height: 100%; cursor: ew-resize; z-index: 2; }
+
+.br-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 23px;
+  padding-right: 4px;
+  white-space: nowrap;
+  cursor: default;
+}
+.br-children[hidden] { display: none; }
+
+.br-twisty {
+  flex: none; width: 16px; height: 16px; margin-right: 4px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 2px;
+}
+.br-twisty .ico, .br-eye .ico, .br-icon .ico, .br-right .ico { display: block; }
+.br-twisty:not(.empty):hover { background: #e5eef7; }
+.br-twisty.empty { visibility: hidden; }
+.br-eye { flex: none; width: 24px; height: 19px; display: inline-flex; align-items: center; justify-content: center; border-radius: 2px; cursor: pointer; }
+.br-eye:hover { background: rgba(214, 233, 248, 0.9); }
+.br-eye.dim { opacity: 0.45; }
+
+/* icon + label share one highlight box (grey for the active component, cyan when selected) */
+.br-hl {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  height: 19px;
+  margin-left: 1px;
+  padding: 0 9px 0 3px;
+  border-radius: 2px;
+}
+.br-icon { flex: none; position: relative; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; margin-right: 14px; }
+.br-root .br-icon { margin-right: 13px; }
+.br-label { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; line-height: 19px; }
+.br-root .br-label { font-weight: 700; color: #262626; }
+.br-root .br-hl { background: #e3e3e3; }
+.br-row:hover .br-hl, .br-row.hov .br-hl { background: #e3f0fa; }
+.br-root:hover .br-hl, .br-root.hov .br-hl { background: #dbe7f1; }
+.br-row.sel .br-hl { background: #9fe8fa; }
+.br-row.ctx .br-hl { box-shadow: inset 0 0 0 1px #3d8ee6; }
+.br-row.has-sel .br-hl {
+  background-image: repeating-linear-gradient(90deg, #2f84e8 0 3px, transparent 3px 5px);
+  background-size: 100% 2px;
+  background-position: 0 100%;
+  background-repeat: no-repeat;
+}
+.br-row.flash .br-hl { animation: br-flash 1.2s ease-out; }
+@keyframes br-flash { 0%, 35% { background-color: #9fe8fa; } 100% { background-color: transparent; } }
+.br-row.sel.flash .br-hl { animation: none; }
+.br-row.active .br-label { font-weight: 700; }
+
+.br-lock { position: absolute; right: -3px; bottom: -2px; width: 9px; height: 9px; color: #3a3a3a; line-height: 0; }
+.br-badge { flex: none; margin-left: 5px; display: inline-flex; }
+.br-right { flex: none; margin-left: 4px; display: inline-flex; align-items: center; width: 16px; height: 16px; }
+.br-edit { flex: none; margin-left: 4px; display: inline-flex; padding: 1px; border-radius: 2px; cursor: pointer; opacity: 0; }
+.br-row:hover .br-edit { opacity: 1; }
+.br-edit:hover { background: #fff; box-shadow: inset 0 0 0 1px #9cc7ea; }
+
+.br-rename, .br-units {
+  width: 100%;
+  min-width: 120px;
+  height: 19px;
+  font: inherit;
+  padding: 0 3px;
+  border: 1px solid var(--c-accent-dark, #0160bf);
+  border-radius: 1px;
+  outline: none;
+  background: #fff;
+  box-shadow: 0 0 0 2px rgba(65, 149, 219, 0.35);
+}
+.br-units { width: auto; min-width: 120px; padding: 0 2px; }

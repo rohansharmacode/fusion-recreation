@@ -140,6 +140,11 @@ export function init(app) {
   };
   const toggleSel = (ref) => { if (accepts(ref)) app.selection.toggle(ref); };
   const bodyIdsAlive = () => committed.bodies.filter((id) => app.doc.bodies[id]);
+  // components (app.components): every list below is per component; the root shows its own items + child occurrences
+  const ROOT = "root";
+  const comps = () => app.components || null;
+  const ownerOf = (id) => (comps() ? comps().ownerOf(id) : ROOT);
+  const featOcc = (f) => (comps() ? comps().ownerOfFeature(f) : ROOT);
   const sketchFeatures = () => app.doc.features.filter((f) => f.type === "sketch" && exists(f));
   const regFolder = (f) => { const d = app.M.featureDef && app.M.featureDef(f.type); return d && !d.builtin && d.browser ? d.browser.folder || null : null; };
   const planeFeatures = () => app.doc.features.filter((f) => (f.type === "cplane" || regFolder(f) === "construction") && exists(f));
@@ -239,7 +244,8 @@ export function init(app) {
         onDbl: () => editUnits(),
         menu: () => [{ label: "Change Active Units", cmd: "FusionChangeActiveUnitsCommand", action: () => editUnits() }],
       }, {
-        key: "doctype:root", label: "Part Design", icon: glyph("br-part"), noEye: true,
+        // a design with components is a hybrid design (bodies and components); otherwise a part design
+        key: "doctype:root", label: comps() && comps().list().length ? "Hybrid Design" : "Part Design", icon: glyph("br-part"), noEye: true,
       }],
     });
 
@@ -317,7 +323,8 @@ export function init(app) {
     if (meshItems.length) kids.push(insertFolder("mesh", meshItems));
 
     // Bodies
-    const bodyIds = bodyIdsAlive();
+    const allBodyIds = bodyIdsAlive();
+    const bodyIds = allBodyIds.filter((id) => ownerOf(id) === ROOT);
     if (bodyIds.length) {
       const vis = folderEye("bodies", bodyIds.map((id) => app.doc.bodies[id].visible !== false));
       const toggle = () => toggleFolder("bodies", vis, { bodies: bodyIds });
@@ -326,6 +333,7 @@ export function init(app) {
         selectAll: bodyIds.map((id) => ({ kind: "body", body: id })),
         onEye: toggle,
         menu: () => [
+          { label: "Create Components from Bodies", cmd: "FusionCreateNewCompCmdFromBody", act: "comps-from-bodies", action: () => compsFromBodies(bodyIds) },
           { label: "Create Selection Set", act: "selection-set", icon: "m-selset", action: () => notAvailable(app, "Create Selection Set") },
           "-",
           { label: "Show/Hide", cmd: "VisibilityToggleCmd", act: "toggle-visibility", icon: "m-eye", hint: "V", action: toggle },
@@ -345,7 +353,8 @@ export function init(app) {
     if (canvasItems.length) kids.push(insertFolder("canvas", canvasItems));
 
     // Sketches
-    const sks = sketchFeatures();
+    const allSks = sketchFeatures();
+    const sks = allSks.filter((f) => featOcc(f) === ROOT);
     if (sks.length) {
       const vis = folderEye("sketches", sks.map(isVisibleFeature));
       const toggle = () => toggleFolder("sketches", vis, { features: sks.map((f) => f.id) });
@@ -364,7 +373,8 @@ export function init(app) {
     }
 
     // Construction
-    const pls = planeFeatures();
+    const allPls = planeFeatures();
+    const pls = allPls.filter((f) => featOcc(f) === ROOT);
     if (pls.length) {
       const vis = folderEye("construction", pls.map(isVisibleFeature));
       const toggle = () => toggleFolder("construction", vis, { features: pls.map((f) => f.id) });
@@ -384,27 +394,36 @@ export function init(app) {
     // folders contributed by modules (app.ui.browser.registerFolder) and registered feature folders
     insertModuleFolders(kids);
 
+    // occurrences of the root component (Component1:1 ...), after the folders like Fusion
+    if (comps()) for (const oid of comps().children(ROOT)) { try { kids.push(occNode(oid)); } catch (e) { console.error("[browser] component", e); } }
+
     // root component
-    const everything = [...bodyIds.map((id) => app.doc.bodies[id].visible !== false), ...sks.map(isVisibleFeature), ...pls.map(isVisibleFeature)];
+    const everything = [...allBodyIds.map((id) => app.doc.bodies[id].visible !== false), ...allSks.map(isVisibleFeature), ...allPls.map(isVisibleFeature)];
     const rootVis = folderEye("root", everything);
     const ver = Number(doc.savedVersion) || 0;
     const rootLabel = ver > 0 ? `${doc.name || "Untitled"} v${ver}` : "(Unsaved)";
     const allRefs = bodyIds.map((id) => ({ kind: "body", body: id }));
     return {
       key: "doc:root", label: rootLabel, icon: glyph("br-component"), eye: rootVis, root: true,
-      onEye: () => toggleFolder("root", rootVis, { bodies: bodyIds, features: [...sks, ...pls].map((f) => f.id) }),
+      onEye: () => toggleFolder("root", rootVis, { bodies: allBodyIds, features: [...allSks, ...allPls].map((f) => f.id) }),
       menu: () => [
         { label: "Create Selection Set", act: "selection-set", icon: "m-selset", action: () => notAvailable(app, "Create Selection Set") },
         "-",
-        { label: "Show All Bodies", cmd: "ShowAllBodiesCmd", act: "show-all", action: () => setBodiesVisible(app, bodyIds, true) },
-        { label: "Show All Sketches", act: "show-all-sketches", action: () => setFeatureVisible(app, sks.map((f) => f.id), true) },
+        comps() && comps().active !== ROOT ? { label: "Activate Component", cmd: "FusionActivateLocalCompCmd", act: "activate", action: () => comps().activate(ROOT) } : null,
+        comps() ? { label: "New Component", cmd: "FusionCreateNewComponentCommand", act: "new-component", action: () => runCmd(app, "FusionCreateNewComponentCommand", { parent: ROOT }, null, "New Component") } : null,
+        comps() && comps().canPaste() ? { label: "Paste", cmd: "PasteCommand", hint: "Ctrl+V", act: "paste", action: () => app.commands.run("PasteCommand") } : null,
+        comps() && comps().canPaste() ? { label: "Paste New", cmd: "FusionPasteNewCommand", act: "paste-new", action: () => app.commands.run("FusionPasteNewCommand") } : null,
+        { label: "Show All Bodies", cmd: "ShowAllBodiesCmd", act: "show-all", action: () => setBodiesVisible(app, allBodyIds, true) },
+        { label: "Show All Sketches", act: "show-all-sketches", action: () => setFeatureVisible(app, allSks.map((f) => f.id), true) },
+        comps() && comps().list().length ? { label: "Show All Components", cmd: "ShowAllComponentsCmd", act: "show-all-components", action: () => comps().setVisible(comps().list().map((o) => o.id), true) } : null,
         isIsolated(app) ? { label: "Unisolate", cmd: "UnisolateCmd", act: "unisolate", action: () => unisolate(app) } : null,
         "-",
         { label: "Opacity Control", cmd: "OpacityControlCmd", act: "opacity", submenu: opacityMenu(bodyIds) },
         "-",
         { label: "Find in Window", cmd: "FindInWindow", act: "find-window", disabled: !allRefs.length, action: () => findInWindow(app, allRefs) },
       ],
-      right: `<span class="br-radio" title="Activate component">${glyph("br-radio")}</span>`,
+      right: `<span class="br-radio" title="Activate component" data-activate="root">${glyph(!comps() || comps().active === ROOT ? "br-radio" : "br-radio-off")}</span>`,
+      onRight: () => { if (comps()) comps().activate(ROOT); },
       children: kids,
     };
   }
@@ -491,7 +510,7 @@ export function init(app) {
   }
 
   function bodyNode(id) {
-    const meta = app.doc.bodies[id];
+    const meta = app.doc.bodies[id] || app.bodyMeta(id);
     const vis = meta.visible !== false;
     const ref = { kind: "body", body: id };
     const isolated = isIsolated(app);
@@ -540,6 +559,122 @@ export function init(app) {
       ],
     };
   }
+  // ------------------------------------------------------------------ components
+  function occTargets(oid) {
+    const ref = { kind: "occurrence", occ: oid };
+    if (!app.selection.has(ref)) return [oid];
+    return app.selection.ofKind("occurrence").map((r) => r.occ).filter((o) => o !== ROOT);
+  }
+  function compsFromBodies(ids) {
+    const C = comps();
+    if (!C) return;
+    const d = app.commands.get("FusionCreateNewCompCmdFromBody");
+    if (d && !d.stub) { app.commands.run("FusionCreateNewCompCmdFromBody", { bodies: ids }); return; }
+    C.createFromBodies(ids);
+  }
+  function runOnOcc(ids, cmd, label) {
+    const C = comps();
+    const bodies = [...new Set(ids.flatMap((o) => C.bodiesOf(o)))];
+    app.selection.set(bodies.map((b) => ({ kind: "body", body: b })));
+    runCmd(app, cmd, { source: "browser" }, null, label);
+  }
+  /** Browser node of an occurrence ("Component1:1"): Origin, Bodies, Sketches, Construction, its occurrences. */
+  function occNode(oid) {
+    const C = comps();
+    const inf = C.info(oid);
+    const vis = inf.visible;
+    const ref = { kind: "occurrence", occ: oid };
+    const own = committed.bodies.filter((id) => (app.doc.bodies[id] || id.includes("@")) && ownerOf(id) === oid);
+    const sk = sketchFeatures().filter((f) => featOcc(f) === oid);
+    const pl = planeFeatures().filter((f) => featOcc(f) === oid);
+    const kids = [];
+    kids.push({
+      key: `origin:${oid}`, label: "Origin", icon: glyph("br-folder"), noEye: true,
+      children: ORIGIN_ITEMS.map(([name, , ico]) => ({ key: `corigin:${oid}:${name}`, label: name, icon: glyph(ico), noEye: true })),
+    });
+    if (own.length) {
+      const metaVis = (id) => (app.doc.bodies[id] || app.bodyMeta(id)).visible !== false;
+      const fv = folderEye(`bodies:${oid}`, own.map(metaVis));
+      const real = own.filter((id) => app.doc.bodies[id]);
+      kids.push({
+        key: `bodies:${oid}`, label: "Bodies", icon: glyph("br-folder"), eye: fv,
+        selectAll: own.map((id) => ({ kind: "body", body: id })),
+        onEye: () => toggleFolder(`bodies:${oid}`, fv, { bodies: real }),
+        menu: () => [
+          { label: "Create Components from Bodies", cmd: "FusionCreateNewCompCmdFromBody", act: "comps-from-bodies", disabled: !real.length, action: () => compsFromBodies(real) },
+          "-",
+          { label: "Show/Hide", cmd: "VisibilityToggleCmd", act: "toggle-visibility", icon: "m-eye", hint: "V", action: () => toggleFolder(`bodies:${oid}`, fv, { bodies: real }) },
+          { label: "Show All Bodies", cmd: "ShowAllBodiesCmd", act: "show-all", action: () => setBodiesVisible(app, real, true) },
+        ],
+        children: own.map((id) => bodyNode(id)),
+      });
+    }
+    if (sk.length) {
+      const fv = folderEye(`sketches:${oid}`, sk.map(isVisibleFeature));
+      kids.push({
+        key: `sketches:${oid}`, label: "Sketches", icon: glyph("br-folder"), eye: fv,
+        selectAll: sk.map((f) => ({ kind: "feature", id: f.id })),
+        onEye: () => toggleFolder(`sketches:${oid}`, fv, { features: sk.map((f) => f.id) }),
+        children: sk.map((f) => sketchNode(f)),
+      });
+    }
+    if (pl.length) {
+      const fv = folderEye(`construction:${oid}`, pl.map(isVisibleFeature));
+      kids.push({
+        key: `construction:${oid}`, label: "Construction", icon: glyph("br-folder"), eye: fv,
+        selectAll: pl.map((f) => (f.type === "cplane" ? { kind: "cplane", id: f.id } : { kind: "feature", id: f.id })),
+        onEye: () => toggleFolder(`construction:${oid}`, fv, { features: pl.map((f) => f.id) }),
+        children: pl.map((f) => (f.type === "cplane" ? planeNode(f) : featureNode(f))),
+      });
+    }
+    for (const c of C.children(oid)) kids.push(occNode(c));
+    const active = C.isActive(oid);
+    const creator = app.doc.features.find((f) => f.newOcc === oid && (f.type === "component" || f.operation === "newComponent"));
+    const sub = inf.inst ? `Component | occurrence of ${esc(inf.name)}` : "Component";
+    return {
+      key: `occ:${oid}`, label: inf.label, icon: glyph("br-component") + (inf.grounded ? `<span class="br-pinmark" title="Pinned">${glyph("br-pin", 10)}</span>` : ""),
+      eye: vis, ref, renamable: true, unselectable: !inf.selectable, activeComp: active,
+      tip: `<b>${esc(inf.label)}</b><div class="br-tip-sub">${sub}${inf.grounded ? " | Pinned" : ""}</div>`,
+      onEye: () => C.setVisible(occTargets(oid), !vis),
+      onDbl: () => C.activate(oid),
+      rename: (name) => C.rename(oid, name),
+      right: `<span class="br-radio${active ? " on" : ""}" title="Activate component" data-activate="${esc(oid)}">${glyph(active ? "br-radio" : "br-radio-off")}</span>`,
+      onRight: () => C.activate(oid),
+      menu: () => {
+        const ids = occTargets(oid);
+        return [
+          { label: "Activate Component", cmd: "FusionActivateLocalCompCmd", act: "activate", disabled: active, action: () => C.activate(oid) },
+          { label: "New Component", cmd: "FusionCreateNewComponentCommand", act: "new-component", action: () => runCmd(app, "FusionCreateNewComponentCommand", { parent: oid }, null, "New Component") },
+          "-",
+          { label: "Move/Copy", cmd: "FusionMoveCommand", hint: "M", icon: "m-move", action: () => { app.selection.set(ids.map((o) => ({ kind: "occurrence", occ: o }))); runCmd(app, "FusionMoveCommand", { source: "browser" }, null, "Move/Copy"); } },
+          inf.grounded
+            ? { label: "Unpin", cmd: "FusionUnGroundComponents", act: "unpin", action: () => C.setGrounded(ids, false) }
+            : { label: "Pin", cmd: "FusionGroundComponents", act: "pin", action: () => C.setGrounded(ids, true) },
+          "-",
+          { label: "Physical Material", cmd: "PhysicalMaterialCommand", icon: "m-material", action: () => runOnOcc(ids, "PhysicalMaterialCommand", "Physical Material") },
+          { label: "Appearance", cmd: "AppearanceCommand", hint: "A", icon: "m-appearance", action: () => runOnOcc(ids, "AppearanceCommand", "Appearance") },
+          { label: "Properties", cmd: "FusionPropertiesCommand", act: "properties", action: () => runCmd(app, ["FusionPropertiesCommand", "PropertiesCommand"], { occ: oid, source: "browser" }, null, "Properties") },
+          "-",
+          { label: "Copy", cmd: "CopyCommand", hint: "Ctrl+C", act: "copy", action: () => C.copy([ref]) },
+          { label: "Paste", cmd: "PasteCommand", hint: "Ctrl+V", act: "paste", disabled: !C.canPaste(), action: () => app.commands.run("PasteCommand") },
+          { label: "Paste New", cmd: "FusionPasteNewCommand", act: "paste-new", disabled: !C.canPaste(), action: () => app.commands.run("FusionPasteNewCommand") },
+          { label: "Delete", cmd: "FusionDeleteCommand", act: "delete", hint: "Del", icon: "m-delete", action: () => C.remove(ids) },
+          { label: "Rename", cmd: "RenameBrowserCmd", act: "rename", action: () => startRename(`occ:${oid}`) },
+          "-",
+          { label: "Show/Hide", cmd: "VisibilityToggleCmd", act: "toggle-visibility", hint: "V", icon: "m-eye", action: () => C.setVisible(ids, !vis) },
+          { label: "Selectable/Unselectable", cmd: "SelectabilityToggleCmd", act: "selectable", action: () => C.setSelectable(ids, !inf.selectable) },
+          isIsolated(app)
+            ? { label: "Unisolate", cmd: "UnisolateCmd", act: "unisolate", icon: "m-isolate", action: () => unisolate(app) }
+            : { label: "Isolate", cmd: "IsolateCmd", act: "isolate", icon: "m-isolate", action: () => isolateBodies(app, [...new Set(ids.flatMap((o) => C.bodiesOf(o)))].filter((b) => app.doc.bodies[b])) },
+          "-",
+          { label: "Find in Window", cmd: "FindInWindow", act: "find-window", action: () => findInWindow(app, C.bodiesOf(oid).map((b) => ({ kind: "body", body: b }))) },
+          { label: "Find in Timeline", cmd: "FusionFindInTimeline", act: "find-timeline", action: () => findInTimeline(creator && creator.id) },
+        ];
+      },
+      children: kids,
+    };
+  }
+
   function featureEyeTargets(id, type) {
     const ref = type === "cplane" ? { kind: "cplane", id } : { kind: "feature", id };
     if (!app.selection.has(ref)) return [id];
@@ -703,7 +838,7 @@ export function init(app) {
     const hasKids = !!(n.children && n.children.length);
     const open = hasKids && (expanded.has(n.key) ? expanded.get(n.key) : false);
     const row = el("div", {
-      class: `br-row${n.root ? " br-root" : ""}${n.active ? " active" : ""}${n.eye === false || parentHidden ? " hidden-item" : ""}${n.unselectable ? " unselectable" : ""}`,
+      class: `br-row${n.root ? " br-root" : ""}${n.active ? " active" : ""}${n.activeComp ? " active-comp" : ""}${n.eye === false || parentHidden ? " hidden-item" : ""}${n.unselectable ? " unselectable" : ""}`,
       role: "treeitem",
       "aria-expanded": hasKids ? String(open) : null,
       "aria-level": String(depth + 1),
@@ -788,7 +923,7 @@ export function init(app) {
     }
     if (ev.target.closest(".br-eye")) { if (n.onEye) n.onEye(); return; }
     if (ev.target.closest(".br-edit")) { editUnits(); return; }
-    if (ev.target.closest(".br-right")) return;
+    if (ev.target.closest(".br-right")) { if (n.onRight) n.onRight(ev); return; }
     lastKey = key;
     if (n.ref) {
       if (ev.ctrlKey || ev.metaKey || ev.shiftKey) toggleSel(n.ref);
@@ -877,7 +1012,7 @@ export function init(app) {
     const items = app.selection.items;
     if (items.length === 1) {
       const r = items[0];
-      key = r.kind === "body" ? `body:${r.body}` : r.kind === "cplane" ? `cplane:${r.id}` : r.kind === "feature" && app.feature(r.id)?.type === "sketch" ? `sketch:${r.id}` : null;
+      key = r.kind === "body" ? `body:${r.body}` : r.kind === "occurrence" && r.occ !== ROOT ? `occ:${r.occ}` : r.kind === "cplane" ? `cplane:${r.id}` : r.kind === "feature" && app.feature(r.id)?.type === "sketch" ? `sketch:${r.id}` : null;
     }
     if (!key && lastKey && specs.get(lastKey)?.renamable) key = lastKey;
     if (key && specs.get(key)?.renamable) { ev.preventDefault(); startRename(key); }
@@ -982,6 +1117,7 @@ export function init(app) {
   syncFeatureIcons(app);
   app.on("feature-types", () => { syncFeatureIcons(app); scheduleRender(); });
   app.on("body-kinds", () => scheduleRender());
+  app.on("components", () => scheduleRender());
 
   function orderedBodies() {
     if (!app.result || app.previewing) return committed.bodies;
@@ -993,7 +1129,11 @@ export function init(app) {
   }
 
   // ------------------------------------------------------------------ commands
-  const selBodies = () => app.selection.items.filter((r) => r.kind === "body").map((r) => r.body).filter((id) => app.doc.bodies[id]);
+  const selBodies = () => {
+    const ids = app.selection.items.filter((r) => r.kind === "body").map((r) => r.body);
+    for (const r of app.selection.items) if (r.kind === "occurrence" && comps()) ids.push(...comps().bodiesOf(r.occ));
+    return [...new Set(ids)].filter((id) => app.doc.bodies[id]);
+  };
   app.commands.register({
     id: "ToggleBrowser", label: "Browser", tooltip: "Show or hide the Browser", shortcut: "Ctrl+Alt+B", kind: "ui",
     checked: () => !hidden,
@@ -1036,11 +1176,11 @@ export function init(app) {
   });
   app.commands.register({
     id: "RenameBrowserCmd", label: "Rename", kind: "ui",
-    enabled: () => app.selection.items.length === 1 && ["body", "cplane", "feature"].includes(app.selection.items[0].kind),
+    enabled: () => app.selection.items.length === 1 && ["body", "cplane", "feature", "occurrence"].includes(app.selection.items[0].kind),
     run: () => {
       const r = app.selection.items[0];
       if (!r) return;
-      const key = r.kind === "body" ? `body:${r.body}` : r.kind === "cplane" ? `cplane:${r.id}` : `sketch:${r.id}`;
+      const key = r.kind === "body" ? `body:${r.body}` : r.kind === "occurrence" ? (r.occ === ROOT ? "doc:root" : `occ:${r.occ}`) : r.kind === "cplane" ? `cplane:${r.id}` : `sketch:${r.id}`;
       if (specs.get(key)?.renamable || rowEls.get(key)) startRename(key);
       else if (r.kind === "feature" && app.ui.timeline && app.ui.timeline.rename) app.ui.timeline.rename(r.id);
     },
@@ -1066,6 +1206,7 @@ export function init(app) {
       if (!key) {
         const r = target;
         if (r.kind === "body" || r.kind === "face" || r.kind === "edge" || r.kind === "vertex" || r.kind === "meshFace") key = `body:${r.body}`;
+        else if (r.kind === "occurrence") key = r.occ === ROOT ? "doc:root" : `occ:${r.occ}`;
         else if (r.kind === "cplane") key = `cplane:${r.id}`;
         else if (r.kind === "feature" || r.kind === "profile" || r.kind === "sketchCurve" || r.kind === "sketchPoint") {
           const fid = r.kind === "feature" ? r.id : r.sketch;
@@ -1103,6 +1244,8 @@ export function init(app) {
     },
     /** Re-render soon (modules call this when their folder content changed). */
     invalidate() { scheduleRender(); },
+    /** Isolate these bodies (hide every other body; app.components.isolate uses it). */
+    isolateBodies(ids) { isolateBodies(app, ids.filter((id) => app.doc.bodies[id])); return true; },
   };
   app.ui.browser = api;
   void creatorFeature;

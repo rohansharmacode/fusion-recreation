@@ -326,6 +326,7 @@ export function visibleProfiles(app, state) {
 export function axisFromRef(ref) {
   if (!ref) return null;
   if (ref.kind === "originAxis") return { kind: "origin", name: ref.name };
+  if (ref.kind === "caxis") return { kind: "caxis", id: ref.id }; // construction axis (solidx)
   if (ref.kind === "sketchCurve") return { kind: "sketchLine", sketch: ref.sketch, curve: ref.curve };
   if (ref.kind === "edge") return { kind: "edge", body: ref.body, p: ref.p };
   return null;
@@ -333,6 +334,7 @@ export function axisFromRef(ref) {
 export function refFromAxis(ax, state) {
   if (!ax) return null;
   if (ax.kind === "origin") return { kind: "originAxis", name: ax.name };
+  if (ax.kind === "caxis") return { kind: "caxis", id: ax.id };
   if (ax.kind === "sketchLine") return { kind: "sketchCurve", sketch: ax.sketch, curve: ax.curve };
   if (ax.kind === "edge") return edgeRef(state, ax.body, ax.p);
   return null;
@@ -341,6 +343,7 @@ export function refFromAxis(ax, state) {
 export function axisLine(ref, state) {
   if (!ref) return null;
   if (ref.kind === "originAxis") return { o: [0, 0, 0], d: K.ORIGIN_AXES[ref.name] };
+  if (ref.kind === "caxis") { const a = state && state.axes && state.axes.get(ref.id); return a ? { o: a.o, d: a.d } : null; }
   if (ref.kind === "sketchCurve") {
     const s = state.sketches.get(ref.sketch);
     const cv = s && s.sk.curves[ref.curve];

@@ -1,0 +1,55 @@
+{
+  "build:solidx": {
+    "summary": "solidx module: 16 construction commands (5 plane modes, 5 axis and 6 point types as caxis/cpoint features), Offset/Replace/Split/Remove Faces, Remove Features, Align, Base Feature environment, Edit Face, local Automated Modeling. Face healing uses an own cell decomposition (no defeaturing in the wasm).",
+    "implemented": [
+      "FusionOffsetFacesCommand",
+      "FusionReplaceFaceCommand",
+      "FusionSplitFaceCommand",
+      "EditFaceCommand",
+      "FusionRemoveFacesCommand",
+      "FusionRemoveFeaturesCommand",
+      "AlignCmd",
+      "BaseFeatureCreationCommand",
+      "BaseFeatureStop",
+      "AutomatedModelingCommand",
+      "ConstructionAxisFromTwoPlanesCommand",
+      "ConstructionAxisNormalToFaceCommand",
+      "ConstructionAxisThroughCylinderCommand",
+      "ConstructionAxisThroughEdgeCommand",
+      "ConstructionAxisThroughTwoPointsCommand",
+      "ConstructionPlaneAlongPathCommand",
+      "ConstructionPlaneFromThreePointsCommand",
+      "ConstructionPlaneFromTwoEdgesCommand",
+      "ConstructionPlanePerpendicularToPlaneCommand",
+      "ConstructionTangentPlaneCommand",
+      "ConstructionPointAlongPathCommand",
+      "ConstructionPointAtEdgeAndPlaneCommand",
+      "ConstructionPointFromCircleOrSphereCommand",
+      "ConstructionPointFromPointCommand",
+      "ConstructionPointFromThreePlanesCommand",
+      "ConstructionPointThroughTwoEdgesCommand"
+    ],
+    "notImplemented": [],
+    "sharedEdits": [
+      "src/model.js: FIELDS.cplane distance:'none'; axisFromRef resolves caxis; CPLANE_MODES registry + registerCPlaneMode; scaleCenter resolves cpoint",
+      "src/modules/dialogs/util.js: caxis refs",
+      "src/modules/dialogs/framework.js: KIND_ALIAS in _accepts",
+      "src/modules/dialogs/cmd-split-scale.js: Scale point accepts construction points",
+      "src/modules/timeline/deps.js: caxis/cpoint deps"
+    ],
+    "contracts": "Refs {kind:'caxis', id}, {kind:'cpoint', id}; st.axes, st.points; M.registerCPlaneMode(mode, fn); feature types caxis, cpoint, offsetface, replaceface, splitface, removefaces, removefeatures, align, basefeature, editface, automodel; environment 'basefeature' with BaseFeatureStop. Details in src/modules/solidx/README.md.",
+    "tests": [
+      "solidx 69/69; core-loop, modeling, toolbar, undo-redo, foundation, timeline, browser, create-modify pass; engine tests pass (final runs with --only because sheetmetal did not build)"
+    ],
+    "knownIssues": [
+      "Hole at a construction point not wired",
+      "Construction axes/points cannot be projected into a sketch",
+      "Browser click on axis/point does not feed an open dialog",
+      "Healing extends only planar, cylindrical, spherical neighbours",
+      "Edit Face: four-sided faces only",
+      "Automated Modeling is a local approximation",
+      "Perpendicular Plane rules and Remove Features check boxes are own reading",
+      "Construction axes/points hide with the Construction Planes toggle"
+    ]
+  }
+}

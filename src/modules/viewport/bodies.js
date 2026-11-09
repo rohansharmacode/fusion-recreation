@@ -251,6 +251,35 @@ export class BodyLayer {
     return m;
   }
 
+  /** Translucent copy of a body material for bodies of inactive components. */
+  _fadedMat(m) {
+    this._faded = this._faded || new Map();
+    let f = this._faded.get(m);
+    if (!f) {
+      f = m.clone();
+      f.transparent = true;
+      f.opacity = Math.min(m.opacity ?? 1, 0.28);
+      f.depthWrite = false;
+      this._faded.set(m, f);
+    }
+    return f;
+  }
+
+  /** Display-only occurrence transforms (app.components.setDisplayTransform): body group matrices, no re-evaluation. */
+  applyDisplay() {
+    const comps = this.vp.app.components;
+    for (const o of this.objects.values()) {
+      const D = comps && comps.displayOverrides ? comps.bodyDisplayMatrix(o.id) : null;
+      if (!D && !o.displayed) continue;
+      o.group.matrixAutoUpdate = false;
+      if (D) o.group.matrix.set(D[0], D[1], D[2], D[3], D[4], D[5], D[6], D[7], D[8], D[9], D[10], D[11], 0, 0, 0, 1);
+      else o.group.matrix.identity();
+      o.group.matrixWorldNeedsUpdate = true;
+      o.displayed = !!D;
+    }
+    this.vp.requestRender();
+  }
+
   setEnvMap(env) {
     this.vp.envMap = env;
     for (const m of this.materials.values()) { m.envMap = env; m.needsUpdate = true; }
@@ -271,8 +300,14 @@ export class BodyLayer {
       const ids = [...this.objects.keys()];
       cc = this.colorCycle[Math.max(0, ids.indexOf(o.id)) % this.colorCycle.length];
     }
-    const variant = o.kind === "surface" ? "front" : o.entry.isMesh ? "facets" : "";
-    o.mesh.material = st.faces ? this.material(meta, cc, variant) : this.depthMat;
+    // mesh-like kinds are flat-shaded facets unless the kind asks for smooth shading (T-spline limit surface)
+    const smoothKind = ((this.vp.app.bodyKinds || {})[o.kind] || {}).shading === "smooth";
+    const variant = o.kind === "surface" ? "front" : o.entry.isMesh && !smoothKind ? "facets" : "";
+    // bodies outside the active component are drawn faded (Fusion's inactive components)
+    const comps = this.vp.app.components;
+    const fade = !!(comps && comps.faded(o.id));
+    o.faded = fade;
+    o.mesh.material = st.faces ? (fade ? this._fadedMat(this.material(meta, cc, variant)) : this.material(meta, cc, variant)) : this.depthMat;
     o.mesh.visible = st.faces || st.depthOnly;
     // surface bodies: the back side (away from the normal) is gold, like Fusion
     if (o.kind === "surface") {
@@ -309,8 +344,10 @@ export class BodyLayer {
     const keep = new Set();
     const box = new THREE.Box3();
     const list = typeof app.allBodies === "function" ? app.allBodies() : app.bodies();
+    const comps = app.components;
     for (const b of list) {
       if (!b.meta || b.meta.visible === false) continue;
+      if (comps && !comps.bodyShown(b.id)) continue; // hidden component (or a parent of it)
       const kind = b.kind || "solid";
       const hooks = (app.bodyKinds && app.bodyKinds[kind]) || {};
       const src = b.shape || b.mesh || null;
@@ -350,6 +387,7 @@ export class BodyLayer {
       if (!keep.has(id)) { group.remove(o.group); this.objects.delete(id); }
     }
     group.visible = this.visibleOverride;
+    if (comps && (comps.displayOverrides || [...this.objects.values()].some((o) => o.displayed))) this.applyDisplay();
     this.bounds.box.copy(box);
     if (box.isEmpty()) { this.bounds.radius = 0; this.bounds.center.set(0, 0, 0); }
     else {

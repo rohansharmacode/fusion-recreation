@@ -1,0 +1,5 @@
+/* form module: Edit Form selection option buttons, small info text */
+.frm-selbtns { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 0; }
+.frm-btn { font: inherit; font-size: 11px; padding: 2px 7px; border: 1px solid var(--c-border, #c8cdd2); background: var(--c-panel, #fff); border-radius: 2px; cursor: pointer; color: inherit; }
+.frm-btn:hover { background: var(--c-hover, #e8f1fb); }
+.frm-info { font-size: 11px; color: #555; }

@@ -19,7 +19,7 @@ import { openRectPattern, openCircPattern, initPatterns } from "./patterns.js";
 import { openIntersect, openInclude3D, openIntersectionCurve, openProjectToSurface, openIsoparametric, openSpunProfile } from "./include3d.js";
 import { openInsertSVG, openInsertDXF } from "./importx.js";
 import { openAutoConstrain, autoConstrainAndFinish } from "./autoconstrain.js";
-import { fitPointInfo, activateTangentHandle, deactivateTangentHandle } from "./handles.js";
+import { fitPointInfo, activateTangentHandle, deactivateTangentHandle, activateCurvatureHandle, deactivateCurvatureHandle } from "./handles.js";
 
 const inSketch = (app) => app.mode === "sketch";
 
@@ -137,14 +137,16 @@ function registerCommands(app) {
   reg({ id: "MTextCmd", label: "Text", kind: "tool", tooltip: "Creates text in a frame or along a path. The text outlines become sketch profiles.", run: () => { if (!inSketch(app)) startCreateSketch(() => openText()); else openText(); } });
   reg({ id: "SketchImportSVG", label: "Insert SVG", kind: "tool", tooltip: "Inserts the curves of an SVG file into a sketch.", run: () => openInsertSVG() });
   reg({ id: "ImportDxfFileCommand", label: "Insert DXF", kind: "tool", tooltip: "Inserts the geometry of a 2D DXF file into a sketch.", run: () => openInsertDXF() });
-  // tangent handles of fit point splines (right-click a fit point)
-  const handleCmd = (id, label, active, fn) => reg({
+  // tangent and curvature handles of fit point splines (right-click a fit point)
+  const handleCmd = (id, label, ok, fn) => reg({
     id, label, kind: "tool", when: "sketch",
-    enabled: (a) => { const f = inSketch(a) && fitPointInfo(a.selection.items); return !!f && f.active === active; },
-    run: (a) => { const f = fitPointInfo(a.selection.items); if (!f || f.active !== active) { a.toast("Select a fit point of a fit point spline", "info", 1800); return; } fn(f); },
+    enabled: (a) => { const f = inSketch(a) && fitPointInfo(a.selection.items); return !!f && ok(f); },
+    run: (a) => { const f = fitPointInfo(a.selection.items); if (!f || !ok(f)) { a.toast("Select a fit point of a fit point spline", "info", 1800); return; } fn(f); },
   });
-  handleCmd("AddTangentHandle", "Activate Tangent handle", false, activateTangentHandle);
-  handleCmd("DeleteTangentCommand", "Deactivate Tangent Handle", true, deactivateTangentHandle);
+  handleCmd("AddTangentHandle", "Activate Tangent handle", (f) => !f.active, activateTangentHandle);
+  handleCmd("DeleteTangentCommand", "Deactivate Tangent Handle", (f) => f.active, deactivateTangentHandle);
+  handleCmd("AddCurvatureHandle", "Activate Curvature handle", (f) => !f.curv, activateCurvatureHandle);
+  handleCmd("DeleteCurvatureCommand", "Deactivate Curvature Handle", (f) => f.curv, deactivateCurvatureHandle);
   for (const [id, def] of Object.entries(CONSTRAINTS)) sketchTool(id, def.label, null, `Applies a ${def.label.toLowerCase()} constraint.`, () => runConstraint(id));
   sketchTool("ConstraintFix", "Fix/UnFix", null, "Fixes or unfixes the selected sketch geometry.", () => runFix());
   reg({ id: "SketchFixConstraintCmd", label: "Fix/UnFix", kind: "tool", when: "sketch", enabled: inSketch, run: () => runFix() });

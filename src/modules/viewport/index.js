@@ -101,11 +101,12 @@ function refStatus(app, items) {
   const nameOf = (r) => {
     if (r.kind === "body") { const m = app.bodyMeta && app.bodyMeta(r.body); return (m && m.name) || "Body"; }
     if (r.kind === "feature" || r.kind === "cplane") { const f = app.feature(r.id); return (f && f.name) || ""; }
+    if (r.kind === "occurrence" && app.components) return app.components.label(r.occ);
     return "";
   };
-  const LABEL = { face: ["Face", "Faces"], meshFace: ["Mesh Face", "Mesh Faces"], edge: ["Edge", "Edges"], vertex: ["Vertex", "Vertices"], body: ["Body", "Bodies"], originPlane: ["Plane", "Planes"], originAxis: ["Axis", "Axes"], originPoint: ["Point", "Points"], cplane: ["Plane", "Planes"], feature: ["Feature", "Features"] };
+  const LABEL = { face: ["Face", "Faces"], meshFace: ["Mesh Face", "Mesh Faces"], edge: ["Edge", "Edges"], vertex: ["Vertex", "Vertices"], body: ["Body", "Bodies"], originPlane: ["Plane", "Planes"], originAxis: ["Axis", "Axes"], originPoint: ["Point", "Points"], cplane: ["Plane", "Planes"], feature: ["Feature", "Features"], occurrence: ["Component", "Components"] };
   if (one) {
-    if (one.kind === "body" || one.kind === "feature" || one.kind === "cplane") return nameOf(one);
+    if (one.kind === "body" || one.kind === "feature" || one.kind === "cplane" || one.kind === "occurrence") return nameOf(one);
     if (one.kind === "originPlane") return `${one.name} Plane`;
     if (one.kind === "originAxis") return `${one.name} Axis`;
     if (one.kind === "originPoint") return "Origin";
@@ -889,6 +890,8 @@ export function init(app) {
   }
   vp.refreshStatus = refreshStatus;
   app.on("doc", () => { origin.updateHighlight(); if (myStatus !== null && app.status === myStatus) refreshStatus(); requestRender(); });
+  // component visibility / activation (fading) / display-only transforms change the drawing without re-evaluating
+  app.on("components", (d) => { if (d && d.action === "display") bodies.applyDisplay(); else bodies.rebuild(); highlighter.update(); requestRender(); });
   const onSel = () => { highlighter.update(); origin.updateHighlight(); };
   app.on("hover", () => { onSel(); refreshStatus(); });
   app.on("selection", () => { onSel(); refreshStatus(); });

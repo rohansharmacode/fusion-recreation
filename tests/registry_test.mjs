@@ -236,5 +236,78 @@ const run = (doc) => new M.Evaluator().run(doc);
   check("migrated mesh evaluates (scale 2)", near(bb.max[0], 2) && near(bb.max[1], 2), bb);
 }
 
+// ---------- components and occurrences ----------
+{
+  const doc = M.newDoc("comp");
+  const box = (center, extra = {}) => add(doc, { type: "box", plane: { kind: "origin", name: "XY" }, center, length: "10 mm", width: "10 mm", height: "10 mm", operation: "new", ...extra });
+  const b1 = box([0, 0]);
+  // From Bodies: Body1 moves into Component1
+  const c1 = M.newComponentMeta(doc);
+  check("component names count up", doc.components[c1.comp].name === "Component1" && doc.occurrences[c1.occ].n === 1);
+  add(doc, { type: "component", mode: "bodies", comp: c1.comp, newOcc: c1.occ, bodies: [b1.newBody], name: "Component1" });
+  let r = run(doc);
+  check("From Bodies: the body belongs to the component", M.bodyOwner(r.state, b1.newBody) === c1.occ && r.state.occ.has(c1.occ));
+  // a feature created in Component1 (f.occ) owns its body; join only touches bodies of that component
+  const b2 = box([30, 0], { occ: c1.occ });
+  r = run(doc);
+  check("feature in a component owns its new body", M.bodyOwner(r.state, b2.newBody) === c1.occ);
+  check("occBodies lists both", M.occBodies(r.state, c1.occ).length === 2);
+  const rootBox = box([60, 0]);
+  r = run(doc);
+  check("root feature body stays in root", M.bodyOwner(r.state, rootBox.newBody) === M.ROOT);
+  // newComponent operation
+  const nc = M.newComponentMeta(doc);
+  const b4 = box([0, 40], { operation: "newComponent", newComp: nc.comp, newOcc: nc.occ });
+  r = run(doc);
+  check("operation newComponent creates the occurrence", r.state.occ.has(nc.occ) && M.bodyOwner(r.state, b4.newBody) === nc.occ);
+  // capture a position: Component1 moves by 100 in X with its bodies
+  const T = [1, 0, 0, 100, 0, 1, 0, 0, 0, 0, 1, 0];
+  doc.positions = { [c1.occ]: T };
+  r = run(doc);
+  let bb = K.bboxOf(r.state.bodies.get(b1.newBody).shape);
+  check("uncaptured position moves the bodies", near(bb.min[0], 95, 1e-4) && r.state.pending && r.state.pending[0] === c1.occ, bb.min);
+  check("root body does not move", near(K.bboxOf(r.state.bodies.get(rootBox.newBody).shape).min[0], 55, 1e-4));
+  M.capturePositions(doc);
+  check("capturePositions adds a Position feature", !doc.positions && doc.features[doc.marker - 1].type === "snapshot" && doc.features[doc.marker - 1].name === "Position1");
+  r = run(doc);
+  bb = K.bboxOf(r.state.bodies.get(b2.newBody).shape);
+  check("captured position: later state has the moved body", near(bb.min[0], 125, 1e-4) && near(r.state.occ.get(c1.occ).T[3], 100), bb.min);
+  // a rotation of 90 deg about Z (transformShape axis-angle path)
+  const Rz = [0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0];
+  const rs = M.transformShape(r.state.bodies.get(rootBox.newBody).shape, Rz);
+  bb = K.bboxOf(rs);
+  check("transformShape rotates (90 deg about Z)", near(bb.min[1], 55, 1e-4) && near(bb.max[0], 5, 1e-4), [bb.min, bb.max]);
+  const Rx180 = [1, 0, 0, 0, 0, -1, 0, 0, 0, 0, -1, 0];
+  bb = K.bboxOf(M.transformShape(r.state.bodies.get(rootBox.newBody).shape, Rx180));
+  check("transformShape rotates (180 deg about X)", near(bb.min[2], -10, 1e-4) && near(bb.max[2], 0, 1e-4), [bb.min, bb.max]);
+  check("invRigid", M.meshOps.mul(Rz, M.invRigid(Rz)).every((v, i) => near(v, M.meshOps.IDENTITY[i])));
+  // paste: another occurrence of Component1 shows instance bodies
+  const o2 = M.newOccurrenceMeta(doc, c1.comp);
+  check("occurrence numbering :2", doc.occurrences[o2].n === 2);
+  add(doc, { type: "component", mode: "paste", comp: c1.comp, newOcc: o2, source: c1.occ, T: [1, 0, 0, 100, 0, 1, 0, 50, 0, 0, 1, 0] });
+  r = run(doc);
+  const inst = `${b1.newBody}@${o2}`;
+  check("paste: instance bodies exist", r.state.bodies.has(inst) && M.bodyOwner(r.state, inst) === o2);
+  bb = K.bboxOf(r.state.bodies.get(inst).shape);
+  check("paste: instance placed by its transform", near(bb.min[1], 45, 1e-4) && near(bb.min[0], 95, 1e-4), bb.min);
+  // a fillet-free change to the primary updates the instance: delete Body2 from the component
+  add(doc, { type: "delete", bodies: [b2.newBody] });
+  r = run(doc);
+  check("instances follow the primary", !r.state.bodies.has(`${b2.newBody}@${o2}`) && r.state.bodies.has(inst));
+  // default participants skip instances
+  // a cut through Body1 and its instance: the cut changes the component (Body1), the instance follows it
+  const cut = add(doc, { type: "box", plane: { kind: "origin", name: "XY" }, center: [100, 25], length: "4 mm", width: "70 mm", height: "40 mm", operation: "cut" });
+  r = run(doc);
+  const vb = K.volumeOf(r.state.bodies.get(b1.newBody).shape), vi = K.volumeOf(r.state.bodies.get(inst).shape);
+  check("cut changes the component and its instance follows", r.results[cut.id].ok && near(vb, 600, 1e-3) && near(vi, vb, 1e-6), [r.results[cut.id].error, vb, vi]);
+  // paste new: independent copy with new bodies
+  const cp = M.newComponentMeta(doc, { name: "Component1 (1)" });
+  const nb = M.nextBody(doc, { name: "Body1" });
+  add(doc, { type: "component", mode: "copy", comp: cp.comp, newOcc: cp.occ, source: c1.occ, T: [1, 0, 0, 100, 0, 1, 0, -50, 0, 0, 1, 0], newBodies: [nb] });
+  r = run(doc);
+  check("paste new copies the bodies", r.state.bodies.has(nb) && M.bodyOwner(r.state, nb) === cp.occ && near(K.bboxOf(r.state.bodies.get(nb).shape).min[1], -55, 1e-4));
+  check("occSubtree(ROOT) has every occurrence", M.occSubtree(r.state, M.ROOT).size === r.state.occ.size + 1);
+}
+
 console.log(failed ? `${failed} FAILED` : "all passed");
 if (failed) process.exit(1);

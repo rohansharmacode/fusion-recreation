@@ -1,0 +1,5 @@
+/* createx: tab strip of the volumetric dialogs (Setup | Density | Offset) */
+.cx-tabs { display: flex; gap: 0; margin: 2px 0 4px; border-bottom: 1px solid var(--c-border, #d0d0d0); width: 100%; }
+.cx-tab { flex: 0 0 auto; padding: 4px 10px; font: inherit; font-size: 11px; color: #3c3c3c; background: transparent; border: 0; border-bottom: 2px solid transparent; cursor: pointer; }
+.cx-tab:hover { background: var(--c-hover, #e8eef5); }
+.cx-tab.on { border-bottom-color: var(--c-accent, #0696d7); color: #1a1a1a; font-weight: 600; }

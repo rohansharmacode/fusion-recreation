@@ -247,9 +247,47 @@ const AXIS_COL = [0xd8372c, 0x45a72c, 0x2d6fd6];
 const AXES = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 const T_FIELDS = ["tx", "ty", "tz"], R_FIELDS = ["rx", "ry", "rz"];
 
+/** Bodies the Move dialog moves: the selected bodies, or the bodies of the selected components. */
+function movedBodyIds(dlg) {
+  const v = dlg.values;
+  if (v.objType === "components") {
+    const C = dlg.app.components;
+    return C ? [...new Set(movedOccs(dlg).flatMap((o) => C.bodiesOf(o)))] : [];
+  }
+  return (v.bodies || []).map((r) => r.body);
+}
+/** Selected occurrences without those whose parent is selected too (they move with it). */
+function movedOccs(dlg) {
+  const C = dlg.app.components;
+  const ids = (dlg.values.occs || []).map((r) => r.occ);
+  return C ? ids.filter((o) => !C.ancestors(o).slice(1).some((a) => ids.includes(a))) : ids;
+}
+/** New world transforms of the moved occurrences: {oid: M} (rotations about the pivot, then the translation). */
+function occTargets(dlg) {
+  const C = dlg.app.components;
+  const v = dlg.values;
+  const pivot = bodiesCenter(dlg.baseState, movedBodyIds(dlg)) || [0, 0, 0];
+  const t = T_FIELDS.map((k) => (v.moveType === "rotate" ? 0 : dlg.num(k)));
+  const r = R_FIELDS.map((k) => (v.moveType === "translate" ? 0 : dlg.num(k)));
+  if ([...t, ...r].some((x) => !Number.isFinite(x))) return null;
+  const D = C.rigid(t, r, pivot);
+  const out = {};
+  for (const o of movedOccs(dlg)) out[o] = dlg.app.M.meshOps.mul(D, C.transform(o));
+  return out;
+}
+function showOccPreview(dlg) {
+  const C = dlg.app.components;
+  if (!C) return;
+  const prev = dlg._occShown || [];
+  const next = dlg.values.objType === "components" && !dlg.closed ? occTargets(dlg) || {} : {};
+  for (const o of prev) if (!(o in next)) C.setDisplayTransform(o, null);
+  for (const [o, m] of Object.entries(next)) C.setDisplayTransform(o, m);
+  dlg._occShown = Object.keys(next);
+}
+
 function moveTriad(dlg) {
   const v = dlg.values;
-  const ids = (v.bodies || []).map((r) => r.body);
+  const ids = movedBodyIds(dlg);
   const pivot = bodiesCenter(dlg.baseState, ids);
   if (!pivot) return [];
   const t = T_FIELDS.map((k) => (v.moveType === "rotate" ? 0 : dlg.num(k)));
@@ -300,7 +338,18 @@ function moveTriad(dlg) {
 export function openMove(app, opts = {}) {
   const editId = opts.editId || null;
   const f0 = editId ? app.feature(editId) : null;
-  const pre = (opts.preselect || []).map(toBodyRef).filter(Boolean);
+  const C = app.components;
+  const rawPre = opts.preselect || [];
+  // components preselected (browser, Paste): Move Object = Components
+  const preOccs = !editId && C ? rawPre.filter((r) => r && r.kind === "occurrence" && r.occ !== "root" && C.alive(r.occ)) : [];
+  const pre = preOccs.length ? preOccs : rawPre.map(toBodyRef).filter(Boolean);
+  const toOcc = (r) => {
+    if (!r || !C) return null;
+    const o = r.kind === "occurrence" ? r.occ : r.body ? C.ownerOf(r.body) : null;
+    if (!o || o === "root") return null;
+    if ((C.info(o) || {}).grounded) { app.toast(`${C.label(o)} is pinned. Unpin it to move it.`, "info", 1800); return null; }
+    return { kind: "occurrence", occ: o };
+  };
   return app.ui.dialog.open({
     id: "FusionMoveCommand",
     title: "Move/Copy",
@@ -311,8 +360,9 @@ export function openMove(app, opts = {}) {
     preselect: pre,
     ctrlWidth: 130,
     rows: [
-      { id: "objType", type: "buttons", label: "Move Object", options: [{ value: "components", label: "Components", icon: "components", disabled: true }, { value: "bodies", label: "Bodies", icon: "bodies" }, { value: "faces", label: "Faces", icon: "faces", disabled: true }], default: "bodies" },
-      { id: "bodies", type: "selection", label: "Selection", kinds: ["body", "face"], meshBodies: true, mapRef: toBodyRef, prompt: "Select bodies to move" },
+      { id: "objType", type: "buttons", label: "Move Object", options: [{ value: "components", label: "Components", icon: "components", disabled: !C || !!editId }, { value: "bodies", label: "Bodies", icon: "bodies" }, { value: "faces", label: "Faces", icon: "faces", disabled: true }], default: preOccs.length ? "components" : "bodies" },
+      { id: "occs", type: "selection", label: "Selection", kinds: ["occurrence", "body", "face"], meshBodies: true, mapRef: toOcc, prompt: "Select an ungrounded component to move", visible: (v) => v.objType === "components" },
+      { id: "bodies", type: "selection", label: "Selection", kinds: ["body", "face"], meshBodies: true, mapRef: toBodyRef, prompt: "Select bodies to move", visible: (v) => v.objType !== "components" },
       { id: "moveType", type: "buttons", label: "Move Type", options: [{ value: "free", label: "Free Move", icon: "freeMove" }, { value: "translate", label: "Translate", icon: "translate" }, { value: "rotate", label: "Rotate", icon: "rotate" }], default: "free" },
       { id: "tx", type: "value", label: "X Distance", kind: "length", default: "0.00 mm", visible: (v) => v.moveType !== "rotate" },
       { id: "ty", type: "value", label: "Y Distance", kind: "length", default: "0.00 mm", visible: (v) => v.moveType !== "rotate" },
@@ -320,7 +370,7 @@ export function openMove(app, opts = {}) {
       { id: "rx", type: "value", label: "X Angle", kind: "angle", default: "0.0 deg", visible: (v) => v.moveType !== "translate" },
       { id: "ry", type: "value", label: "Y Angle", kind: "angle", default: "0.0 deg", visible: (v) => v.moveType !== "translate" },
       { id: "rz", type: "value", label: "Z Angle", kind: "angle", default: "0.0 deg", visible: (v) => v.moveType !== "translate" },
-      { id: "copy", type: "check", label: "Create Copy", sep: true },
+      { id: "copy", type: "check", label: "Create Copy", sep: true, visible: (v) => v.objType !== "components" },
     ],
     init(dlg) {
       if (f0) {
@@ -328,14 +378,32 @@ export function openMove(app, opts = {}) {
         for (const k of ["tx", "ty", "tz", "rx", "ry", "rz"]) if (f0[k] !== undefined) dlg.values[k] = f0[k];
       }
     },
-    status: (dlg) => { const n = (dlg.values.bodies || []).length; if (!n) return ""; if (n > 1) return `${n} Bodies`; const m = dlg.app.bodyMeta && dlg.app.bodyMeta(dlg.values.bodies[0].body); return (m && m.name) || "Body"; },
+    status: (dlg) => {
+      if (dlg.values.objType === "components") { const o = dlg.values.occs || []; return o.length > 1 ? `${o.length} Components` : o.length && C ? C.label(o[0].occ) : ""; }
+      const n = (dlg.values.bodies || []).length; if (!n) return ""; if (n > 1) return `${n} Bodies`; const m = dlg.app.bodyMeta && dlg.app.bodyMeta(dlg.values.bodies[0].body); return (m && m.name) || "Body";
+    },
     build(v) {
+      // components move by occurrence transform (uncaptured position, no timeline feature): an empty move keeps
+      // the dialog's preview / OK machinery going while the viewport shows the components at their new place
+      if (v.objType === "components") return (v.occs || []).length ? { type: "move", bodies: [], tx: "0 mm", ty: "0 mm", tz: "0 mm", rx: "0 deg", ry: "0 deg", rz: "0 deg" } : null;
       const bodies = (v.bodies || []).map((r) => r.body);
       if (!bodies.length) return null;
       const f = { type: "move", bodies, copy: !!v.copy };
       for (const k of ["tx", "ty", "tz"]) f[k] = v.moveType === "rotate" ? "0 mm" : v[k];
       for (const k of ["rx", "ry", "rz"]) f[k] = v.moveType === "translate" ? "0.0 deg" : v[k];
       return f;
+    },
+    afterPreview: (dlg) => showOccPreview(dlg),
+    onChange: (id, dlg) => { if (dlg.values.objType === "components") showOccPreview(dlg); },
+    onClose: (dlg) => { const prev = dlg._occShown || []; dlg._occShown = []; if (C) for (const o of prev) C.setDisplayTransform(o, null); },
+    commit(f, dlg) {
+      if (dlg.values.objType !== "components") return dlg.commitFeature(f);
+      const map = occTargets(dlg);
+      if (!map || !Object.keys(map).length) return null;
+      const prev = dlg._occShown || [];
+      dlg._occShown = [];
+      for (const o of prev) C.setDisplayTransform(o, null);
+      return C.setTransforms(map, { label: "Move" });
     },
     manipulators: moveTriad,
   });
@@ -344,6 +412,12 @@ export function openMove(app, opts = {}) {
 // ------------------------------------------------------------------ Delete
 export function runDelete(app) {
   const items = [...app.selection.items];
+  // components: deleting an occurrence removes it (and, for its last occurrence, the component's features)
+  const occs = items.filter((r) => r.kind === "occurrence" && r.occ !== "root").map((r) => r.occ);
+  if (occs.length && app.components) {
+    app.components.remove(occs);
+    if (!items.some((r) => r.kind === "body" || r.kind === "feature" || r.kind === "cplane" || r.kind === "sketch")) return;
+  }
   const bodies = new Set();
   const feats = new Set();
   for (const r of items) {

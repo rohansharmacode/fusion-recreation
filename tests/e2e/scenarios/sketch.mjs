@@ -890,6 +890,49 @@ export async function round7(t) {
     t.check("AutoConstrain result: the rectangle is fully constrained", I.fully, JSON.stringify(I.cons.map((c) => c.type)));
   }
 
+  t.step("AutoConstrain from Datum (datum picked in the canvas); Finish with AutoConstrain");
+  const dq = await t.app(() => {
+    const a = window.app; let r = null;
+    a.mutate("rect2", (doc) => {
+      const sk = doc.features.find((x) => x.id === a.activeSketch).sk;
+      const P = [[50, 5], [80, 5.3], [80.2, 25], [50, 25]].map(([x, y]) => a.S.addPoint(sk, x, y));
+      P.forEach((p, i) => a.S.addLine(sk, p, P[(i + 1) % 4]));
+      r = P[0];
+    });
+    return r;
+  });
+  await R7.run(t, "SketchAutoConstraintAndDimFromDatumCmd");
+  const dD = await t.waitFor('.dlg[data-dialog="SketchAutoConstraintAndDimFromDatumCmd"]', { timeout: 4000 });
+  t.check("AutoConstrain from Datum asks for the datum point", dD && (await t.app(() => /datum/i.test(document.querySelector(".dlg .sk-ac-busy") ? document.querySelector(".dlg .sk-ac-busy").textContent : ""))));
+  if (dD) {
+    await R7.clickAt(t, 50, 5);
+    await t.settle(600);
+    const tilesD = await t.app(() => document.querySelectorAll(".dlg .sk-ac-tile").length);
+    t.check("picking the datum point shows result tiles", tilesD >= 1, `tiles=${tilesD}`);
+    await t.click('.dlg[data-dialog="SketchAutoConstraintAndDimFromDatumCmd"] [data-action="ok"]');
+    await t.settle(300);
+    I = await R7.info(t);
+    const fromDatum = I.cons.filter((c) => c.expr !== undefined && c.refs.includes(dq));
+    t.check("AutoConstrain from Datum: fully constrained, dimensions measured from the datum", I.fully && fromDatum.length >= 1, JSON.stringify({ fully: I.fully, fromDatum }));
+  }
+  const fin = await t.app(() => {
+    const a = window.app; const id = a.activeSketch;
+    a.mutate("rect3", (doc) => {
+      const sk = doc.features.find((x) => x.id === id).sk;
+      const P = [[5, 40], [25, 40.4], [25.3, 55], [5, 55]].map(([x, y]) => a.S.addPoint(sk, x, y));
+      P.forEach((p, i) => a.S.addLine(sk, p, P[(i + 1) % 4]));
+    });
+    return { id };
+  });
+  await t.settle(200);
+  fin.before = await t.app((id) => window.app.sketchState(id).status.fully, fin.id);
+  await R7.run(t, "SketchAutoConstrainAndFinish");
+  await t.settle(400);
+  Object.assign(fin, await t.app((id) => { const a = window.app; const st = a.sketchState(id); return { after: !!(st && st.status && st.status.fully), active: a.activeSketch || null, sketchMode: !!(a.ui.sketch && a.ui.sketch.active) }; }, fin.id));
+  t.check("Finish with AutoConstrain constrains the free rectangle and finishes the sketch", !fin.before && fin.after && !fin.active && !fin.sketchMode, JSON.stringify(fin));
+  if (!fin.active) await t.app((id) => window.app.ui.sketch.edit(id), fin.id);
+  await t.settle(200);
+
   // ---------- Text ----------
   t.step("Text: frame, type, font, Extrude the glyph profiles; Edit Text; Text On Path");
   await t.app(() => window.app.commands.run("SketchStop"));
@@ -1146,6 +1189,49 @@ export async function round7(t) {
   const gone = await t.app((r) => { const a = window.app; const f = a.feature(a.activeSketch); const cv = f.sk.curves[r.spl]; return !(cv.hd && cv.hd[1]) && Object.values(f.sk.curves).filter((c) => c.type === "line").length === 0; }, ff);
   const d3 = await der();
   t.check("Deactivate Tangent Handle removes the handle and frees the tangent", gone && near(d3[0], d0[0], 1e-6) && near(d3[1], d0[1], 1e-6), JSON.stringify(d3));
+
+  t.step("Activate / Deactivate Curvature handle on a fit point (G2 at the fit point)");
+  // curvature at the middle fit point, one-sided from each span (both sides must agree: G2)
+  const kap = () => t.app((r) => {
+    const a = window.app; const st = a.sketchState(a.activeSketch); const f = a.S.splineOf(st.sk, r.spl);
+    const side = (j, end) => { const [p0, c1, c2, p3] = f.spans[j], h = f.h[j]; const D = end ? [6 * (p3[0] - 2 * c2[0] + c1[0]) / (h * h), 6 * (p3[1] - 2 * c2[1] + c1[1]) / (h * h)] : [6 * (p0[0] - 2 * c1[0] + c2[0]) / (h * h), 6 * (p0[1] - 2 * c1[1] + c2[1]) / (h * h)]; const m = end ? [3 * (p3[0] - c2[0]) / h, 3 * (p3[1] - c2[1]) / h] : [3 * (c1[0] - p0[0]) / h, 3 * (c1[1] - p0[1]) / h]; const l = Math.hypot(...m); return (m[0] * D[1] - m[1] * D[0]) / (l * l * l); };
+    const cv = st.sk.curves[r.spl];
+    return { left: side(0, true), right: side(1, false), hd: !!(cv.hd && cv.hd[1]), hk: cv.hk && cv.hk[1], m: f.m[1] };
+  }, ff);
+  const k0 = await kap();
+  await t.app((r) => window.app.selection.set([{ kind: "sketchPoint", sketch: window.app.activeSketch, point: r.mid }]), ff);
+  await t.page.mouse.move(mp.x + 2, mp.y, { steps: 2 }); await t.page.mouse.move(mp.x, mp.y, { steps: 2 });
+  await t.page.mouse.click(mp.x, mp.y, { button: "right" });
+  const mmc = await t.waitFor('.mm-root .mm-overflow [data-cmd="AddCurvatureHandle"]', { timeout: 3000 });
+  t.check("right-click a fit point offers Activate Curvature handle", mmc);
+  if (mmc) await t.click('.mm-root .mm-overflow [data-cmd="AddCurvatureHandle"]');
+  else await R7.run(t, "AddCurvatureHandle");
+  await t.settle(200);
+  const k1 = await kap();
+  const lines1 = await t.app(() => { const a = window.app; return Object.values(a.feature(a.activeSketch).sk.curves).filter((c) => c.type === "line" && c.cons).length; });
+  t.check("Activate Curvature handle adds the tangent and curvature handles (two construction lines)", k1.hd && !!k1.hk && lines1 === 2, JSON.stringify({ k1, lines1 }));
+  t.check("the spline keeps its shape and curvature", near(k1.left, k0.left, 1e-6) && near(k1.right, k0.right, 1e-6) && near(k1.m[0], k0.m[0], 1e-6), JSON.stringify({ k0, k1 }));
+  // drag the curvature handle's end sideways through the UI: curvature changes, equal on both sides
+  const rEnd = await t.app((r) => { const a = window.app; const sk = a.feature(a.activeSketch).sk; const l = sk.curves[sk.curves[r.spl].hk[1]]; const hq = sk.curves[sk.curves[r.spl].hd[1]]; const q = hq.p1 === r.mid ? hq.p2 : hq.p1; const e = l.p1 === q ? l.p2 : l.p1; return { x: sk.points[e].x, y: sk.points[e].y, id: e }; }, ff);
+  await t.app(() => window.app.selection.clear());
+  const g0 = await R7.at(t, rEnd.x, rEnd.y), g1 = await R7.at(t, rEnd.x, rEnd.y + 6);
+  await t.page.mouse.move(g0.x, g0.y, { steps: 3 }); await t.frames(2);
+  await t.page.mouse.down(); await t.page.mouse.move(g1.x, g1.y, { steps: 8 }); await t.frames(3); await t.page.mouse.up(); await t.settle(250);
+  const k2 = await kap();
+  t.check("dragging the curvature handle changes the curvature at the fit point", Math.abs(k2.left - k1.left) > 0.01, JSON.stringify({ k1, k2 }));
+  t.check("curvature is continuous (G2) through the fit point", near(k2.left, k2.right, 1e-6), JSON.stringify(k2));
+  t.check("the tangent at the fit point is kept", near(Math.atan2(k2.m[1], k2.m[0]), Math.atan2(k1.m[1], k1.m[0]), 1e-6), JSON.stringify([k1.m, k2.m]));
+  await t.key("Control+z"); await t.settle(200);
+  const k3 = await kap();
+  t.check("Ctrl+Z undoes the curvature drag", near(k3.left, k1.left, 1e-6), JSON.stringify(k3));
+  await t.app((r) => window.app.selection.set([{ kind: "sketchPoint", sketch: window.app.activeSketch, point: r.mid }]), ff);
+  await R7.run(t, "DeleteCurvatureCommand");
+  await t.settle(200);
+  const k4 = await kap();
+  const lines4 = await t.app(() => { const a = window.app; return Object.values(a.feature(a.activeSketch).sk.curves).filter((c) => c.type === "line" && c.cons).length; });
+  t.check("Deactivate Curvature Handle keeps the tangent handle", k4.hd && !k4.hk && lines4 === 1, JSON.stringify({ k4, lines4 }));
+  await t.key("Control+z"); await t.settle(200);
+  t.check("Ctrl+Z brings the curvature handle back", !!(await kap()).hk);
   await t.shot("r7-offset-handles");
   await t.app(() => window.app.commands.run("SketchStop"));
 }

@@ -90,10 +90,12 @@ function pointOf(ref) {
   if (!ref || ref.kind === "originPoint") return { kind: "origin" };
   if (ref.kind === "sketchPoint") return { kind: "sketchPoint", sketch: ref.sketch, point: ref.point };
   if (ref.kind === "vertex") return { kind: "vertex", body: ref.body, p: ref.p };
+  if (ref.kind === "cpoint") return { kind: "cpoint", id: ref.id }; // construction point (solidx)
   return { kind: "origin" };
 }
 function pointRef(pt) {
   if (!pt || pt.kind === "origin") return { kind: "originPoint" };
+  if (pt.kind === "cpoint") return { kind: "cpoint", id: pt.id };
   if (pt.kind === "sketchPoint") return { kind: "sketchPoint", sketch: pt.sketch, point: pt.point };
   return { kind: "vertex", body: pt.body, p: pt.p };
 }
@@ -104,6 +106,7 @@ function pointWorld(state, ref) {
     const q = s && s.sk.points[ref.point];
     return q ? K.toWorld(s.plane, q.x, q.y) : [0, 0, 0];
   }
+  if (ref.kind === "cpoint") { const c = state.points && state.points.get(ref.id); return c ? c.p : [0, 0, 0]; }
   return ref.p || [0, 0, 0];
 }
 

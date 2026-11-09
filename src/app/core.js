@@ -5,6 +5,7 @@ import * as M from "../model.js";
 import * as K from "../kernel.js";
 import * as S from "../sketch/sketch.js";
 import * as E from "../expr.js";
+import { installComponents } from "./components.js";
 
 export { M, K, S, E };
 
@@ -24,6 +25,7 @@ export { M, K, S, E };
 // {kind:'originPoint'}
 // {kind:'cplane', id}                               construction plane feature id
 // {kind:'feature', id}                              timeline / browser item
+// {kind:'occurrence', occ}                          a component occurrence ('root' = the root component)
 // {kind:'meshFace', body, tri, group, p, n}         triangle `tri` of a mesh body; group = its face group
 //                                                   (-1 / undefined when the mesh has none). Two meshFace refs of
 //                                                   the same group are the same selection unless triOnly:true.
@@ -44,6 +46,7 @@ export function refKey(r) {
     case "cplane": return `cp:${r.id}`;
     case "feature": return `f:${r.id}`;
     case "meshFace": return r.group != null && r.group >= 0 && !r.triOnly ? `mfg:${r.body}:${r.group}` : `mf:${r.body}:${r.tri}`;
+    case "occurrence": return `occ:${r.occ}`;
     default: return `${r.kind}:${JSON.stringify(r)}`;
   }
 }
@@ -283,6 +286,8 @@ export class App extends EventTarget {
     this._workspaces.set(DESIGN_WORKSPACE, { id: DESIGN_WORKSPACE, label: "Design", builtin: true });
     // Edit Feature entries of registered feature types (app.featureEditors[type] set by a module wins)
     this._offFeatureReg = M.onFeatureRegistered((type) => this.emit("feature-types", { type }));
+    this._prepareFeature = prepareFeature;
+    this.components = installComponents(this); // components, occurrences, positions (src/app/components.js)
     this._installKeyboard();
   }
 
@@ -525,6 +530,7 @@ export class App extends EventTarget {
   }
   body(id) { const b = this.result && this.result.state.bodies.get(id); return b ? { id, shape: b.shape, meta: this.bodyMeta(id), kind: b.kind || M.shapeKind(b.shape) || "solid" } : null; }
   bodyMeta(id) {
+    if (M.isInstanceId(id)) id = M.instanceBase(id); // bodies of a pasted occurrence share their component's body data
     if (!this.doc.bodies[id] && this.previewing && this._previewMeta && this._previewMeta[id]) return this._previewMeta[id];
     if (!this.doc.bodies[id]) {
       this.doc.counters.body = (this.doc.counters.body || 0) + 1;
@@ -581,6 +587,9 @@ export class App extends EventTarget {
     if (opts.replaceId) {
       const i = doc.features.findIndex((x) => x.id === opts.replaceId);
       nf.id = opts.replaceId;
+      // an edited feature stays in its component (and keeps the component its New Component operation made)
+      const old = doc.features[i];
+      if (old) for (const k of ["occ", "newOcc", "newComp"]) if (nf[k] === undefined && old[k] !== undefined) nf[k] = old[k];
       prepareFeature(doc, nf);
       doc.features[i] = nf;
       upto = i + 1;
@@ -772,12 +781,19 @@ export class App extends EventTarget {
 /** Assign id, name, model parameters and result body ids to a new/edited feature. */
 export function prepareFeature(doc, f) {
   doc.counters.feature = doc.counters.feature || 0;
-  if (!f.id) { doc.counters.feature += 1; f.id = `f${doc.counters.feature}`; }
+  if (!f.id) {
+    // a new feature belongs to the active component; uncaptured component positions are captured before it
+    if (f.occ === undefined && doc.activeOcc && doc.occurrences && doc.occurrences[doc.activeOcc]) f.occ = doc.activeOcc;
+    if (f.type !== "snapshot" && doc.positions && Object.keys(doc.positions).length) M.capturePositions(doc);
+    doc.counters.feature += 1; f.id = `f${doc.counters.feature}`;
+  }
   if (!f.name) f.name = M.nextName(doc, f.type);
   M.assignParams(doc, f);
   M.assignBodies(doc, f); // registered types (def.makesBodies) and the built-in body makers
   const op = f.operation || "new";
   if (BODY_MAKERS.has(f.type) && (op === "new" || op === "join" || op === "newComponent") && !f.newBody) f.newBody = M.nextBody(doc);
+  // operation New Component: the body goes into a new component (Component1:1) under the feature's component
+  if (op === "newComponent" && !(f.newOcc && doc.occurrences && doc.occurrences[f.newOcc])) { const c = M.newComponentMeta(doc); f.newComp = c.comp; f.newOcc = c.occ; }
   if (f.type === "mirror" && f.operation !== "join" && (!f.newBodies || f.newBodies.length < (f.bodies || []).length)) {
     f.newBodies = (f.bodies || []).map((_, i) => (f.newBodies && f.newBodies[i]) || M.nextBody(doc));
   }

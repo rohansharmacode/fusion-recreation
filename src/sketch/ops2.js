@@ -4,7 +4,7 @@
 // multi-polyline display data (text, 3D curves).
 import { curvePoints } from "./solver.js";
 import { curveGeom, intersect } from "./regions.js";
-import { pcurveNearest, pcurveSamples } from "./curves.js";
+import { pcurveNearest, pcurveSamples, splineFit, bezierAt } from "./curves.js";
 import { clampedKnots, cvDegree, splitConic, textContours, contourPolyline, asParametric, conicWeight } from "./curves2.js";
 import { patternValues } from "./solver2.js";
 
@@ -337,7 +337,7 @@ function copyCurves(sk, ids, tf) {
     else if (c.type === "circle") c.c = mp(cv.c);
     else if (c.type === "arc") { c.c = mp(cv.c); c.p1 = mp(cv.p1); c.p2 = mp(cv.p2); }
     else if (c.type === "point") c.p = mp(cv.p);
-    else if (c.type === "spline" || c.type === "cvspline") { c.pts = cv.pts.map(mp); delete c.hd; delete c.hs; if (c.tan0) c.tan0 = sub(tf(add(P2(sk, cv.pts[0]), cv.tan0)), tf(P2(sk, cv.pts[0]))); if (c.tan1) c.tan1 = sub(tf(add(P2(sk, cv.pts[cv.pts.length - 1]), cv.tan1)), tf(P2(sk, cv.pts[cv.pts.length - 1]))); }
+    else if (c.type === "spline" || c.type === "cvspline") { c.pts = cv.pts.map(mp); delete c.hd; delete c.hs; delete c.hk; if (c.tan0) c.tan0 = sub(tf(add(P2(sk, cv.pts[0]), cv.tan0)), tf(P2(sk, cv.pts[0]))); if (c.tan1) c.tan1 = sub(tf(add(P2(sk, cv.pts[cv.pts.length - 1]), cv.tan1)), tf(P2(sk, cv.pts[cv.pts.length - 1]))); }
     else if (c.type === "ellipse") { c.c = mp(cv.c); c.a = mp(cv.a); c.b = mp(cv.b); }
     else if (c.type === "earc") { c.c = mp(cv.c); c.a = mp(cv.a); c.b = mp(cv.b); c.p1 = mp(cv.p1); c.p2 = mp(cv.p2); }
     else if (c.type === "conic") { c.p1 = mp(cv.p1); c.p2 = mp(cv.p2); c.v = mp(cv.v); }
@@ -493,15 +493,37 @@ export function polygonLoop(sk, ids) {
 export function offsetFreeform(sk, id, d) {
   const g = curveGeom(sk, id);
   if (!g || g.kind !== "pcurve") return null;
-  const n = g.sub === "ellipse" ? 24 : Math.max(8, Math.min(48, Math.ceil(g.T * 4)));
-  const pts = [];
-  const count = g.closed ? n : n + 1;
-  for (let i = 0; i < count; i++) {
-    const t = (g.T * i) / n;
+  const exact = (t) => {
     const p = g.at(t), dv = g.der(t);
     const l = len(dv);
-    if (l < 1e-12) continue;
-    pts.push(add(p, mul([-dv[1] / l, dv[0] / l], d)));
+    return l < 1e-12 ? null : add(p, mul([-dv[1] / l, dv[0] / l], d));
+  };
+  // uniform samples, then halve every span whose fitted cubic is more than tol from the exact offset
+  const n = g.sub === "ellipse" ? 24 : Math.max(8, Math.min(48, Math.ceil(g.T * 4)));
+  const tol = 2e-3, MAX = 160;
+  let ts = [];
+  for (let i = 0; i < (g.closed ? n : n + 1); i++) if (exact((g.T * i) / n)) ts.push((g.T * i) / n);
+  let pts = ts.map(exact);
+  for (let round = 0; round < 5 && pts.length >= (g.closed ? 3 : 2); round++) {
+    const f = splineFit(pts, { closed: !!g.closed });
+    if (!f) break;
+    const refine = new Set();
+    for (let i = 0; i < f.spans.length; i++) {
+      const q = exact((ts[i] + (i + 1 < ts.length ? ts[i + 1] : g.T)) / 2);
+      if (!q) continue;
+      let best = Infinity;
+      for (let k = 0; k <= 32; k++) best = Math.min(best, len(sub(bezierAt(f.spans[i], k / 32), q)));
+      if (best > tol) refine.add(i);
+    }
+    if (!refine.size || ts.length + refine.size > MAX) break;
+    const nt = [];
+    for (let i = 0; i < ts.length; i++) {
+      nt.push(ts[i]);
+      const tm = (ts[i] + (i + 1 < ts.length ? ts[i + 1] : g.T)) / 2;
+      if (refine.has(i) && exact(tm)) nt.push(tm);
+    }
+    ts = nt;
+    pts = ts.map(exact);
   }
   if (pts.length < (g.closed ? 3 : 2)) return null;
   const ids = pts.map((p) => newPt(sk, p));

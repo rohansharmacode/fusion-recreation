@@ -113,6 +113,8 @@ const G = {
   "br-tspline": svg16(`<path d="M8 2.2c3.6 0 5.8 2.4 5.8 5.6S11.4 13.8 8 13.8 2.2 11 2.2 7.8 4.4 2.2 8 2.2z" fill="#e4dcef" stroke="#5b4b78" stroke-width=".9"/><path d="M2.6 5.4h10.8M2.6 10.2h10.8M5.6 2.6v10.8M10.4 2.6v10.8" fill="none" stroke="#7d6aa0" stroke-width=".5" stroke-dasharray="1 .9"/><circle cx="5.6" cy="5.4" r=".9" fill="#5b4b78"/><circle cx="10.4" cy="5.4" r=".9" fill="#5b4b78"/><circle cx="5.6" cy="10.2" r=".9" fill="#5b4b78"/><circle cx="10.4" cy="10.2" r=".9" fill="#5b4b78"/>`),
   "br-sheetmetal": svg16(`<path d="M1.8 12.6h7.4l4.6-7.8" fill="none" stroke="#4b4b4b" stroke-width="3" stroke-linejoin="round"/><path d="M1.8 12.6h7.4l4.6-7.8" fill="none" stroke="#cfd6de" stroke-width="1.6" stroke-linejoin="round"/>`),
   "br-com": svg16(`<circle cx="8" cy="8" r="6" fill="#fff" stroke="#3d3d3d" stroke-width="1"/><path d="M8 2v6h6A6 6 0 0 0 8 2zM8 8v6a6 6 0 0 1-6-6z" fill="#3d3d3d"/>`),
+  "br-radio-off": svg16(`<circle cx="8" cy="8" r="6.4" fill="#dfe6f0" stroke="#7a8597" stroke-width="1"/><circle cx="8" cy="8" r="4.9" fill="#f8fafd"/>`),
+  "br-pin": svg16(`<path d="M9.6 1.8l4.6 4.6-1.3.6-2.2 2.2.3 2.9-1 1-2.6-2.6-3.6 3.6-.7-.7 3.6-3.6-2.6-2.6 1-1 2.9.3 2.2-2.2z" fill="#4f565e"/>`),
   "br-radio": svg16(`<circle cx="8" cy="8" r="6.4" fill="#dfe6f0" stroke="#7a8597" stroke-width="1"/><circle cx="8" cy="8" r="4.9" fill="#f8fafd"/><circle cx="8" cy="8" r="2.7" fill="#111"/>`),
   "br-collapse": svg16(`<path d="M7.6 5.3v5.4L4.2 8zM12.1 5.3v5.4L8.7 8z" fill="#727272"/>`),
   "br-expand": svg16(`<path d="M4 5.3v5.4L7.4 8zM8.5 5.3v5.4L11.9 8z" fill="#727272"/>`),
@@ -194,6 +196,8 @@ const FEAT = {
   loft: `<path d="M2.2 13.6h11.6L11 3H5z" fill="${BLUE.front}"/><path d="M5 3h6l-.9 2H5.9z" fill="${BLUE.top}"/>`,
   sweep: `<path d="M2.8 12.6c1.6-6 5.6-8.6 11-8.6" fill="none" stroke="${BLUE.front}" stroke-width="3.4" stroke-linecap="round"/><path d="M2.8 12.6c1.6-6 5.6-8.6 11-8.6" fill="none" stroke="${BLUE.top}" stroke-width="1.1" stroke-linecap="round"/>`,
   delete: cubeArt(2.6, 5.4, 8.6, 8.2, 2.6) + `<path d="M4.4 6.8l5 5M9.4 6.8l-5 5" stroke="#e5251e" stroke-width="1.8" stroke-linecap="round"/>`,
+  component: `<path d="M2 5.2L5.2 2h8.8l-3.2 3.2z" fill="#f4f4f4" stroke="#5a5a5a" stroke-width=".8" stroke-linejoin="round"/><path d="M10.8 5.2L14 2v8.8l-3.2 3.2z" fill="#c9c9c9" stroke="#5a5a5a" stroke-width=".8" stroke-linejoin="round"/><path d="M2 5.2h8.8V14H2z" fill="#e4e4e4" stroke="#5a5a5a" stroke-width=".8" stroke-linejoin="round"/>`,
+  snapshot: `<path d="M2 6.2L4.4 3.8h6.4L8.4 6.2z" fill="#f4f4f4" stroke="#5a5a5a" stroke-width=".7"/><path d="M2 6.2h6.4v6.4H2z" fill="#e4e4e4" stroke="#5a5a5a" stroke-width=".7"/><path d="M10 9.5h4.4M12.2 7.3v4.4" stroke="${BLUE.side}" stroke-width="1.3"/><circle cx="12.2" cy="9.5" r="3.3" fill="none" stroke="${BLUE.side}" stroke-width=".9"/>`,
   draft: `<path d="M4.4 2.6h7.2l2 11H2.4z" fill="${BLUE.front}"/><path d="M4.4 2.6l-2 11" stroke="#ffd34d" stroke-width="1.3"/>`,
 };
 

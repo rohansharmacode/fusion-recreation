@@ -19,7 +19,34 @@ const COLS = [
 export function bomData(app) {
   const rows = [];
   const total = { qty: 0, mass: 0, volume: 0 };
+  // components: one row per component (Part Name = component name, Quantity = its occurrences), then root bodies
+  const C = app.components;
+  const occs = C ? C.list() : [];
+  const seen = new Set();
+  for (const o of occs) {
+    if (seen.has(o.component)) continue;
+    seen.add(o.component);
+    const prim = o.inst ? C.info(o.inst) || o : o;
+    const ids = C.bodiesOf(prim.id, { deep: false }).filter((id) => app.body(id));
+    let volume = 0, mass = 0;
+    const mats = new Set();
+    for (const id of ids) {
+      const meta = app.bodyMeta(id) || {};
+      const mat = materialOf(meta);
+      mats.add(mat.name);
+      let v = NaN;
+      try { v = volumeProps(app, app.body(id).shape).volume; } catch (e) { console.warn("[bom] volume failed", e); }
+      if (Number.isFinite(v)) { volume += v; mass += v * (mat.density / 1000); }
+    }
+    const qty = C.count(o.component);
+    const vis = occs.some((x) => x.component === o.component && x.visible);
+    rows.push({ item: rows.length + 1, id: ids[0] || "", occ: prim.id, name: o.name, qty, material: mats.size === 1 ? [...mats][0] : mats.size ? "Multiple" : "-", mass, volume, visible: vis });
+    total.qty += qty;
+    total.mass += mass * qty;
+    total.volume += volume * qty;
+  }
   for (const b of app.bodies()) {
+    if (C && C.ownerOf(b.id) !== "root") continue;
     if (!b.shape) continue;
     const meta = app.bodyMeta(b.id) || {};
     const mat = materialOf(meta);

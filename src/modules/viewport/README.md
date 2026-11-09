@@ -16,3 +16,11 @@ highlight, display settings. The public API (`app.viewport`) and refs are in ARC
 ## Commands
 Navigation, view, visual style, visibility, grid / snap, ViewCube, selection tools and priorities (see the ownership table
 in ARCHITECTURE.md).
+
+## Components
+Bodies of hidden components (or of a hidden parent) are not drawn (`app.components.bodyShown`); while a component is
+active, bodies outside it are drawn faded (translucent material copy). Display-only occurrence transforms
+(`app.components.setDisplayTransform`) set the body group matrices without re-evaluating (`bodies.applyDisplay()`).
+`{kind:'occurrence', occ}` refs highlight every body of the occurrence. Select Component Priority
+(`SelectComponentPriorityCommand`, priority `'component'`) turns a click on a component's body into its occurrence.
+The 'components' app event redraws.

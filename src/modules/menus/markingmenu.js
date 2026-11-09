@@ -234,6 +234,8 @@ const OVERFLOW_SKETCH = [
   // fit point of a fit point spline: tangent handle (sketch module, app.ui.sketch.fitPointInfo)
   ["AddTangentHandle", (c) => { const f = c.app.ui.sketch && c.app.ui.sketch.fitPointInfo && c.app.ui.sketch.fitPointInfo(c.items); return !!f && !f.active; }],
   ["DeleteTangentCommand", (c) => { const f = c.app.ui.sketch && c.app.ui.sketch.fitPointInfo && c.app.ui.sketch.fitPointInfo(c.items); return !!f && f.active; }],
+  ["AddCurvatureHandle", (c) => { const f = c.app.ui.sketch && c.app.ui.sketch.fitPointInfo && c.app.ui.sketch.fitPointInfo(c.items); return !!f && !f.curv; }],
+  ["DeleteCurvatureCommand", (c) => { const f = c.app.ui.sketch && c.app.ui.sketch.fitPointInfo && c.app.ui.sketch.fitPointInfo(c.items); return !!f && !!f.curv; }],
   "-",
   ["FusionDeleteCommand", (c) => c.n > 0],
   ["SoftDeleteCommand", (c) => c.n === 0],

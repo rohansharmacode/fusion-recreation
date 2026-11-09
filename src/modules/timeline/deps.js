@@ -33,6 +33,7 @@ export function refsOf(f) {
     }
     if (typeof o.sketch === "string") r.sketches.add(o.sketch);
     if (o.kind === "cplane" && typeof o.id === "string") r.cplanes.add(o.id);
+    if ((o.kind === "caxis" || o.kind === "cpoint") && typeof o.id === "string") r.features.add(o.id); // construction axes / points (solidx)
     if (key === "faceRef" && !o.kind) { addGeo("face", o); return; } // hole placed on a face
     if (o.kind === "face" && typeof o.body === "string") addGeo("face", o);
     if (o.kind === "edge" && typeof o.body === "string") addGeo("edge", o);

@@ -9,3 +9,9 @@ rename, delete, playback, Edit Feature (double-click), Edit Profile Sketch, Find
 * Edit Feature: `app.editFeature(id)` (featureEditors[type], else the registered `def.editor`).
 * DOM hooks: `[data-feature="<id>"]`, `.tl-marker`, `[data-tl="first|prev|play|next|last"]`.
 * `app.ui.timeline`: `reveal(id)`, `refresh()`, `edit(id)`, `rename(id)`.
+
+## Components
+`component` features (New Component, From Bodies, Paste, Paste New) and `snapshot` features ("Position", Capture
+Position) have their own icons. While a component is active, features of other components are dimmed
+(`.tl-item.other-comp`). Uncaptured component positions show a Position entry at the end (`.tl-pending`): click or
+right-click for Capture Position / Revert Position.

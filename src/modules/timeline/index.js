@@ -140,6 +140,7 @@ export function init(app) {
   // ------------------------------------------------------------------ render
   function render() {
     pending = false;
+    const comps = app.components || null;
     if (renaming) { pending = true; return; }
     const doc = app.doc;
     const feats = doc.features;
@@ -162,6 +163,8 @@ export function init(app) {
       if (st.implicit) cls.push("suppressed", "implicit");
       if (st.error) cls.push("error");
       if (st.warning) cls.push("warning");
+      // features of other components are dimmed while a component is active (Fusion)
+      if (comps && comps.active !== "root" && !comps.inActive(comps.ownerOfFeature(f))) cls.push("other-comp");
       // a feature reopened for editing stays marked; a sketch being edited is not (Fusion)
       if (editingId === f.id && app.activeCommand && f.type !== "sketch") cls.push("active");
       const it = el("div", {
@@ -178,6 +181,8 @@ export function init(app) {
       frag.appendChild(it);
     });
     if (feats.length === vm) frag.appendChild(markerEl(vm !== doc.marker));
+    // moved components not captured yet: Fusion's "Position" entry at the end (Capture Position / Revert Position)
+    if (comps && comps.hasPending()) frag.appendChild(el("div", { class: "tl-pending", role: "button", title: "Position", "aria-label": "Position", dataset: { pending: "position" }, html: featureGlyph("snapshot", 16) }));
     items.textContent = "";
     items.appendChild(links);
     items.appendChild(frag);
@@ -381,8 +386,21 @@ export function init(app) {
     ev.preventDefault();
     editFeature(it.dataset.feature);
   });
+  // uncaptured component positions: the Position entry offers Capture Position / Revert Position
+  const positionMenu = (ev) => {
+    const p = ev.target.closest && ev.target.closest(".tl-pending");
+    if (!p) return false;
+    ev.preventDefault();
+    showMenu(app, [
+      { label: "Capture Position", cmd: "SnapshotEditAccept", act: "capture-position", action: () => app.commands.run("SnapshotEditAccept") },
+      { label: "Revert Position", cmd: "SnapshotEditCancel", act: "revert-position", action: () => app.commands.run("SnapshotEditCancel") },
+    ], ev.clientX, ev.clientY, { className: "tl-ctx", above: true });
+    return true;
+  };
+  items.addEventListener("click", (ev) => { positionMenu(ev); });
   items.addEventListener("contextmenu", (ev) => {
     ev.preventDefault();
+    if (positionMenu(ev)) return;
     const it = ev.target.closest(".tl-item");
     if (!it) return;
     const id = it.dataset.feature;
@@ -737,6 +755,7 @@ export function init(app) {
     scheduleRender();
   });
   app.on("history", () => scheduleRender());
+  app.on("components", () => scheduleRender());
   app.on("mode", () => scheduleRender());
   app.on("feature-types", () => { syncFeatureIcons(app); scheduleRender(); });
   app.on("selection", () => updateStates());

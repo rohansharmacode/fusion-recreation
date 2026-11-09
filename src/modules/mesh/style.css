@@ -1,0 +1,21 @@
+/* mesh module: Mesh Selection Palette, dialog extras */
+.msh-pal { position: fixed; z-index: 30; width: 236px; background: var(--c-panel, #fff); border: 1px solid var(--c-border, #c8cdd2); box-shadow: 0 2px 8px rgba(0, 0, 0, .18); font: 12px var(--font-ui, Arial, sans-serif); color: #333; user-select: none; }
+.msh-pal-head { display: flex; align-items: center; justify-content: space-between; height: 26px; padding: 0 6px 0 10px; background: #f2f3f4; border-bottom: 1px solid var(--c-border, #d4d8dc); font-weight: 600; font-size: 11px; letter-spacing: .02em; }
+.msh-pal-x { border: 0; background: none; font-size: 15px; line-height: 1; cursor: pointer; color: #666; }
+.msh-pal-body { padding: 6px 10px 8px; }
+.msh-pal-row { display: flex; align-items: center; justify-content: space-between; min-height: 27px; }
+.msh-pal-row label { color: #444; }
+.msh-pal-modes { display: flex; gap: 2px; }
+.msh-pal-modes button { width: 26px; height: 24px; border: 1px solid transparent; background: none; border-radius: 2px; cursor: pointer; padding: 2px; }
+.msh-pal-modes button:hover { background: var(--c-hover, #e8f1fb); }
+.msh-pal-modes button.on { border-color: #6ea6dc; background: #dceaf8; }
+.msh-pal-row input[type=range] { width: 90px; vertical-align: middle; }
+.msh-pal-row i { display: inline-block; width: 18px; text-align: right; font-style: normal; color: #555; }
+.msh-pal-sec { margin: 6px 0 4px; padding-top: 6px; border-top: 1px solid #e3e6e9; color: #555; font-weight: 600; font-size: 11px; }
+.msh-pal-acts { display: flex; flex-wrap: wrap; gap: 4px; }
+.msh-pal-acts button { flex: 1 1 auto; height: 22px; border: 1px solid #c8cdd2; background: #fafbfc; border-radius: 2px; cursor: pointer; font: 11px var(--font-ui, Arial, sans-serif); }
+.msh-pal-acts button:hover { background: var(--c-hover, #e8f1fb); }
+.msh-pal-counts { margin-top: 8px; color: #555; font-size: 11px; }
+.msh-pal-counts div { display: flex; justify-content: space-between; line-height: 17px; }
+.msh-pal-counts b { font-weight: 600; color: #222; }
+.msh-file-btn { margin-left: 4px; width: 22px; height: 20px; border: 1px solid #c8cdd2; background: #fff; border-radius: 2px; cursor: pointer; padding: 1px; vertical-align: middle; }

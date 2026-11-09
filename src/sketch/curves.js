@@ -306,8 +306,215 @@ export function splineOf(sk, id, visiting = new Set(), pt = ptOf(sk)) {
       if (hdv[P.length - 1] && !opts.g2b) opts.d1 = hdv[P.length - 1];
     }
   }
+  const K = hdv && handleCurvatures(sk, cv, pt);
+  if (K) return curvFit(P, opts, K);
   if (!opts.g2a && !opts.g2b) return splineFit(P, opts);
   return g2Fit(P, opts);
+}
+
+/**
+ * Curvatures prescribed by activated curvature handles: cv.hk = {fitIndex: curvatureLineId}, a
+ * construction line from the tangent handle's end q to a point r. r is a point of the osculating
+ * parabola at the fit point a: with t the unit handle direction, s = (r - a).t and d = (r - a) x t
+ * (signed, left positive), the signed curvature (spline direction) is 2 d / s^2. Returns
+ * {fitIndex: curvature} or null.
+ */
+export function handleCurvatures(sk, cv, pt = ptOf(sk)) {
+  if (!cv.hk || !cv.hd) return null;
+  const out = {};
+  let any = false;
+  for (const [k, lid] of Object.entries(cv.hk)) {
+    const i = Number(k);
+    const tl = sk.curves[cv.hd[k]], cl = sk.curves[lid];
+    if (!tl || !cl || tl.type !== "line" || cl.type !== "line" || !(i >= 0 && i < cv.pts.length)) continue;
+    const f = cv.pts[i];
+    if (tl.p1 !== f && tl.p2 !== f) continue;
+    const qid = tl.p1 === f ? tl.p2 : tl.p1;
+    if (cl.p1 !== qid && cl.p2 !== qid) continue;
+    const a = pt(f), q = pt(qid), r = pt(cl.p1 === qid ? cl.p2 : cl.p1);
+    if (!a || !q || !r) continue;
+    const L = len(sub(q, a));
+    if (L < 1e-12) continue;
+    const t = [(q[0] - a[0]) / L, (q[1] - a[1]) / L];
+    const w = sub(r, a);
+    const s = Math.max(dot(w, t), 0.1 * L);
+    const d = t[0] * w[1] - t[1] * w[0];
+    out[i] = (2 * d) / (s * s);
+    any = true;
+  }
+  return any ? out : null;
+}
+
+/** Point r for a curvature handle that keeps curvature K at fit point a (handle end q, direction t). */
+export function curvatureHandlePoint(a, q, K) {
+  const L = len(sub(q, a));
+  if (L < 1e-12) return null;
+  const t = [(q[0] - a[0]) / L, (q[1] - a[1]) / L];
+  // a point of the osculating parabola, about half a handle beyond q, closer for a tight bend
+  let s = 1.5 * L;
+  if (Math.abs(K) > 1e-12) s = Math.max(0.1 * L, Math.min(s, Math.sqrt((3 * L) / Math.abs(K))));
+  const d = (K * s * s) / 2;
+  return [a[0] + t[0] * s - t[1] * d, a[1] + t[1] * s + t[0] * d];
+}
+
+/** Signed curvature of a fitted spline at fit point i (average of the two sides). */
+export function fitCurvatureAt(f, i) {
+  const n = f.P.length, ns = f.spans.length;
+  const d2 = [];
+  const at = (j, end) => {
+    const [p0, c1, c2, p3] = f.spans[j];
+    const h = f.h[j];
+    return end ? [(6 * (p3[0] - 2 * c2[0] + c1[0])) / (h * h), (6 * (p3[1] - 2 * c2[1] + c1[1])) / (h * h)]
+      : [(6 * (p0[0] - 2 * c1[0] + c2[0])) / (h * h), (6 * (p0[1] - 2 * c1[1] + c2[1])) / (h * h)];
+  };
+  if (f.closed) { d2.push(at(i % ns, false), at((i - 1 + ns) % ns, true)); }
+  else { if (i < n - 1) d2.push(at(i, false)); if (i > 0) d2.push(at(i - 1, true)); }
+  if (!d2.length) return 0;
+  const D = [d2.reduce((s, v) => s + v[0], 0) / d2.length, d2.reduce((s, v) => s + v[1], 0) / d2.length];
+  const m = f.m[i];
+  const l = Math.hypot(m[0], m[1]);
+  return l < 1e-12 ? 0 : (m[0] * D[1] - m[1] * D[0]) / (l * l * l);
+}
+
+/**
+ * Speeds for a run of consecutive fit points (indices `run`, derivatives D, curvatures Kc) so that
+ * every cubic Hermite span between them has the prescribed curvature at both ends. Directions are
+ * kept; log speeds are solved by damped Gauss-Newton (least squares when the run is over-determined).
+ * Returns the new derivatives, or null when it does not improve on the current ones.
+ */
+function g2Speeds(P, hh, D, Kc, run) {
+  const T = D.map((d) => { const l = Math.hypot(d[0], d[1]) || 1; return [d[0] / l, d[1] / l]; });
+  const x0 = D.map((d) => Math.log(Math.max(Math.hypot(d[0], d[1]), 1e-9)));
+  const res = (x) => {
+    const out = [];
+    for (let j = 0; j + 1 < run.length; j++) {
+      const i = run[j], h = hh(i), sa = Math.exp(x[j]), sb = Math.exp(x[j + 1]), ta = T[j], tb = T[j + 1];
+      const dP = sub(P[i + 1], P[i]);
+      const D0 = [(6 * dP[0] - 4 * h * sa * ta[0] - 2 * h * sb * tb[0]) / (h * h), (6 * dP[1] - 4 * h * sa * ta[1] - 2 * h * sb * tb[1]) / (h * h)];
+      const D1 = [(-6 * dP[0] + 2 * h * sa * ta[0] + 4 * h * sb * tb[0]) / (h * h), (-6 * dP[1] + 2 * h * sa * ta[1] + 4 * h * sb * tb[1]) / (h * h)];
+      const L = len(dP);
+      out.push(((ta[0] * D0[1] - ta[1] * D0[0]) / (sa * sa) - Kc[j]) * L, ((tb[0] * D1[1] - tb[1] * D1[0]) / (sb * sb) - Kc[j + 1]) * L);
+    }
+    return out;
+  };
+  const ss = (F) => F.reduce((s, v) => s + v * v, 0);
+  const nx = x0.length;
+  let x = x0.slice(), F = res(x), f = ss(F), lam = 1e-3;
+  const f0 = f;
+  for (let it = 0; it < 60 && f > 1e-24; it++) {
+    const J = F.map(() => new Array(nx).fill(0));
+    for (let k = 0; k < nx; k++) {
+      const xk = x.slice(); xk[k] += 1e-7;
+      const Fk = res(xk);
+      for (let r = 0; r < F.length; r++) J[r][k] = (Fk[r] - F[r]) / 1e-7;
+    }
+    // (J^T J + lam diag) d = -J^T F
+    const A = Array.from({ length: nx }, (_, a) => Array.from({ length: nx }, (_, b) => J.reduce((s, row) => s + row[a] * row[b], 0)));
+    const g = Array.from({ length: nx }, (_, a) => J.reduce((s, row, r) => s + row[a] * F[r], 0));
+    for (let a = 0; a < nx; a++) A[a][a] += lam * (A[a][a] + 1e-12);
+    const d = solveSmall(A, g.map((v) => -v));
+    if (!d) break;
+    const xn = x.map((v, k) => Math.max(x0[k] - 3, Math.min(x0[k] + 3, v + d[k]))); // speeds within e^+-3 of the start
+    const Fn = res(xn), fn = ss(Fn);
+    if (Number.isFinite(fn) && fn < f) { x = xn; F = Fn; f = fn; lam = Math.max(lam / 3, 1e-12); }
+    else { lam *= 4; if (lam > 1e10) break; }
+  }
+  if (!(f < f0) || f > 1e-12) return null; // no exact solution (e.g. the bend is impossible with these tangents): keep the speeds
+  return x.map((v, j) => [T[j][0] * Math.exp(v), T[j][1] * Math.exp(v)]);
+}
+function solveSmall(A, b) {
+  const n = b.length, M = A.map((r, i) => [...r, b[i]]);
+  for (let c = 0; c < n; c++) {
+    let p = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    if (Math.abs(M[p][c]) < 1e-300) return null;
+    [M[c], M[p]] = [M[p], M[c]];
+    for (let r = c + 1; r < n; r++) { const q = M[r][c] / M[c][c]; for (let k = c; k <= n; k++) M[r][k] -= q * M[c][k]; }
+  }
+  const x = new Array(n).fill(0);
+  for (let r = n - 1; r >= 0; r--) { let s = M[r][n]; for (let k = r + 1; k < n; k++) s -= M[r][k] * x[k]; x[r] = s / M[r][r]; }
+  return x;
+}
+
+/**
+ * Fit with curvature handles: K = {fitIndex: curvature} at fit points that also have a tangent handle
+ * (opts.fixed). The spline is cut at each of them into pieces whose ends carry the prescribed
+ * tangent and curvature (g2Fit end spans), so the curve is G2 there; a closed spline is opened at its
+ * first handle. Neighbouring handles share whole cubic spans: their speeds are solved (g2Speeds) so each
+ * span meets both curvatures; when the tangents make that impossible the speeds stay and the shared
+ * span keeps only the tangents.
+ */
+function curvFit(P, opts, K) {
+  const n = P.length;
+  const fixed = opts.fixed || {};
+  const idx = Object.keys(K).map(Number).filter((i) => i >= 0 && i < n && fixed[i] && Number.isFinite(K[i])).sort((a, b) => a - b);
+  const plain = (Q, o) => (o.g2a || o.g2b ? g2Fit(Q, o) : splineFit(Q, o));
+  if (!idx.length) return plain(P, opts);
+  const closed = !!opts.closed && n >= 3;
+  if (closed) {
+    // open the loop at the first handle: n + 1 points, the first one repeated at the end
+    const c = idx[0];
+    const rot = (j) => (c + j) % n;
+    const Q = [], fx = {}, KK = {};
+    for (let j = 0; j <= n; j++) Q.push(P[rot(j)]);
+    for (let j = 1; j < n; j++) if (fixed[rot(j)]) fx[j] = fixed[rot(j)];
+    for (const i of idx) if (i !== c) KK[(i - c + n) % n] = K[i];
+    const hr = opts.hr ? Array.from({ length: n }, (_, j) => opts.hr[rot(j)]) : null;
+    const o = curvFit(Q, { hr, fixed: fx, d0: fixed[c], d1: fixed[c], g2a: { k: K[c] }, g2b: { k: K[c] } }, KK);
+    if (!o) return splineFit(P, opts);
+    const h = [], m = [], spans = [];
+    for (let i = 0; i < n; i++) { const j = (i - c + n) % n; h.push(o.h[j]); m.push(o.m[j]); spans.push(o.spans[j]); }
+    return { P, h, m, spans, closed: true };
+  }
+  if (idx[0] === 0 && !opts.g2a) opts = { ...opts, g2a: { k: K[0] } };
+  if (idx[idx.length - 1] === n - 1 && !opts.g2b) opts = { ...opts, g2b: { k: K[n - 1] } };
+  // neighbouring G2 points share whole cubic spans: solve their speeds so those spans meet both
+  // curvatures (the derivative stays shared, so the spline stays C1)
+  const g2 = new Map();
+  for (const i of idx) g2.set(i, K[i]);
+  if (opts.g2a && opts.d0) g2.set(0, opts.g2a.k);
+  if (opts.g2b && opts.d1) g2.set(n - 1, opts.g2b.k);
+  const keys = [...g2.keys()].sort((a, b) => a - b);
+  let fixedC = fixed;
+  for (let s = 0; s < keys.length;) {
+    let e = s;
+    while (e + 1 < keys.length && keys[e + 1] === keys[e] + 1) e++;
+    if (e > s) {
+      const run = keys.slice(s, e + 1);
+      const Dv = (i) => (i === 0 && opts.d0 ? opts.d0 : i === n - 1 && opts.d1 ? opts.d1 : fixed[i]);
+      const hh = (i) => Math.max(len(sub(P[i + 1], P[i])) * (opts.hr && opts.hr[i] > 0 ? opts.hr[i] : 1), 1e-9);
+      const D = g2Speeds(P, hh, run.map(Dv), run.map((i) => g2.get(i)), run);
+      if (D) {
+        if (fixedC === fixed) fixedC = { ...fixed };
+        run.forEach((i, j) => {
+          if (fixedC[i]) fixedC[i] = D[j];
+          if (i === 0) opts = { ...opts, d0: D[j] };
+          if (i === n - 1) opts = { ...opts, d1: D[j] };
+        });
+      }
+    }
+    s = e + 1;
+  }
+  const fixed2 = fixedC;
+  const cuts = [0, ...idx.filter((i) => i > 0 && i < n - 1), n - 1];
+  const h = [], m = [], spans = [];
+  for (let c = 0; c + 1 < cuts.length; c++) {
+    const a = cuts[c], b = cuts[c + 1];
+    const fx = {};
+    for (let i = a + 1; i < b; i++) if (fixed2[i]) fx[i - a] = fixed2[i];
+    const o = {
+      hr: opts.hr ? opts.hr.slice(a, b) : null, fixed: fx,
+      d0: a === 0 ? opts.d0 : fixed2[a], d1: b === n - 1 ? opts.d1 : fixed2[b],
+      g2a: a === 0 ? opts.g2a : { k: K[a] }, g2b: b === n - 1 ? opts.g2b : { k: K[b] },
+    };
+    // one cubic span is fixed by its end points and tangents: a curvature needs the far end free
+    if (b - a === 1) { if (o.d1) o.g2a = null; if (o.d0) o.g2b = null; }
+    const f = plain(P.slice(a, b + 1), o);
+    if (!f) return splineFit(P, opts);
+    for (let j = 0; j < f.spans.length; j++) { spans.push(f.spans[j]); h.push(f.h[j]); }
+    for (let j = c === 0 ? 0 : 1; j < f.m.length; j++) m.push(f.m[j]);
+  }
+  return { P, h, m, spans, closed: false };
 }
 
 /**
@@ -346,8 +553,21 @@ function g2Fit(P, opts) {
     spans[n - 2] = [r[3], r[2], r[1], r[0]];
     const mEnd = [-e.m1[0], -e.m1[1]];
     if (lo === 1 && n === 3) {
-      // both ends meet at the single middle point: share the averaged derivative
-      const avg = [(m[1][0] + mEnd[0]) / 2, (m[1][1] + mEnd[1]) / 2];
+      // both ends meet at the single middle point: the middle derivative mm that gives both end
+      // curvatures (two linear conditions: n0.mm = r0, n2.mm = r2), else the averaged derivative
+      const m0 = base.m[0], m2 = base.m[2];
+      const l0 = Math.hypot(m0[0], m0[1]), l2 = Math.hypot(m2[0], m2[1]);
+      const n0 = [-m0[1] / l0, m0[0] / l0], n2 = [-m2[1] / l2, m2[0] / l2];
+      const r0 = (6 * dot(n0, sub(P[1], P[0])) - opts.g2a.k * l0 * l0 * h[0] * h[0]) / (2 * h[0]);
+      const r2 = (opts.g2b.k * l2 * l2 * h[1] * h[1] - 6 * dot(n2, sub(P[1], P[2]))) / (2 * h[1]);
+      const det = n0[0] * n2[1] - n0[1] * n2[0];
+      const mm = Math.abs(det) > 1e-6 ? [(r0 * n2[1] - r2 * n0[1]) / det, (n0[0] * r2 - n2[0] * r0) / det] : null;
+      const fwd = sub(P[2], P[0]);
+      const avg = mm && dot(mm, fwd) > 0 && Math.hypot(mm[0], mm[1]) < 20 * (l0 + l2) ? mm : [(m[1][0] + mEnd[0]) / 2, (m[1][1] + mEnd[1]) / 2];
+      if (avg === mm) {
+        spans[0][1] = [P[0][0] + (m0[0] * h[0]) / 3, P[0][1] + (m0[1] * h[0]) / 3];
+        spans[1][2] = [P[2][0] - (m2[0] * h[1]) / 3, P[2][1] - (m2[1] * h[1]) / 3];
+      }
       m[1] = avg;
       spans[0][2] = [P[1][0] - (avg[0] * h[0]) / 3, P[1][1] - (avg[1] * h[0]) / 3];
       spans[1][1] = [P[1][0] + (avg[0] * h[1]) / 3, P[1][1] + (avg[1] * h[1]) / 3];

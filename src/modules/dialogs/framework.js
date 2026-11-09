@@ -13,6 +13,7 @@ import { fmt, withUnit, remapRef } from "./util.js";
 
 const OVERLAY_KINDS = new Set(["face", "edge"]);
 const GEOM_KINDS = new Set(["face", "edge", "vertex"]);
+const KIND_ALIAS = { caxis: "originAxis", cpoint: "originPoint" };
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 function div(cls, html) { const d = document.createElement("div"); if (cls) d.className = cls; if (html !== undefined) d.innerHTML = html; return d; }
@@ -223,7 +224,9 @@ export class Dialog {
   }
 
   _accepts(d, ref) {
-    if (!d || !ref || !(d.kinds || []).includes(ref.kind)) return false;
+    // construction axes / points (solidx) count wherever origin axes / points are accepted
+    const alias = ref && KIND_ALIAS[ref.kind];
+    if (!d || !ref || !((d.kinds || []).includes(ref.kind) || (alias && (d.kinds || []).includes(alias)))) return false;
     if (ref.kind === "face" && d.planar && ref.planar === false) return false;
     if (GEOM_KINDS.has(ref.kind) || ref.kind === "body") {
       // body only exists in the preview; mesh-like bodies only where the row allows them (meshBodies: true)
@@ -639,7 +642,8 @@ export class Dialog {
       if (editId) {
         const old = doc.features.find((x) => x.id === editId);
         if (!old) throw new Error("The feature no longer exists");
-        const keep = { id: old.id, name: old.name, p: old.p, newBody: old.newBody, newBodies: old.newBodies, suppressed: old.suppressed, visible: old.visible };
+        // occ / newOcc / newComp: the component the feature belongs to and the one its New Component operation made
+        const keep = { id: old.id, name: old.name, p: old.p, newBody: old.newBody, newBodies: old.newBodies, suppressed: old.suppressed, visible: old.visible, occ: old.occ, newOcc: old.newOcc, newComp: old.newComp };
         for (const k of Object.keys(old)) delete old[k];
         Object.assign(old, clone(f));
         for (const [k, v] of Object.entries(keep)) if (v !== undefined) old[k] = v;

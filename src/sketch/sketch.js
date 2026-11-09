@@ -8,7 +8,7 @@ export { splineFit, splineGeom, ellipseFrame, ellipseGeom, isFreeform };
 export * from "./ops2.js";
 export { cvsplineGeomFrom, conicGeomFrom, textContours, textFrame, contourPolyline, cvDegree, conicWeight as conicW, arcLengthTable, asParametric, splitConic, conicAt } from "./curves2.js";
 export { curveGeom } from "./regions.js";
-export { handleDerivs, curvatureToward, outwardTangent } from "./curves.js";
+export { handleDerivs, handleCurvatures, curvatureHandlePoint, fitCurvatureAt, splineOf, curvatureToward, outwardTangent } from "./curves.js";
 export { patternValues, sharedEnd } from "./solver2.js";
 
 export function newSketch() {
@@ -199,6 +199,7 @@ export function removeEntities(sk, ids) {
   for (const [id, cv] of Object.entries(sk.curves)) {
     if (cv.type === "text" && cv.mode === "path" && !sk.curves[cv.path]) { delete sk.curves[id]; set.add(id); }
     if (cv.type === "spline" && cv.hd) for (const [k, l] of Object.entries(cv.hd)) if (!sk.curves[l]) { delete cv.hd[k]; if (cv.hs) delete cv.hs[k]; }
+    if (cv.type === "spline" && cv.hk) for (const [k, l] of Object.entries(cv.hk)) if (!sk.curves[l] || !(cv.hd && sk.curves[cv.hd[k]])) { if (sk.curves[l]) { delete sk.curves[l]; set.add(l); } delete cv.hk[k]; }
   }
   // drop orphan points
   const used = new Set(["o"]);

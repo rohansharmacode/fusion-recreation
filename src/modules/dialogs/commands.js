@@ -8,6 +8,7 @@ import { openOffsetPlane, openPlaneAtAngle, openMidplane } from "./cmd-construct
 import { openCoil, openPipe } from "./cmd-coil-pipe.js";
 import { openSplitBody, openScale } from "./cmd-split-scale.js";
 import { openThread } from "./cmd-thread.js";
+import { registerComponentCommands } from "./cmd-component.js";
 
 const wrap = (open) => (app, ctx = {}) => {
   const pre = beginModelCommand(app);
@@ -79,4 +80,7 @@ export function registerCommands(app) {
     if (f && f.mode === "midplane") return openMidplane(a, { editId: id });
     return openOffsetPlane(a, { editId: id });
   };
+
+  // ---- components (New Component, Create Components from Bodies, Pin, Copy / Paste, Capture Position) ----
+  registerComponentCommands(app);
 }

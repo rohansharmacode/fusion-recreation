@@ -75,6 +75,19 @@ export class SelectionTool {
       const h = all.find((x) => !["face", "body", "meshFace"].includes(x.ref.kind));
       return h || null;
     }
+    if (this.priority === "component") {
+      // Select Component Priority: a body of a component picks its occurrence (root bodies stay bodies)
+      const h = all.find((x) => !["face", "edge", "vertex", "meshFace"].includes(x.ref.kind));
+      const comps = this.app.components;
+      if (h && h.ref.kind === "body" && comps) {
+        const occ = comps.ownerOf(h.ref.body);
+        if (occ && occ !== comps.ROOT) {
+          const ref = { kind: "occurrence", occ };
+          if (accepts(ref)) return { ...h, ref };
+        }
+      }
+      return h || null;
+    }
     return ctx.hit;
   }
 

@@ -211,6 +211,104 @@ const regs = (sk) => S.regions(sk).regions;
   check("handle derivative = (handle end - fit point) * scale", S1 && near(S1[1][0], 1, 1e-12) && near(S1[1][1], 0, 1e-12));
 }
 
+// ---------- curvature handles ----------
+{
+  // one-sided signed curvature of span j of a fit at its start (end = false) or end
+  const sideK = (f, j, end) => {
+    const [p0, c1, c2, p3] = f.spans[j], h = f.h[j];
+    const D = end ? [6 * (p3[0] - 2 * c2[0] + c1[0]) / (h * h), 6 * (p3[1] - 2 * c2[1] + c1[1]) / (h * h)] : [6 * (p0[0] - 2 * c1[0] + c2[0]) / (h * h), 6 * (p0[1] - 2 * c1[1] + c2[1]) / (h * h)];
+    const m = end ? [3 * (p3[0] - c2[0]) / h, 3 * (p3[1] - c2[1]) / h] : [3 * (c1[0] - p0[0]) / h, 3 * (c1[1] - p0[1]) / h];
+    const l = Math.hypot(m[0], m[1]);
+    return (m[0] * D[1] - m[1] * D[0]) / (l * l * l);
+  };
+  const make = (pts, k, closed = false) => {
+    const sk = S.newSketch();
+    const ids = pts.map((q) => S.addPoint(sk, q[0], q[1]));
+    const sp = S.addSpline(sk, ids, closed);
+    if (closed) sk.curves[sp].closed = true;
+    const f0 = S.splineOf(sk, sp);
+    const a = pts[k], m = f0.m[k], sp0 = Math.hypot(m[0], m[1]);
+    const q = S.addPoint(sk, a[0] + m[0] / sp0 * 4, a[1] + m[1] / sp0 * 4);
+    const hl = S.addLine(sk, ids[k], q, true);
+    sk.curves[sp].hd = { [k]: hl };
+    sk.curves[sp].hs = { [k]: sp0 / 4 };
+    return { sk, sp, ids, q, hl, f0 };
+  };
+  const pts = [[0, 0], [10, 5], [20, 0], [30, 5], [40, 0]];
+  const { sk, sp, q, hl, f0 } = make(pts, 2);
+  const K0 = S.fitCurvatureAt(f0, 2);
+  const a = pts[2], qq = [sk.points[q].x, sk.points[q].y];
+  const r0 = S.curvatureHandlePoint(a, qq, K0);
+  const rp = S.addPoint(sk, r0[0], r0[1]);
+  const cl = S.addLine(sk, q, rp, true);
+  sk.curves[sp].hk = { 2: cl };
+  const Kh = S.handleCurvatures(sk, sk.curves[sp]);
+  check("curvature handle placed for the current curvature reads it back", Kh && near(Kh[2], K0, 1e-9), Kh ? `${Kh[2].toFixed(5)} vs ${K0.toFixed(5)}` : "");
+  const f1 = S.splineOf(sk, sp);
+  let dmax = 0;
+  for (let j = 0; j < f1.spans.length; j++) for (let c = 0; c < 4; c++) dmax = Math.max(dmax, Math.hypot(f1.spans[j][c][0] - f0.spans[j][c][0], f1.spans[j][c][1] - f0.spans[j][c][1]));
+  check("activating a curvature handle keeps the spline's shape", dmax < 1e-6, dmax.toExponential(2));
+  // drag the curvature handle sideways: the curvature at the fit point follows on both sides (G2)
+  const t = [(qq[0] - a[0]) / 4, (qq[1] - a[1]) / 4];
+  sk.points[rp].x = a[0] + t[0] * 6 - t[1] * 1.5; sk.points[rp].y = a[1] + t[1] * 6 + t[0] * 1.5;
+  const K1 = S.handleCurvatures(sk, sk.curves[sp])[2];
+  const f2 = S.splineOf(sk, sp);
+  const kL = sideK(f2, 1, true), kR = sideK(f2, 2, false);
+  check("curvature handle: K = 2 d / s^2 of the parabola point", near(K1, (2 * 1.5) / 36, 1e-9), K1.toFixed(5));
+  check("curvature handle sets the curvature on both sides of the fit point", near(kL, K1, 1e-6) && near(kR, K1, 1e-6), `${kL.toFixed(5)} ${kR.toFixed(5)} ${K1.toFixed(5)}`);
+  const d = f2.m[2];
+  check("the tangent handle direction is kept", near(Math.atan2(d[1], d[0]), Math.atan2(t[1], t[0]), 1e-9));
+  check("the spline still passes through every fit point", f2.spans.length === 4 && pts.every((p, i) => { const s = f2.spans[Math.min(i, 3)][i === 4 ? 3 : 0]; return near(s[0], p[0], 1e-9) && near(s[1], p[1], 1e-9); }));
+  check("C1 at the other fit points", [1, 3].every((i) => { const e = f2.spans[i - 1], b = f2.spans[i]; const u = [e[3][0] - e[2][0], e[3][1] - e[2][1]], v = [b[1][0] - b[0][0], b[1][1] - b[0][1]]; return Math.abs(u[0] * v[1] - u[1] * v[0]) < 1e-9 * Math.hypot(...u) * Math.hypot(...v) + 1e-12; }));
+  // the profile still closes, and removing the tangent handle takes the curvature handle with it
+  const lo1 = S.addPoint(sk, 40, -20), lo0 = S.addPoint(sk, 0, -20);
+  S.addLine(sk, sk.curves[sp].pts[4], lo1); S.addLine(sk, lo1, lo0); S.addLine(sk, lo0, sk.curves[sp].pts[0]);
+  check("spline with a curvature handle still closes a profile", regs(sk).length === 1, String(regs(sk).length));
+  S.removeEntities(sk, [hl]);
+  check("deleting the tangent handle removes the curvature handle", !sk.curves[cl] && !sk.curves[sp].hk[2] && !sk.points[rp]);
+  // neighbouring handles share a cubic span: their speeds are solved so both curvatures hold (C1 kept)
+  {
+    const q = [[0, 0], [10, 5], [20, 0], [30, 5], [40, 0]];
+    const n2 = make(q, 1);
+    const hd = { ...n2.sk.curves[n2.sp].hd }, hs = { ...n2.sk.curves[n2.sp].hs }, hk = {};
+    const f0n = n2.f0;
+    for (const [k, Kw] of [[1, -0.1], [2, 0.1], [3, -0.1]]) {
+      if (!hd[k]) { const a2 = q[k], m2 = f0n.m[k], l2 = Math.hypot(...m2); const qq2 = S.addPoint(n2.sk, a2[0] + m2[0] / l2 * 4, a2[1] + m2[1] / l2 * 4); hd[k] = S.addLine(n2.sk, n2.ids[k], qq2, true); hs[k] = l2 / 4; }
+      const l = n2.sk.curves[hd[k]], qid = l.p1 === n2.ids[k] ? l.p2 : l.p1;
+      const r = S.curvatureHandlePoint(q[k], [n2.sk.points[qid].x, n2.sk.points[qid].y], Kw);
+      hk[k] = S.addLine(n2.sk, qid, S.addPoint(n2.sk, r[0], r[1]), true);
+    }
+    Object.assign(n2.sk.curves[n2.sp], { hd, hs, hk });
+    const fn = S.splineOf(n2.sk, n2.sp);
+    const ok = [[1, -0.1], [2, 0.1], [3, -0.1]].every(([k, Kw]) => near(sideK(fn, k - 1, true), Kw, 1e-6) && near(sideK(fn, k, false), Kw, 1e-6));
+    const c1 = fn.spans.every((s2, j) => j === 0 || [0, 1].every((c) => near((s2[1][c] - s2[0][c]) / fn.h[j], (fn.spans[j - 1][3][c] - fn.spans[j - 1][2][c]) / fn.h[j - 1], 1e-9)));
+    check("three neighbouring curvature handles: G2 at each, spline stays C1", ok && c1, [1, 2, 3].map((k) => `${sideK(fn, k - 1, true).toFixed(4)}/${sideK(fn, k, false).toFixed(4)}`).join(" "));
+    // G2 at both ends of a 3 point spline is exact (no averaged middle derivative)
+    const t3 = S.newSketch();
+    const i3 = [[0, 0], [10, 5], [20, 0]].map((p) => S.addPoint(t3, p[0], p[1]));
+    const s3 = S.addSpline(t3, i3);
+    // arcs of radius 10 meeting the spline at 45 degrees, both bending to the right (curvature -0.1)
+    const r2 = 10 / Math.SQRT2;
+    const a1 = S.addArc(t3, S.addPoint(t3, r2, -r2), i3[0], S.addPoint(t3, r2 - 10, -r2));
+    const a2 = S.addArc(t3, S.addPoint(t3, 20 - r2, -r2), S.addPoint(t3, 30 - r2, -r2), i3[2]);
+    S.addConstraint(t3, "smooth", [a1, s3]);
+    S.addConstraint(t3, "smooth", [a2, s3]);
+    const f3 = S.splineOf(t3, s3);
+    const e0 = f3 && sideK(f3, 0, false), e1 = f3 && sideK(f3, 1, true);
+    const c13 = f3 && [0, 1].every((c) => near((f3.spans[1][1][c] - f3.spans[1][0][c]) / f3.h[1], (f3.spans[0][3][c] - f3.spans[0][2][c]) / f3.h[0], 1e-9));
+    check("3 point spline with G2 at both ends: both end curvatures exact, C1 in the middle", f3 && near(e0, -0.1, 1e-6) && near(e1, -0.1, 1e-6) && c13, f3 ? `${e0.toFixed(5)} ${e1.toFixed(5)} c1=${c13}` : "");
+  }
+  // closed spline: the loop opens at the handle
+  const c = make([[0, 0], [20, 0], [20, 15], [0, 15]], 1, true);
+  const ca = [20, 0], cq = [c.sk.points[c.q].x, c.sk.points[c.q].y];
+  const ct = [(cq[0] - ca[0]) / 4, (cq[1] - ca[1]) / 4];
+  const crp = S.addPoint(c.sk, ca[0] + ct[0] * 5 - ct[1] * 2, ca[1] + ct[1] * 5 + ct[0] * 2);
+  c.sk.curves[c.sp].hk = { 1: S.addLine(c.sk, c.q, crp, true) };
+  const cK = S.handleCurvatures(c.sk, c.sk.curves[c.sp])[1];
+  const cf = S.splineOf(c.sk, c.sp);
+  check("closed spline: curvature handle sets G2 at its fit point", cf.closed && cf.spans.length === 4 && near(sideK(cf, 0, true), cK, 1e-6) && near(sideK(cf, 1, false), cK, 1e-6), `${sideK(cf, 0, true).toFixed(5)} ${sideK(cf, 1, false).toFixed(5)} ${cK.toFixed(5)}`);
+}
+
 // ---------- text profiles ----------
 {
   const sk = S.newSketch();
@@ -249,6 +347,19 @@ const regs = (sk) => S.regions(sk).regions;
   const g = S.curveGeom ? null : null; void g;
   const r = regs(sk);
   check("ellipse offset makes a closed spline (two nested profiles)", !!o && sk.curves[o].closed && r.length === 2, `${r.length}`);
+  // open fit point spline: every point of the offset is d from the original
+  const ids = [[0, 30], [15, 40], [30, 32], [45, 42]].map((q) => S.addPoint(sk, q[0], q[1]));
+  const sp = S.addSpline(sk, ids);
+  const os = S.offsetFreeform(sk, sp, 2);
+  const g0 = S.curveGeom(sk, sp), g1 = S.curveGeom(sk, os);
+  let worst = 0;
+  for (let i = 0; i <= 200; i++) {
+    const q = g1.at((g1.T * i) / 200);
+    let best = Infinity;
+    for (let j = 0; j <= 2000; j++) { const p = g0.at((g0.T * j) / 2000); best = Math.min(best, Math.hypot(p[0] - q[0], p[1] - q[1])); }
+    worst = Math.max(worst, Math.abs(best - 2));
+  }
+  check("open spline offset by 2 stays 2 from the spline (within 0.002)", !!os && !sk.curves[os].closed && worst < 0.002, worst.toFixed(4));
 }
 
 // ---------- break a line ----------

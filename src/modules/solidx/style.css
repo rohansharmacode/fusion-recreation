@@ -1,0 +1,14 @@
+/* solidx: Automated Modeling generate button + alternative tiles */
+.sx-am { display: flex; flex-direction: column; gap: 6px; padding: 4px 0 2px; width: 100%; max-width: 100%; box-sizing: border-box; overflow: hidden; }
+.sx-am-gen { align-self: flex-start; height: 24px; padding: 0 12px; border: 1px solid var(--c-border, #c8c8c8); border-radius: 2px; background: var(--c-panel, #fff); font: inherit; cursor: pointer; }
+.sx-am-gen:hover:not(:disabled) { background: var(--c-hover, #e8f1fb); }
+.sx-am-gen:disabled { opacity: 0.5; cursor: default; }
+.sx-am-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+.sx-am-tiles:empty { display: none; }
+.sx-am-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 4px 5px; border: 1px solid var(--c-border, #c8c8c8); border-radius: 2px; background: var(--c-panel, #fff); font: inherit; font-size: 11px; text-align: left; cursor: pointer; min-width: 0; }
+.sx-am-tile b { font-weight: 600; white-space: nowrap; }
+.sx-am-tile span { color: #555; white-space: normal; line-height: 1.2; max-width: 100%; }
+.sx-am-tile i { font-style: normal; color: #2a8a2a; }
+.sx-am-tile.bad i, .sx-am-tile.stale i { color: #b06a00; }
+.sx-am-tile.sel { border-color: var(--c-accent, #0696d7); box-shadow: inset 0 0 0 1px var(--c-accent, #0696d7); }
+.sx-am-tile:disabled { opacity: 0.6; cursor: default; }

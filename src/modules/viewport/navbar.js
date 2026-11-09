@@ -149,7 +149,7 @@ export function registerViewCommands(vp) {
   prio("SelectBodyPriorityCommand", "Select Body Priority", "body");
   prio("SelectFacePriorityCommand", "Select Face Priority", "face");
   prio("SelectEdgePriorityCommand", "Select Edge Priority", "edge");
-  prio("SelectComponentPriorityCommand", "Select Component Priority", "body");
+  prio("SelectComponentPriorityCommand", "Select Component Priority", "component");
 }
 
 export class NavBar {

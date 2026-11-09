@@ -19,7 +19,7 @@ export const FIELDS = {
   cylinder: { diameter: "length", height: "length" },
   sphere: { diameter: "length" },
   torus: { d1: "length", d2: "length" },
-  cplane: { offset: "length", angle: "angle" },
+  cplane: { offset: "length", angle: "angle", distance: "none" },
   rpattern: { q1: "none", d1: "length", q2: "none", d2: "length" },
   cpattern: { count: "none", angle: "angle" },
   move: { tx: "length", ty: "length", tz: "length", rx: "angle", ry: "angle", rz: "angle" },
@@ -35,6 +35,8 @@ export const FIELDS = {
   scale: { factor: "none", sx: "none", sy: "none", sz: "none" },
   thread: { length: "length", offset: "length" },
   mesh: {},
+  component: {},
+  snapshot: {},
 };
 
 export const TYPE_LABEL = {
@@ -43,6 +45,7 @@ export const TYPE_LABEL = {
   cplane: "Plane", rpattern: "Rectangular Pattern", cpattern: "Circular Pattern", move: "Move",
   mirror: "Mirror", combine: "Combine", loft: "Loft", sweep: "Sweep", delete: "Delete", draft: "Draft",
   split: "Split Body", coil: "Coil", pipe: "Pipe", scale: "Scale", thread: "Thread", mesh: "Mesh",
+  component: "Component", snapshot: "Position",
 };
 export const NAME_STEM = { ...TYPE_LABEL, cplane: "Offset Plane", rpattern: "Rectangular Pattern", cpattern: "Circular Pattern" };
 
@@ -81,6 +84,38 @@ export function nextBody(doc, meta = {}) {
   const name = meta.name || `Body${++c.bodyName}`;
   doc.bodies[id] = { visible: true, appearance: "steel-satin", material: "steel", ...meta, name };
   return id;
+}
+/** New component definition + its first occurrence in the document metadata: {comp, occ}. Default names ComponentN. */
+export function newComponentMeta(doc, { name } = {}) {
+  doc.components = doc.components || {};
+  doc.occurrences = doc.occurrences || {};
+  const c = doc.counters;
+  c.comp = (c.comp || 0) + 1;
+  const comp = `c${c.comp}`;
+  if (!name) { c.compName = (c.compName || 0) + 1; name = `Component${c.compName}`; }
+  doc.components[comp] = { id: comp, name: String(name) };
+  return { comp, occ: newOccurrenceMeta(doc, comp) };
+}
+/** New occurrence of component `comp` (numbered :1, :2 ... per component). */
+export function newOccurrenceMeta(doc, comp) {
+  doc.occurrences = doc.occurrences || {};
+  const c = doc.counters;
+  c.occ = (c.occ || 0) + 1;
+  const id = `o${c.occ}`;
+  const n = 1 + Math.max(0, ...Object.values(doc.occurrences).filter((o) => o.component === comp).map((o) => o.n || 0));
+  doc.occurrences[id] = { id, component: comp, n };
+  return id;
+}
+/** Capture Position: uncaptured doc.positions become a 'snapshot' feature at the marker. Returns it (or null). */
+export function capturePositions(doc) {
+  const pos = doc.positions;
+  if (!pos || !Object.keys(pos).length) { delete doc.positions; return null; }
+  doc.counters.feature = (doc.counters.feature || 0) + 1;
+  const f = { id: `f${doc.counters.feature}`, type: "snapshot", name: nextName(doc, "snapshot"), positions: JSON.parse(JSON.stringify(pos)) };
+  doc.features.splice(doc.marker, 0, f);
+  doc.marker += 1;
+  delete doc.positions;
+  return f;
 }
 
 /** Give every numeric field of a feature a model parameter name. */
@@ -128,8 +163,10 @@ export function fval(params, f, key) {
 //               bodies that are not OCCT shapes (triangle meshes, T-spline forms with their evaluated mesh)
 //   sketches    Map id -> {id, plane, sk, regions, status}      planes  Map id -> {id, plane, name}
 // Modules may add their own Map-valued keys (st.axes, st.points ...): cloneState copies every Map.
+//   occ         Map oid -> {id, component, parent, T, inst?}   occurrences (see "components" below)
+//   bodyOcc     Map bodyId -> oid                               owner occurrence (no entry = root component)
 export function emptyState() {
-  return { bodies: new Map(), sketches: new Map(), planes: new Map(), meshBodies: new Map() };
+  return { bodies: new Map(), sketches: new Map(), planes: new Map(), meshBodies: new Map(), occ: new Map(), bodyOcc: new Map() };
 }
 export function cloneState(st) {
   const n = {};
@@ -138,6 +175,8 @@ export function cloneState(st) {
     n[k] = v instanceof Map ? new Map(v) : v;
   }
   if (!n.meshBodies) n.meshBodies = new Map();
+  if (!n.occ) n.occ = new Map();
+  if (!n.bodyOcc) n.bodyOcc = new Map();
   return n;
 }
 
@@ -338,7 +377,10 @@ export function touches(a, b) {
 export function applyOp(st, f, tool, doc, defaultNew) {
   const op = f.operation || "new";
   const explicit = !!(f.bodies && f.bodies.length);
-  const participants = (explicit ? f.bodies : [...st.bodies.keys()].filter((id) => doc.bodies[id]?.visible !== false))
+  // default participants: visible solids of the feature's component (and its sub-components); bodies of
+  // pasted occurrences (instances "b1@o2") only take part when listed explicitly
+  const scope = !explicit && f.occ && st.occ && st.occ.has(f.occ) ? occSubtree(st, f.occ) : null;
+  const participants = (explicit ? f.bodies : [...st.bodies.keys()].filter((id) => doc.bodies[id]?.visible !== false && !isInstanceId(id) && (!scope || scope.has(bodyOwner(st, id)))))
     .filter((id) => st.bodies.has(id) && (explicit || isSolidBody(st, id)));
   if (op === "new" || op === "newComponent") {
     const id = f.newBody || defaultNew;
@@ -378,6 +420,12 @@ export function axisFromRef(st, ref) {
   // returns {o, d}
   if (!ref) throw new Error("Select an axis");
   if (ref.kind === "origin") return { o: [0, 0, 0], d: K.ORIGIN_AXES[ref.name] };
+  if (ref.kind === "caxis") {
+    // construction axis feature (solidx module): st.axes id -> {o, d}
+    const a = st.axes && st.axes.get(ref.id);
+    if (!a) throw new Error("Referenced construction axis is missing");
+    return { o: a.o, d: a.d };
+  }
   if (ref.kind === "sketchLine") {
     const s = st.sketches.get(ref.sketch);
     if (!s) throw new Error("Axis sketch missing");
@@ -917,6 +965,15 @@ const APPLY = {
     for (const id of f.bodies || []) { st.bodies.delete(id); if (st.meshBodies) st.meshBodies.delete(id); }
   },
 
+  // components (see "components and occurrences"): new / from bodies / paste (another occurrence) / paste new (copy)
+  component(st, f, P, doc) { return applyComponent(st, f, doc); },
+  // captured occurrence positions (Fusion's "Position" timeline entry, Capture Position)
+  snapshot(st, f, P, doc) {
+    let n = 0;
+    for (const [oid, M] of Object.entries(f.positions || {})) if (st.occ.has(oid) && validM(M)) { moveOccurrence(st, doc, oid, M); n++; }
+    return n ? {} : { warning: "The captured components are not in the design" };
+  },
+
   // Insert Mesh (Fusion's "Mesh Base Feature"): a mesh body from stored triangle data (doc.meshData),
   // placed by the Insert Mesh transform (file units, Flip Up Direction, X/Y/Z angles about the file box
   // centre, uniform scale, X/Y/Z distance).
@@ -933,7 +990,9 @@ const APPLY = {
 
   cplane(st, f, P) {
     let plane;
-    if (f.mode === "angle") {
+    const ext = CPLANE_MODES.get(f.mode); // extra plane modes registered by modules (registerCPlaneMode)
+    if (ext) plane = ext(st, f, P);
+    else if (f.mode === "angle") {
       const ax = axisFromRef(st, f.axis);
       const ang = (fval(P, f, "angle") * Math.PI) / 180;
       // reference: a plane containing the axis; rotate its normal around the axis
@@ -1138,6 +1197,16 @@ const REGISTRY = new Map(); // type -> def
 const REG_LISTENERS = new Set();
 const BUILTIN_BODY_MAKERS = new Set(["extrude", "revolve", "loft", "sweep", "box", "cylinder", "sphere", "torus", "coil", "pipe", "mesh"]);
 
+/**
+ * Extra construction plane modes (cplane features with f.mode = mode): fn(st, f, P) -> plane {o, x, n}
+ * (throw for a failed feature). Used by the solidx module (tangent, two edges, three points, along path, ...).
+ */
+const CPLANE_MODES = new Map();
+export function registerCPlaneMode(mode, fn) {
+  if (typeof fn !== "function") throw new Error("registerCPlaneMode needs a function");
+  CPLANE_MODES.set(String(mode), fn);
+}
+
 export function registerFeature(type, def) {
   if (!type || typeof type !== "string") throw new Error("registerFeature: type must be a string");
   if (!def || typeof def.apply !== "function") throw new Error(`registerFeature(${type}): def.apply(st, f, P, doc) is required`);
@@ -1191,6 +1260,7 @@ export const helpers = {
   fuseTemp, edgeFeature, quietFinder, rotatePoint, rotateTo, circumcenter, holeOnFace, scaleCenter, splitTool,
   pipePath, chainPath, trimPath, orderEdges, patternFeatures, friendly, shapeKind, bodyKind, isSolidBody,
   isBrepBody, allBodyIds, bodyBBox, storeMeshData, meshDataOf, stageMeshData, unstageMeshData, meshInsertMatrix, edgesForRefs, groupByBody,
+  occSubtree, bodyOwner, occBodies, occBodiesDeep, moveOccurrence, transformShape, transformMesh, transformPlane, invRigid, occTransform, isInstanceId, instanceBase,
 };
 
 /** Refs grouped by body: Map bodyId -> [ref]. */
@@ -1253,6 +1323,12 @@ export function scaleCenter(st, pt) {
     const q = s && s.sk.points[pt.point];
     if (!q) throw new Error("The scale point is missing");
     return K.toWorld(s.plane, q.x, q.y);
+  }
+  if (pt.kind === "cpoint") {
+    // construction point feature (solidx module): st.points id -> {p}
+    const c = st.points && st.points.get(pt.id);
+    if (!c) throw new Error("The scale point is missing");
+    return c.p;
   }
   if (Array.isArray(pt.p)) return pt.p;
   return [0, 0, 0];
@@ -1518,6 +1594,219 @@ export function patternFeatures(st, f, P, doc, xs) {
 }
 
 // ---------- evaluator with incremental cache ----------
+// ---------- components and occurrences ----------
+// Fusion's component model. The document keeps the component definitions and occurrence metadata:
+//   doc.components  {cid: {id, name, partNumber?, description?, material?, appearance?}}
+//   doc.occurrences {oid: {id, component: cid, n (the ":n" number), visible?, grounded?, selectable?}}
+//   doc.activeOcc   active occurrence id (absent = root);  doc.positions {oid: M} uncaptured positions (world)
+//   feature.occ     occurrence the feature was created in (absent = root): features belong to that component
+// Occurrences come into being through timeline features ('component', or the operation 'newComponent' of a body
+// feature, which carries f.newComp / f.newOcc). The evaluation state tracks them (st.occ, st.bodyOcc; see emptyState).
+// Transforms M are rigid 3x4 row-major matrices (meshdata.js format), T = world transform of the occurrence frame.
+// Bodies stay in world space: moving an occurrence (snapshot feature, uncaptured position, a module's feature such
+// as a joint calling moveOccurrence) transforms the bodies, sketches and construction planes it owns, so later
+// features see the moved geometry. A pasted occurrence (inst = primary occurrence of the same component) shows the
+// primary's bodies through derived instance bodies "<bodyId>@<oid>" (refreshed after every feature).
+export const ROOT = "root";
+export function isInstanceId(id) { return typeof id === "string" && id.includes("@"); }
+export function instanceBase(id) { return isInstanceId(id) ? id.slice(0, id.indexOf("@")) : id; }
+const validM = (M) => Array.isArray(M) && M.length === 12 && M.every((v) => Number.isFinite(Number(v)));
+const isIdentityM = (M, tol = 1e-9) => M.every((v, i) => Math.abs(v - MD.IDENTITY[i]) <= tol);
+/** Inverse of a rigid 3x4 transform (R^T, -R^T t). */
+export function invRigid(M) {
+  const r = [M[0], M[4], M[8], M[1], M[5], M[9], M[2], M[6], M[10]];
+  const t = [M[3], M[7], M[11]];
+  const row = (i) => -(r[3 * i] * t[0] + r[3 * i + 1] * t[1] + r[3 * i + 2] * t[2]);
+  return [r[0], r[1], r[2], row(0), r[3], r[4], r[5], row(1), r[6], r[7], r[8], row(2)];
+}
+/** Owner occurrence of a body in a state (ROOT when it belongs to the root component). */
+export function bodyOwner(st, id) { return (st && st.bodyOcc && st.bodyOcc.get(id)) || ROOT; }
+/** World transform of an occurrence in a state (identity for the root / unknown ids). */
+export function occTransform(st, oid) { const o = st && st.occ && st.occ.get(oid); return o ? o.T : MD.IDENTITY; }
+/** Set of the occurrence and every occurrence below it (ROOT = all). */
+export function occSubtree(st, oid) {
+  const out = new Set([oid]);
+  if (!st || !st.occ) return out;
+  if (oid === ROOT) { for (const k of st.occ.keys()) out.add(k); return out; }
+  let grew = true;
+  while (grew) { grew = false; for (const o of st.occ.values()) if (!out.has(o.id) && out.has(o.parent)) { out.add(o.id); grew = true; } }
+  return out;
+}
+/** Bodies owned directly by an occurrence (ROOT: bodies of the root component). */
+export function occBodies(st, oid) {
+  return allBodyIds(st).filter((id) => bodyOwner(st, id) === oid);
+}
+/** Bodies of an occurrence and its sub-occurrences. */
+export function occBodiesDeep(st, oid) {
+  const set = occSubtree(st, oid);
+  return allBodyIds(st).filter((id) => set.has(bodyOwner(st, id)));
+}
+const SHAPE_X = new WeakMap(); // shape -> Map(matrix key -> transformed shape)
+const MESH_X = new WeakMap();
+const mKey = (M) => M.map((v) => Number(v).toFixed(9)).join(",");
+/** Rigidly transformed copy of an OCCT shape (cached per input shape and matrix; the input is kept). */
+export function transformShape(shape, M) {
+  if (!shape || isIdentityM(M)) return shape;
+  let m = SHAPE_X.get(shape);
+  if (!m) { m = new Map(); SHAPE_X.set(shape, m); }
+  const k = mKey(M);
+  if (m.has(k)) return m.get(k);
+  // rotation part as axis + angle (OCCT gp_Trsf rotation), then the translation
+  const tr = M[0] + M[5] + M[10];
+  const ang = Math.acos(Math.max(-1, Math.min(1, (tr - 1) / 2)));
+  let s = shape;
+  if (ang > 1e-12) {
+    let ax;
+    if (Math.PI - ang > 1e-6) ax = [M[9] - M[6], M[2] - M[8], M[4] - M[1]];
+    else {
+      const d = [M[0], M[5], M[10]].map((v) => Math.sqrt(Math.max(0, (v + 1) / 2)));
+      const i = d.indexOf(Math.max(...d));
+      ax = [0, 0, 0];
+      ax[i] = d[i];
+      const off = [[0, M[1], M[2]], [M[4], 0, M[6]], [M[8], M[9], 0]];
+      for (let j = 0; j < 3; j++) if (j !== i) ax[j] = off[i][j] / (2 * d[i]);
+    }
+    s = K.rotated(shape, (ang * 180) / Math.PI, [0, 0, 0], ax);
+  }
+  const t = [M[3], M[7], M[11]];
+  if (Math.hypot(...t) > 1e-12) { const n = K.translated(s, t); if (s !== shape) K.del(s); s = n; }
+  m.set(k, s);
+  return s;
+}
+/** Transformed copy of a mesh body mesh (cached). */
+export function transformMesh(mesh, M) {
+  if (!mesh || isIdentityM(M)) return mesh;
+  let m = MESH_X.get(mesh);
+  if (!m) { m = new Map(); MESH_X.set(mesh, m); }
+  const k = mKey(M);
+  if (!m.has(k)) {
+    const out = MD.transformBy(mesh, M);
+    if (mesh.normals) { // rotate normals (transformBy drops them)
+      const n = new Float32Array(mesh.normals.length);
+      for (let i = 0; i < n.length; i += 3) { const a = mesh.normals; n[i] = M[0] * a[i] + M[1] * a[i + 1] + M[2] * a[i + 2]; n[i + 1] = M[4] * a[i] + M[5] * a[i + 1] + M[6] * a[i + 2]; n[i + 2] = M[8] * a[i] + M[9] * a[i + 1] + M[10] * a[i + 2]; }
+      out.normals = n;
+    }
+    m.set(k, out);
+  }
+  return m.get(k);
+}
+const rotV = (M, v) => [M[0] * v[0] + M[1] * v[1] + M[2] * v[2], M[4] * v[0] + M[5] * v[1] + M[6] * v[2], M[8] * v[0] + M[9] * v[1] + M[10] * v[2]];
+/** Plane {o, x, n} moved by M. */
+export function transformPlane(pl, M) {
+  if (!pl || !pl.o) return pl;
+  return { ...pl, o: MD.apply(M, pl.o), x: pl.x ? rotV(M, pl.x) : pl.x, n: pl.n ? rotV(M, pl.n) : pl.n };
+}
+/**
+ * Put an occurrence at world transform M in the state: its sub-occurrences follow, and the bodies, sketches and
+ * construction planes they own are transformed (cached, so re-evaluations reuse the shapes). Returns true if moved.
+ */
+export function moveOccurrence(st, doc, oid, M) {
+  const o = st.occ && st.occ.get(oid);
+  if (!o || !validM(M)) return false;
+  const D = MD.mul(M.map(Number), invRigid(o.T));
+  if (isIdentityM(D)) return false;
+  const set = occSubtree(st, oid);
+  for (const id of set) { const e = st.occ.get(id); if (e) st.occ.set(id, { ...e, T: MD.mul(D, e.T) }); }
+  for (const [bid, owner] of st.bodyOcc) {
+    if (!set.has(owner) || isInstanceId(bid)) continue;
+    const b = st.bodies.get(bid);
+    if (b) { st.bodies.set(bid, { ...b, shape: transformShape(b.shape, D) }); continue; }
+    const mb = st.meshBodies && st.meshBodies.get(bid);
+    if (mb && mb.mesh) st.meshBodies.set(bid, { ...mb, mesh: transformMesh(mb.mesh, D), bbox: undefined });
+  }
+  for (const f of (doc && doc.features) || []) {
+    if (!f.occ || !set.has(f.occ)) continue;
+    const s = st.sketches.get(f.id);
+    if (s) st.sketches.set(f.id, { ...s, plane: transformPlane(s.plane, D) });
+    const p = st.planes.get(f.id);
+    if (p) st.planes.set(f.id, { ...p, plane: transformPlane(p.plane, D) });
+  }
+  return true;
+}
+function primaryOcc(st, comp) {
+  for (const o of st.occ.values()) if (o.component === comp && !o.inst) return o.id;
+  return null;
+}
+function applyComponent(st, f, doc) {
+  if (!f.newOcc || !f.comp) throw new Error("The component data of this feature is missing");
+  const parent = f.parent && f.parent !== ROOT && st.occ.has(f.parent) ? f.parent : ROOT;
+  const mode = f.mode || "empty";
+  if (mode === "paste" || mode === "copy") {
+    const src = st.occ.get(f.source);
+    if (!src) throw new Error("The copied component is not in the design");
+    const T = validM(f.T) ? f.T.map(Number) : src.T;
+    if (mode === "paste") {
+      st.occ.set(f.newOcc, { id: f.newOcc, component: src.component, parent, T, inst: src.inst || src.id });
+      return {};
+    }
+    st.occ.set(f.newOcc, { id: f.newOcc, component: f.comp, parent, T });
+    const D = MD.mul(T, invRigid(src.T));
+    occBodies(st, f.source).filter((id) => !isInstanceId(id)).forEach((bid, i) => {
+      const nid = (f.newBodies || [])[i] || `${f.id}_${i}`;
+      const b = st.bodies.get(bid);
+      if (b) st.bodies.set(nid, { ...b, id: nid, shape: transformShape(b.shape, D), from: f.id });
+      else {
+        const mb = st.meshBodies.get(bid);
+        if (!mb) return;
+        st.meshBodies.set(nid, { ...mb, id: nid, mesh: transformMesh(mb.mesh, D), bbox: undefined, from: f.id });
+      }
+      st.bodyOcc.set(nid, f.newOcc);
+    });
+    return {};
+  }
+  st.occ.set(f.newOcc, { id: f.newOcc, component: f.comp, parent, T: occTransform(st, parent) });
+  if (mode === "bodies") {
+    const missing = [];
+    for (const b of f.bodies || []) { if (st.bodies.has(b) || (st.meshBodies && st.meshBodies.has(b))) st.bodyOcc.set(b, f.newOcc); else missing.push(b); }
+    if (missing.length) return { warning: `${missing.length} of the bodies are no longer in the design` };
+  }
+  return {};
+}
+/** After a feature: its new bodies belong to the component it was created in (or to its new component). */
+function claimBodies(prev, ns, f) {
+  if (!ns.occ) return;
+  let owner = f.occ && ns.occ.has(f.occ) ? f.occ : null;
+  if (f.operation === "newComponent" && f.newOcc && f.newComp) {
+    const parent = owner || ROOT;
+    if (!ns.occ.has(f.newOcc)) ns.occ.set(f.newOcc, { id: f.newOcc, component: f.newComp, parent, T: occTransform(ns, parent) });
+    owner = f.newOcc;
+  }
+  if (!owner) return;
+  for (const id of ns.bodies.keys()) if (!prev.bodies.has(id) && !ns.bodyOcc.has(id)) ns.bodyOcc.set(id, owner);
+  if (ns.meshBodies) for (const id of ns.meshBodies.keys()) if (!(prev.meshBodies && prev.meshBodies.has(id)) && !ns.bodyOcc.has(id)) ns.bodyOcc.set(id, owner);
+}
+/** Instance bodies of pasted occurrences ("<bodyId>@<oid>"), derived from the primary occurrence's bodies. */
+function refreshInstances(st) {
+  if (!st.occ) return;
+  const insts = [...st.occ.values()].filter((o) => o.inst);
+  const stale = new Set([...st.bodies.keys(), ...(st.meshBodies ? st.meshBodies.keys() : [])].filter(isInstanceId));
+  for (const o of insts) {
+    const prim = st.occ.get(o.inst);
+    if (!prim) continue;
+    const D = MD.mul(o.T, invRigid(prim.T));
+    for (const bid of occBodies(st, prim.id)) {
+      if (isInstanceId(bid)) continue;
+      const id = `${bid}@${o.id}`;
+      stale.delete(id);
+      const b = st.bodies.get(bid);
+      if (b) st.bodies.set(id, { ...b, id, shape: transformShape(b.shape, D), instance: bid });
+      else { const mb = st.meshBodies.get(bid); if (mb) st.meshBodies.set(id, { ...mb, id, mesh: transformMesh(mb.mesh, D), bbox: undefined, instance: bid }); }
+      st.bodyOcc.set(id, o.id);
+    }
+  }
+  for (const id of stale) { st.bodies.delete(id); if (st.meshBodies) st.meshBodies.delete(id); st.bodyOcc.delete(id); }
+}
+/** Uncaptured positions (doc.positions) applied on top of the evaluated state (a copy; never cached). */
+function applyPending(st, doc) {
+  const pend = doc.positions && Object.entries(doc.positions).filter(([oid, M]) => st.occ.has(oid) && validM(M));
+  if (!pend || !pend.length) return st;
+  const ns = cloneState(st);
+  for (const [oid, M] of pend) moveOccurrence(ns, doc, oid, M);
+  refreshInstances(ns);
+  ns.pending = pend.map(([oid]) => oid);
+  return ns;
+}
+
 export class Evaluator {
   constructor() {
     this.cache = [];
@@ -1564,6 +1853,8 @@ export class Evaluator {
       try {
         if (!APPLY[f.type]) throw new Error(`${TYPE_LABEL[f.type] || f.type} features are not available in this build`);
         const r = APPLY[f.type](ns, f, P, doc);
+        claimBodies(st, ns, f);
+        if (ns.occ.size && [...ns.occ.values()].some((o) => o.inst)) refreshInstances(ns);
         result = { ok: true, ...(r || {}) };
         // derived body flags (sheet metal) survive features that rebuild the entry without them
         for (const [id, b] of ns.bodies) {
@@ -1590,6 +1881,8 @@ export class Evaluator {
     // features after `upto` were not evaluated: if anything upstream was recomputed their
     // cached states are stale (e.g. a sketch edited while the timeline is rolled back to it)
     if (broken && this.cache.length > upto) this.cache.length = upto;
+    // uncaptured component positions (Move of components before Capture Position) sit on top of the timeline
+    if (doc.positions && upto >= doc.features.length) { try { st = applyPending(st, doc); } catch (e) { console.warn("component positions", e); } }
     return { state: st, results, params: P, ms: performance.now() - t0 };
   }
 }

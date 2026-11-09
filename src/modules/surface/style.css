@@ -1,0 +1,11 @@
+/* SURFACE tools: Boundary Fill cell list, Trim face count, Validate summary. */
+.srf-cells { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 4px; font: 12px var(--font-ui, sans-serif); color: var(--c-text, #333); max-height: 180px; overflow-y: auto; }
+.srf-cells-head { color: var(--c-text-dim, #666); padding: 2px 0; }
+.srf-cell { display: flex; align-items: center; gap: 6px; padding: 1px 2px; cursor: pointer; }
+.srf-cell:hover { background: var(--c-hover, #e8eef7); }
+.srf-cell input { margin: 0; }
+.srf-cell-vol { margin-left: auto; color: var(--c-text-dim, #777); font-size: 11px; }
+.srf-trim { display: flex; align-items: center; gap: 8px; font: 12px var(--font-ui, sans-serif); color: var(--c-text, #333); min-height: 22px; }
+.srf-trim-clear { font: 11px var(--font-ui, sans-serif); padding: 1px 8px; border: 1px solid var(--c-border, #c8c8c8); background: var(--c-panel, #fff); border-radius: 2px; cursor: pointer; }
+.srf-trim-clear:hover { background: var(--c-hover, #e8eef7); }
+.dlg[data-dialog="FusionSurfaceValidateCommand"] .dlg-text { white-space: pre-line; font-size: 12px; line-height: 1.45; }

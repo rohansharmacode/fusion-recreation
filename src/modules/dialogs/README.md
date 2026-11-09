@@ -167,3 +167,18 @@ cpattern, loft, sweep, coil, pipe, thread, scale, split.
 button groups expose `data-value` and a `value` property setter), dropdown menu items
 `.dlg-dd-menu [data-option=<value>]`, button-group buttons `[data-option=<value>]`,
 `[data-action=ok|cancel]`.
+
+## Components (`cmd-component.js`)
+* **New Component** (`FusionCreateNewComponentCommand`): Parent (an occurrence; empty = root; a body pick stands for its
+  component), From Bodies (+ Bodies: one component per body, named after it), Component Name, Activate. Commits through
+  `app.components.create` (a `component` timeline feature). Create Components from Bodies (`FusionCreateNewCompCmdFromBody`)
+  uses the selected bodies (or opens the dialog with From Bodies).
+* **Move/Copy** Move Object = Components (default when components are preselected): the occurrences move as a whole
+  (live display-only preview, no timeline feature); OK stores uncaptured positions and the POSITION tab appears.
+  Pinned components are refused.
+* Activate Component (`FusionActivateLocalCompCmd`), Pin / Unpin (`FusionGroundComponents` / `FusionUnGroundComponents`),
+  Copy (Ctrl+C), Paste (Ctrl+V: another occurrence, then Move/Copy to place it; bodies: Move/Copy with Create Copy),
+  Paste New, Capture Position (`SnapshotEditAccept`, `SnapshotCmd`), Revert Position (`SnapshotEditCancel`).
+  Delete of an occurrence goes through `app.components.remove`.
+* The operation New Component of Extrude / Revolve / primitives ... puts the new body in a new component (core assigns
+  `newComp` / `newOcc`). Edit Feature keeps a feature's `occ` / `newOcc` / `newComp`.

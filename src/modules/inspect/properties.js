@@ -29,15 +29,19 @@ export function openProperties(app, ctx = {}) {
   const sel = (ctx.preselect || app.selection.items || []);
   const bodyRef = sel.find((r) => r.kind === "body" || r.kind === "face" || r.kind === "edge" || r.kind === "vertex");
   const bodyId = ctx.body || (bodyRef && bodyRef.body) || null;
-  const target = bodyId && app.body(bodyId) ? { kind: "body", id: bodyId } : { kind: "component" };
+  // a component occurrence (browser menu ctx.occ, or a selected occurrence): its bodies and its name
+  const C = app.components;
+  const occSel = ctx.occ || ((sel.find((r) => r.kind === "occurrence") || {}).occ);
+  const occ = occSel && occSel !== "root" && C && C.alive(occSel) ? occSel : null;
+  const target = !occ && bodyId && app.body(bodyId) ? { kind: "body", id: bodyId } : occ ? { kind: "component", occ } : { kind: "component" };
   let P = null;
 
   const compute = () => {
-    const ids = target.kind === "body" ? [target.id] : visibleBodyIds(app);
+    const ids = target.kind === "body" ? [target.id] : target.occ ? C.bodiesOf(target.occ).filter((id) => app.body(id)) : visibleBodyIds(app);
     const mp = massProps(app, ids);
     const meta = target.kind === "body" ? app.bodyMeta(target.id) : null;
     P = {
-      name: meta ? meta.name : `${app.doc.name || "Untitled"}`,
+      name: meta ? meta.name : target.occ ? C.label(target.occ) : `${app.doc.name || "Untitled"}`,
       material: meta ? materialOf(meta).name : mp.materials.length === 1 ? mp.materials[0] : mp.materials.length ? "Multiple" : "-",
       appearance: meta ? appearanceInfo(app, meta.appearance).name : "-",
       mp,
@@ -99,7 +103,7 @@ export function openProperties(app, ctx = {}) {
     ],
     onOpen(dlg) {
       dlg.el.classList.add("insp-dlg", "insp-props");
-      dlg.el.dataset.target = target.kind === "body" ? target.id : "component";
+      dlg.el.dataset.target = target.kind === "body" ? target.id : target.occ || "component";
       const foot = dlg.el.querySelector(".dlg-foot");
       const cancel = foot && foot.querySelector("[data-action=cancel]");
       if (cancel) cancel.style.display = "none";

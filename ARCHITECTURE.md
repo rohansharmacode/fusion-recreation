@@ -7,6 +7,7 @@ esbuild. **No UI framework.** The OpenCascade kernel (replicad) runs on the main
 index.html                 shell markup: host elements (see "Hosts")
 src/main.js                boot: inflate occt.wasm.gz -> initKernel -> new App -> module init() in order
 src/app/core.js            App (document, evaluation, events, selection, commands, input, undo)  [orchestrator-owned]
+src/app/components.js      app.components: components, occurrences, positions (see "Components")
 src/app/layout.css         grid layout + theme tokens (CSS variables)                               [orchestrator-owned]
 src/modules.js             module start-up order                                                     [orchestrator-owned]
 src/modules/<name>/index.js   each UI module: `export function init(app)` (may be async)
@@ -114,6 +115,7 @@ app.setStatus(text) / app.status   bottom-right canvas status text like Fusion (
 app.download(filename, Blob|string|Uint8Array, mime) -> Promise<bool>   the ONLY way to offer files (uses the artifact
                              `downloads` capability when present, else <a download>)
 app.M / app.K / app.S / app.E   model.js / kernel.js / sketch.js / expr.js namespaces (K.R = replicad)
+app.components               component model API (see "Components")
 app.on(type, fn) -> off;  app.emit(type, detail)
 ```
 
@@ -143,6 +145,7 @@ app.on(type, fn) -> off;  app.emit(type, detail)
 | `body-kinds` | `{kind}` | core `registerBodyKind` |
 | `environment` | `{env, action:'enter'|'exit', reason?}` | core `enterEnvironment` / `exitEnvironment` (a `mode` event follows) |
 | `workspace` / `workspaces` | `{id, prev, def}` / `{id}` | core `setWorkspace` / `registerWorkspace` |
+| `components` | `{action:'activate'|'visible'|'selectable'|'grounded'|'transform'|'capture'|'revert'|'display'|'create'|'rename'|'remove'|'paste'|..., occ?, occs?}` | app.components (viewport, browser, timeline redraw) |
 
 ### Refs (selection / hover / pick results)
 ```
@@ -154,6 +157,7 @@ app.on(type, fn) -> off;  app.emit(type, detail)
 {kind:'sketchCurve', sketch, curve} {kind:'sketchPoint', sketch, point} {kind:'sketchDim', sketch, cid}
 {kind:'originPlane', name:'XY'|'XZ'|'YZ'} {kind:'originAxis', name:'X'|'Y'|'Z'} {kind:'originPoint'}
 {kind:'cplane', id}  {kind:'feature', id}
+{kind:'occurrence', occ}                    a component occurrence ('root' = the root component); highlights its bodies
 {kind:'meshFace', body, tri, group, p, n}   triangle `tri` of a mesh body; group = its face group (-1 none). refKey
                                             treats refs of one group as the same selection unless triOnly:true
 ```
@@ -212,7 +216,8 @@ Standard views (Z-up): Front looks from −Y, Right from +X, Top from +Z, Home =
 Body visibility: `doc.bodies[id].visible`; sketches/planes: `feature.visible !== false`; origin: `doc.origin.visible`.
 
 ## Document (src/model.js)
-`doc = {version, name, units:'mm', params:[{name, expr, kind, comment}], features:[...], marker, bodies:{id:meta}, counters, origin:{visible}, canvases?, meshData?}`
+`doc = {version, name, units:'mm', params:[{name, expr, kind, comment}], features:[...], marker, bodies:{id:meta}, counters, origin:{visible}, canvases?, meshData?,
+components?, occurrences?, activeOcc?, positions?}` (components: see "Components"; a feature's `occ` = the occurrence it belongs to)
 (`canvases` = Insert Canvas images, document data, not timeline features; `meshData` = triangle data of `mesh` features,
 `{[id]: {positions: base64 Float32, indices?: base64 Uint32, groups?: base64 Uint32, tris}}`, written by `M.storeMeshData`).
 Older documents with `doc.meshes` (display-only Insert Mesh) are converted on open by `M.migrateDoc` (core `loadDocument`
@@ -244,6 +249,9 @@ loft     {profiles, ruled, operation}   sweep {profile, path:{sketch, curves}, o
 split    Split Body   coil {diameter, revolutions, height, pitch, angle, sectionSize, ...}   pipe {distance, sectionSize, thickness, ...}
 scale    {factor | sx,sy,sz}   thread {length, offset, ...}  (modeled + cosmetic threads, dialogs/threads.js)
 mesh     {data (doc.meshData id), file, format, units, flipUp, tx,ty,tz, rx,ry,rz, scale, tris, bbox, newBody}  Insert Mesh
+component {comp, newOcc, parent?, mode:'empty'|'bodies'|'paste'|'copy', bodies?, source?, T?, newBodies?}   new occurrence
+snapshot {positions:{oid: M}}          Fusion's "Position" entry (Capture Position)
+every feature: occ? (owner occurrence, absent = root); operation 'newComponent' adds newComp / newOcc
 ```
 Feature types (`FIELDS` / `TYPE_LABEL` in model.js): sketch, extrude, revolve, fillet, chamfer, shell, hole, box, cylinder,
 sphere, torus, cplane, rpattern, cpattern, move, mirror, combine, loft, sweep, delete, draft, split, coil, pipe, scale, thread,
@@ -319,6 +327,59 @@ app.registerBodyKind("tspline", {            // merged into app.bodyKinds[kind];
 ```
 The bounding box of a mesh-like body is `entry.bbox` (object or function) when set, else computed from `entry.mesh`.
 
+## Components (src/model.js, src/app/components.js)
+Fusion's component model. Root component = the design; components hold bodies, sketches, construction; occurrences
+("Component1:1", "Component1:2") place a component, nested under the root or another occurrence.
+```
+doc.components   {cid: {id, name, partNumber?, description?, material?, appearance?}}
+doc.occurrences  {oid: {id, component: cid, n (":n"), visible?:false, grounded?:true (Pin), selectable?:false}}
+doc.activeOcc    active occurrence (absent = root): new features get f.occ = it (core prepareFeature)
+doc.positions    {oid: M} uncaptured positions (Move of components); Capture Position turns them into a snapshot feature
+M                rigid transform, 12 numbers, 3x4 row-major [r00 r01 r02 tx, r10 r11 r12 ty, r20 r21 r22 tz] (meshdata.js)
+```
+Occurrences exist through timeline features: `component` (New Component, Create Components from Bodies, Paste, Paste New)
+or a body feature with operation `newComponent` (Extrude / primitives ... "New Component"). Evaluation state:
+```
+st.occ      Map oid -> {id, component, parent: oid|'root', T: M (world transform of the occurrence frame), inst?: primary oid}
+st.bodyOcc  Map bodyId -> oid    owner (no entry = root). New bodies of a feature go to f.newOcc (newComponent) or f.occ.
+```
+* Bodies stay in **world space**. Moving an occurrence transforms the bodies, sketches and construction planes of it and of
+  its sub-occurrences in the state (`M.moveOccurrence(st, doc, oid, M)`, shapes cached per input + matrix), so features
+  after the move see the moved geometry. Join / cut / intersect default participants are the visible solids of the
+  feature's component subtree (root features: every body), never instance bodies.
+* Paste makes another occurrence of the same component (`inst` = the primary occurrence): its bodies are derived instance
+  bodies `"<bodyId>@<oid>"` (refreshed after every feature, share `doc.bodies[bodyId]` through `app.bodyMeta`). Paste New
+  copies the bodies into a new component ("Component1 (1)").
+* Uncaptured positions (`doc.positions`) are applied on top of the final state (not cached; `st.pending` lists them). While
+  they exist the POSITION tab (`EditSnapshotTab`, env `position`) shows FINISH POSITION = Capture Position
+  (`SnapshotEditAccept`) and Revert Position (`SnapshotEditCancel`); the timeline shows a Position entry with the same
+  menu. Adding any feature captures them first (a `snapshot` feature before it).
+* Model helpers (also in `M.helpers`): `ROOT`, `bodyOwner(st, id)`, `occSubtree(st, oid)`, `occBodies` / `occBodiesDeep`,
+  `occTransform`, `moveOccurrence`, `transformShape(shape, M)`, `transformMesh`, `transformPlane`, `invRigid`,
+  `isInstanceId`, `instanceBase`; doc helpers `newComponentMeta(doc, {name})`, `newOccurrenceMeta(doc, cid)`, `capturePositions(doc)`.
+
+`app.components` (queries read the visible result + doc metadata; changes are one undo step each, then a `components` event):
+```js
+const C = app.components;
+C.list() / C.tree(oid = 'root') / C.info(oid)   // {id, component, name, label 'Name:n', parent, T, inst, visible, grounded, selectable, pending}
+C.children(oid) / C.ancestors(oid) / C.label(oid) / C.alive(oid) / C.count(cid)
+C.ownerOf(bodyId) / C.bodiesOf(oid, {deep = true}) / C.worldBodies(oid) -> [{id, kind, shape | mesh}]   // world space
+C.featuresOf(oid) / C.ownerOfFeature(f)
+C.active / C.activate(oid | 'root') / C.inActive(oid) / C.faded(bodyId)
+C.create({name, parent, bodies, activate}) -> [oid]      C.createFromBodies(ids)      C.rename(oid, name)   C.remove(oids)
+C.setVisible(oids, v) / C.setSelectable(oids, v) / C.setGrounded(oids, v) / C.bodyShown(id) / C.bodySelectable(id)
+C.transform(oid) -> M   C.setTransform(oid, M, {capture})   C.setTransforms({oid: M}, {capture, label})
+C.pending() / C.hasPending() / C.capture() / C.revert()
+C.setDisplayTransform(oid, M | null) / C.displayTransform(oid) / C.clearDisplay()   // drawing only, no evaluation
+C.copy(refs) / C.paste() / C.pasteNew() / C.canPaste()   C.rigid(t, rDeg, pivot) -> M
+```
+For the assembly engineer: (a) a joint / rigid group / constraint is a registered feature whose `apply(st, f, P, doc)` calls
+`M.moveOccurrence(st, doc, oid, M)` for the occurrences it positions (later features and the browser follow); (b) world
+geometry of any occurrence: `M.occBodiesDeep(st, oid)` / `C.worldBodies(oid)` (state bodies are world space), its frame
+`M.occTransform(st, oid)`; (c) motion / animation without recompute: `C.setDisplayTransform(oid, M)` per frame (the viewport
+sets body group matrices; picking of edges ignores display overrides), `C.clearDisplay()` at the end. Pinned (grounded)
+occurrences refuse `setTransform` unless `{force:true}`.
+
 ## Contextual environments (core + shell toolbar)
 Fusion's FORM, BASE FEATURE, FLAT PATTERN, DIRECT MESH EDITING ... tabs. The layouts are in `shell/spec.js` CONTEXTUAL_TABS
 (ids FormTab, BasefeatureSolidTab, BasefeatureSurfaceTab, FlatPatternSolidTab, FlatPatternSurfaceTab, ParaMeshBaseFeatureTab,
@@ -383,6 +444,7 @@ the rest hidden aliases. A real registration replaces a stub; a stub never repla
 |---|---|
 | sketch | SketchCreate, SketchStop (Finish Sketch), SketchActivate, SketchLookAt, DrawPolyline (L), SketchMidpointLine, ShapeRectangleTwoPoint (R), ShapeRectangleThreePoint, ShapeRectangleCenter, CircleCenterRadius (C), CircleTwoPoint, CircleThreePoint, CircleElipse, ArcThreePoint, ArcCenterTwoPoint, ArcTangent, ShapePolygonCircumscribed, ShapePolygonInscribed, ShapePolygonEdge, ShapeSlotCenterToCenter, ShapeSlotOverall, ShapeSlotCenterPoint, DrawPoint, DrawSpline (fit point), BlendG1CurveSketchCmd, MirrorSketchCommand, ProjectNewCmd (P), SketchDimension (D), FilletSketchCmd, ChamferSketchEqualDistance / DistanceDistance / DistanceAngle, TrimSketchCmd (T), ExtendSketchCmd, Offset (O), ConstraintHorizontalVertical, ConstraintCoincident, ConstraintTangent, ConstraintEqual, ConstraintParallel, ConstraintPerpendicular, ConstraintFix, SketchFixConstraintCmd, ConstraintMidPoint, ConstraintConcentric, ConstraintCollinear, ConstraintSymmetry, SketchConstructionCmd (X), SketchDeleteCmd |
 | dialogs | Extrude (E), Revolve, Sweep, SolidLoft, FusionHoleCommand (H), PrimitiveBox / Cylinder / Sphere / Torus / Coil / Pipe, FusionThreadCommand, PatternRectangular, PatternCircular, MirrorCommand, FusionPressPullCommand (Q), FusionFilletEdgesCommand (F), FusionChamferCommand, FusionShellBodyCommand, FusionDraftCommand, FusionCombineCommand, ModifyScale, FusionSplitBodyCommand, FusionMoveCommand (M), FusionDeleteCommand, ConstructionPlaneOffsetFromPlaneCommand (+ WorkPlaneOffsetFromPlaneCommand alias), ConstructionPlaneAtAngleCommand, ConstructionMidPlaneCommand |
+| dialogs (components) | FusionCreateNewComponentCommand (New Component), FusionCreateNewCompCmdFromBody, FusionActivateLocalCompCmd, FusionGroundComponents (Pin) / FusionUnGroundComponents (Unpin), CopyCommand (Ctrl+C), PasteCommand (Ctrl+V), FusionPasteNewCommand, SnapshotEditAccept / SnapshotCmd (Capture Position), SnapshotEditCancel (Revert Position) |
 | inspect | MeasureCommand (I), FusionHalfSectionViewCommand, FusionCenterOfMassCommand, AppearanceCommand (A), PhysicalMaterialCommand, FusionPropertiesCommand (+ hidden aliases), FusionAddCanvasCommand, ParaMeshInsertAlignCommand (Insert Mesh), InterferenceCheckCommand, MaterializedBomHybridCmd (Bill of Materials) |
 | viewport | Orbit / FreeOrbit / ConstrainedOrbit, Pan, Zoom, ZoomWindow, Fit, LookAtCommand, ViewDisplay / VisualStyle / Env / Effect / GraphicsPreset / GroundPlane commands, ViewCamera* (ortho / perspective), ViewVisibility* (origins, bodies, sketches, planes, ShowAll, HideAll), VisibilityOverrideCommand, grid and snap commands (ViewLayoutGrid*, DefineGridCmd, ToggleGridSnapCommand, SetSnapValueCmd, ToggleIncrementalMoveCmd), SingleViewCmd / MultiViewCmd / SplitView*, ShowWorkspaceFullScreen / Normal, ViewCube* (GoHome, SetHome*, ResetHome), ToggleViewCube (Ctrl+Alt+V), ToggleNavBar (Ctrl+Alt+N), Show/Hide ViewCube and NavigationToolbar, SelectCommand, selectWindow (1), selectFreeForm (2), selectPaint (3), Select{Body,Face,Edge,Component}PriorityCommand |
 | browser | ToggleBrowser (Ctrl+Alt+B), FusionChangeActiveUnitsCommand, FindInBrowser, FindInWindow, IsolateCmd, UnisolateCmd, SelectabilityToggleCmd, RenameBrowserCmd, ShowAllBodiesCmd, ShowAllComponentsCmd, SoftDeleteCommand |
@@ -394,7 +456,8 @@ the rest hidden aliases. A real registration replaces a stub; a stub never repla
 * Any button/menu item that runs a command: `data-cmd="<commandId>"`.
 * Toolbar tabs: `[data-tab="SolidTab"]`; panel dropdown triggers `[data-panel="SolidCreatePanel"]`.
 * Command dialog: `.dlg[data-dialog="<commandId>"]`, inputs `[data-input="<fieldId>"]`, buttons `[data-action="ok"|"cancel"]`.
-* Browser nodes: `[data-node="<kind>:<id>"]` (kinds: doc, settings, namedviews, origin, bodies, body, sketches, sketch, construction, cplane); visibility toggle `.br-eye`.
+* Browser nodes: `[data-node="<kind>:<id>"]` (kinds: doc, settings, namedviews, origin, bodies, body, sketches, sketch, construction, cplane, occ; a component's folders are `bodies:<oid>`, `sketches:<oid>` ...); visibility toggle `.br-eye`, activate radio `.br-right .br-radio`.
+* Timeline: uncaptured component positions `.tl-pending`; features of other components while one is active `.tl-item.other-comp`.
 * Timeline: items `[data-feature="<featureId>"]`, marker `.tl-marker`, playback `[data-tl="first|prev|play|next|last"]`.
 * Sketch palette: `.sk-palette`; on-canvas value input `.sk-input`. Marking menu `.mm-root`; toolbox `.tbx-root input`.
 * ViewCube canvas: `#viewcube-host canvas`; nav bar buttons `[data-cmd]` inside `#navbar-host`.

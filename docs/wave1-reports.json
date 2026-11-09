@@ -1,455 +1,742 @@
 {
- "review:configure": {
-  "findings": [
-   {
-    "file": "src/modules/configure/index.js",
-    "line": 386,
-    "severity": "high",
-    "problem": "ctxTarget recurses forever when the selection's first item is a kind outside body/face/edge/feature/cplane (e.g. a vertex ref from pick.js), so calling ConfigureFeatureCmd or ConfigureEntityCmd without a usable ctx overflows the stack."
-   },
-   {
-    "file": "src/modules/configure/index.js",
-    "line": 299,
-    "severity": "high",
-    "problem": "validateExpr passes the live app.doc.bodies object into a temp doc (line 298), so D.applyRow writes the edited row's visibility, appearance and material into the live bodies on every parameter edit, outside undo, even when the edit is rejected; the next capture then copies those values into the active configuration."
-   },
-   {
-    "file": "src/modules/configure/rules-ui.js",
-    "line": 256,
-    "severity": "medium",
-    "problem": "The anyOf value parser maps empty tokens to 0 (Number('') is 0 and the filter keeps it), so '10,20,' or an empty field produces a valid any-of list that includes 0."
-   },
-   {
-    "file": "src/modules/configure/rules-ui.js",
-    "line": 249,
-    "severity": "low",
-    "problem": "Placeholder strings \", \" (U+2014 em dash) are added in lines 249, 250 and 251, which breaks the no-em-dash rule."
-   },
-   {
-    "file": "src/modules/configure/dialogs.js",
-    "line": 35,
-    "severity": "low",
-    "problem": "The fallback comment says it configures every unconfigured aspect, but the expression `values[...] || i === aspects.length - 1` configures only the last aspect."
-   },
-   {
-    "file": "src/modules/configure/glyphs.js",
-    "line": 23,
-    "severity": "low",
-    "problem": "Glyphs G.implicit (line 23), G.trash (line 36) and G.configured (line 42) are defined but never used."
-   },
-   {
-    "file": "src/modules/configure/style.css",
-    "line": 123,
-    "severity": "low",
-    "problem": "The .cfg-sel-count rules (lines 123-124) target a class that selector.js never renders."
-   },
-   {
-    "file": "src/modules/configure/data.js",
-    "line": 259,
-    "severity": "low",
-    "problem": "The exported activate() is unused by the app (index.js activate writes the active row through change()), so it is dead code kept only for tests/e2e/out."
-   },
-   {
-    "file": "src/modules/configure/rules.js",
-    "line": 272,
-    "severity": "low",
-    "problem": "Both branches of the ternary return L.min, so the expression is redundant and should be simplified to r = L.min."
-   },
-   {
-    "file": "tests/e2e/scenarios/configure.mjs",
-    "line": 246,
-    "severity": "low",
-    "problem": "The regex /s+/g matches the letter s instead of whitespace; it should be /\\s+/g."
-   },
-   {
-    "file": "src/modules/configure/index.js",
-    "line": 320,
-    "severity": "low",
-    "problem": "renameParamInDoc duplicates menus/params.js renameInDoc (line 170) and the regex-escape expression repeats at line 204, so the rename logic lives in two places."
-   },
-   {
-    "file": "src/modules/configure/table.js",
-    "line": 12,
-    "severity": "low",
-    "problem": "The h() DOM helper is copied in dialogs.js (line 6) and rules-ui.js (line 13) with slightly different features, and the store helper is duplicated in mode.js (line 7) and table.js (line 26)."
-   }
-  ]
- },
- "build:inspect": {
-  "summary": "I reviewed the earlier engineer's WIP work in src/modules/inspect (commit e450b32) and kept all of it. It already makes the 8 surface analyses and Manage Materials real: Fusion's dialog labels, order and defaults, live on-canvas display with legends, Analysis folder items (show/hide, edit, rename, delete), undo/redo, saving in the document, and refresh when the model changes. I checked the dialog labels against the install string table NaFusionUI10.xml (Zebra*, Draft*, CurvatureMap*, IsoCurve*, EnvMapAnalysis*, Accessibility*, MinimumRadius, MaximumToolRadius, OptimalMinimumRadius, SharpEdges) and found no differences. I looked at the screenshot of each analysis. My own changes are small: I removed the em dashes from my files, and I fixed two scenario checks that were only notes so they now really test. The Properties check now expands the browser Bodies folder before it right-clicks the body. The Analysis folder check now asserts that Section1 appears in the browser. I also made the test expand the Analysis folder only when it is collapsed. The final full build and all 5 required scenarios pass with 0 console errors.",
-  "implemented": [
-   "FusionZebraAnalysisCommand",
-   "FusionDraftAnalysisCommand",
-   "FusionCurvatureMapAnalysisCommand",
-   "FusionCurvatureCombAnalysisCommand",
-   "FusionIsoCurveAnalysisCommand",
-   "FusionEnvironmentMapAnalysisCommand",
-   "FusionAccessibilityAnalysisCommand",
-   "FusionMinimumRadiusAnalysisCommand",
-   "MaterialCommand"
-  ],
-  "notImplemented": [],
-  "sharedEdits": [
-   "None this session.",
-   "Earlier engineer, kept from WIP e450b32: src/modules/browser/index.js, Analysis folder rows use the optional a.kindLabel and a.icon from app.ui.inspect.analyses() (one additive line each, falls back to the old Section/Center of Mass behaviour)."
-  ],
-  "contracts": "Full contract: C:/Users/rohan/AppData/Local/Claude-Data/claude_pzs8sxrjxfjjc/scratch-workspaces/277da8b9-a5df-4bda-a412-d67d2fb496c0/195ff05d-3f34-4f32-95ee-4e7f8caef6d4/scratch-2026-11-08-0e6df6/fusion/src/modules/inspect/README.md.\n- app.ui.inspect:\n  - analyses() -> [{id, type, name, visible, kindLabel, icon, command}]\n  - analysis(id), setAnalysisVisible(id, v), removeAnalysis(id), renameAnalysis(id, name), editAnalysis(id)\n  - openAnalysis(type, {preselect, editId}), refreshAnalyses()\n  - curvature(bodyId) -> exact per-vertex k1/k2/K/H from the OCCT surfaces (EvalD2 at the face triangulation's UV nodes)\n  - optimalMinimumRadius(bodyIds), analysisObjects()\n  - materialBrowser {open, close, isOpen, libraries, store}\n- doc.analyses = [{id, type, name, visible, ...params}]. It is undoable through app.mutate, saved with the design, and analyses are not timeline features (same as Fusion).\n- Events: 'analyses' (list or visibility changed), 'materials' (libraries or the design's custom materials changed).\n- doc.customMaterials and doc.customAppearances hold copies of the user-library items that a design uses.\n- User libraries are stored in localStorage key fusionrec.materialLibraries.v1 (in try/catch, memory fallback), exported with app.download and opened with input type=file.",
-  "tests": [
-   "node --check on all edited files: OK",
-   "node scripts/build.mjs --out=build/inspect: OK (one earlier attempt failed on another engineer's src/modules/sketch/include3d.js import; the final full build succeeded)",
-   "Final run on the fresh build: QA_PORT=5440 run-all inspect core-loop modeling toolbar undo-redo: 5/5 PASS, 0 console errors. inspect 132/132, core-loop 65/65, modeling 83/83, toolbar 62/62, undo-redo 15/15.",
-   "The inspect scenario covers all 8 analyses through the INSPECT panel and real dialogs, plus: browser Analysis folder Edit and eye, undo/redo of an edit, following a model change, save, new and open round-trip, Delete and undo, and Manage Materials (library, new material, assign, mass from density, save/open, undo)."
-  ],
-  "knownIssues": [
-   "Some display details are inferred, not taken from Autodesk documentation: the Gaussian colour-scale normalisation, comb and isocurve colours, legend placement, the default Maximum/Minimum Limit (100 mm / 1 mm) and the environment pictures (procedural, not Fusion's HDRIs). The README lists these. Compare them with real Fusion on this machine.",
-   "Zebra stripes come from the reflected view ray. Planar faces show almost one uniform stripe (all white or all black). Real Fusion with a perspective camera can show broader stripes on planar faces.",
-   "I could not spawn the review subagent that the user's working rules ask for, because this subagent has no agent-spawning tool. I did a self-review only.",
-   "Engine tests (npm test, spline_test, robust_test) were not run because no engine file changed."
-  ]
- },
- "review:inspect": {
-  "findings": [
-   {
-    "file": "src/modules/inspect/mesh.js",
-    "line": 100,
-    "severity": "medium",
-    "problem": "parse3MF ignores build item and component transforms, so multi-part or transformed 3MF files are placed at raw mesh coordinates."
-   },
-   {
-    "file": "src/modules/inspect/surfanalysis.js",
-    "line": 339,
-    "severity": "medium",
-    "problem": "BufferGeometry objects cached in geoCache are never disposed, so GPU buffers persist after each body rebuild."
-   },
-   {
-    "file": "src/modules/inspect/surfanalysis.js",
-    "line": 654,
-    "severity": "medium",
-    "problem": "buildAccessibility renders two 2048x2048 depth maps on every refresh, and refresh runs on each dialog slider tick, which is costly."
-   },
-   {
-    "file": "src/modules/inspect/curvature.js",
-    "line": 78,
-    "severity": "medium",
-    "problem": "The Triangulation handle from BRep_Tool is never deleted (finally at line 95 deletes only loc), leaking a wasm object per call."
-   },
-   {
-    "file": "src/modules/inspect/mesh.js",
-    "line": 340,
-    "severity": "low",
-    "problem": "Re-picking a file in Edit Feature stores new triangles but never deletes the old doc.meshData record, leaving orphaned data in the saved file."
-   },
-   {
-    "file": "src/modules/inspect/mesh.js",
-    "line": 180,
-    "severity": "low",
-    "problem": "Two file reads in flight can resolve out of order, so an older file can overwrite mesh and staged after a newer pick."
-   },
-   {
-    "file": "src/modules/inspect/analysis-cmds.js",
-    "line": 204,
-    "severity": "low",
-    "problem": "display.directionOf is called without a null check (also line 283); store.display is null until the first refresh, so commit throws for Draft and Accessibility."
-   },
-   {
-    "file": "src/modules/inspect/curvature.js",
-    "line": 372,
-    "severity": "low",
-    "problem": "nearCentroid (line 351) scans every triangle of a face for each edge, giving O(edges x triangles) work that can stall on fillet-heavy bodies."
-   },
-   {
-    "file": "src/modules/inspect/materials.js",
-    "line": 531,
-    "severity": "low",
-    "problem": "Both branches of the categories ternary are identical, so the conditional is dead logic."
-   },
-   {
-    "file": "src/modules/inspect/materials.js",
-    "line": 565,
-    "severity": "low",
-    "problem": "The ternary always yields input, and SELECT elements then get both input and change listeners (lines 566-567), so _edit runs twice per change."
-   },
-   {
-    "file": "src/modules/inspect/materials.js",
-    "line": 746,
-    "severity": "low",
-    "problem": "The hidden file input for Open Existing Library is removed only on change, so cancelling the picker leaves an input in the DOM each time."
-   },
-   {
-    "file": "src/modules/inspect/analyses.js",
-    "line": 13,
-    "severity": "low",
-    "problem": "Command ids and titles are defined twice (ANALYSIS_META here and COMMANDS in analysis-cmds.js line 10), so they can drift apart."
-   }
-  ]
- },
- "build:annotate": {
-  "summary": "The five CREATE PMI commands now work end to end. The earlier engineer's WIP code (src/modules/annotate/*) was mostly complete and worked. I reviewed it, fixed 4 bugs, added the module README and wrote the QA scenario tests/e2e/scenarios/annotate.mjs. The required scenarios pass with zero console errors: annotate 85/85, core-loop 65/65, modeling 83/83, toolbar 62/62, undo-redo 15/15.\n\nEach annotation is a timeline feature (types pmiNote, pmiGeneralNote, pmiDimension, pmiGdt, pmiHoleNote) registered through app.M.registerFeature. Each one is listed under the PMI folder in the browser and drawn on an annotation plane in the viewport overlay (leaders, arrowheads or dots, frames, datum symbols, Arial-style text). Undo/redo, save/open, Edit Feature, suppress, roll back, rename, Show/Hide and Delete all work. I checked the dialog labels against the local Fusion string tables.\n\nFixes this session:\n- A feature control frame attached to a dimension showed as orphaned after reopening a document.\n- A boss on a cylinder that OCCT splits into several faces showed a wrong quantity (\"2x\").\n- Custom rows in the dialogs were not indented like the framework rows.\n- The Symbol dropdown caret was too large.",
-  "implemented": [
-   "LeaderLineNoteCommand (Note): select a face (dot leader) or an edge/vertex (arrow leader). The note follows the cursor and a click anchors it. Rows: Change annotation plane (cycles candidate planes), Alternate annotation plane, Perpendicular text, Leader line extension, multi-line text with alignment and Insert symbol. Live preview, double-click to edit, Delete, orphan warning.",
-   "GeneralNoteCommand (General Note): text fixed to the screen in one of four quadrants (Change note quadrant), size taken from the PMI settings.",
-   "DimensionNoteCommand (Sizes and Dimensions): linear, diameter, radius and angular dimensions from 1 or 2 faces, edges or vertices. Tabs: Leader line | Dimension | Text. Modeled value or override, tolerances (symmetric, deviation, limits, fits), Measurement alignment, Angular sector, Units and precision, Secondary units, %1% text template. Names follow the type (Linear Dimension1, Diameter Dimension1, Angular Dimension1). Values follow model edits.",
-   "GeometricToleranceNoteCommand (Geometric Tolerancing): feature control frames with 14 characteristics in an image symbol menu, diameter zone, material condition, primary/secondary/tertiary datums with modifiers, free state, tangent plane, projected zone, zone, associated feature and composite control. Datum feature symbol (Create Datum, identifier, leader, extension, offset). A frame can attach to a surface or hang under an existing dimension or hole note. Uses Fusion's validation messages. Names: Flatness1, Position1, Datum A.",
-   "HoleThreadNoteCommand (Hole/Thread Note): reads Hole features (diameter, depth or THRU, counterbore, countersink, quantity) and Thread features (designation, class, direction, depth) and handles bosses. Tabs Counterbore, Countersink and Thread appear only when they apply. Each value can be overridden and toleranced. The note follows model edits and, when orphaned, keeps its last text.",
-   "FusionChangePMISettingsCmd (Change PMI Settings, in the PMI folder context menu): Standard, Size, Default Precision, Default Tolerance, Leading Zero, Trailing Zero, General Note Size, Custom General Note Size. Undoable."
-  ],
-  "notImplemented": [],
-  "sharedEdits": [],
-  "contracts": "app.ui.pmi API:\n- features(): PMI features in timeline order.\n- spec(id): {orphan, warning, selRefs, plane, measured?, lines?, hole?, thread?}.\n- specs(), refresh(), settings(), ctxFor(state).\n- renderer.primsOf(id) -> {segs, tris, texts:[{block, c, H}]}. The id \"__preview__\" gives the live dialog preview; previewPrims() is the same.\n\nFeature types (from model.js registerFeature, icon = the command id): pmiNote, pmiGeneralNote, pmiDimension, pmiGdt, pmiHoleNote. A pmiGdt with an annot field hangs under a dimension or hole note; pmiDeps lists that host so timeline dependency checks see it.\n\nDocument data: settings live in doc.pmi. Default names count up in doc.counters['pmi:<stem>']. The full schema is in src/modules/annotate/README.md.\n\nBrowser: the folder is registered with app.ui.browser.registerFolder({key:'annotations', label:'PMI'}) and its rows are keyed feature:<id>.\n\nHidden commands EditLeaderLineNote, EditGeneralNote, EditDimensionNote, EditGeometricToleranceNote and EditHoleThreadNote edit the selected annotation.\n\nDOM hooks: tabs .pmi-tab[data-tab]; textarea [data-input=text]; symbol menu #overlay [data-menu=fcf_sym] [data-option=<characteristic>]; general notes .pmi-gnote[data-pmi=<id>].",
-  "tests": [
-   "QA_OUT=build/annotate QA_PORT=5480 node tests/e2e/run-all.mjs annotate core-loop modeling toolbar undo-redo --no-build --quiet: 5/5 PASS (annotate 85/85, core-loop 65/65, modeling 83/83, toolbar 62/62, undo-redo 15/15), 0 console errors.",
-   "New scenario tests/e2e/scenarios/annotate.mjs: opens all five commands from UTILITIES > CREATE PMI (checks none is a stub); Note via canvas face pick, cursor placement with live preview, typed text, OK; linear, diameter and angular dimensions including the Dimension and Text tabs; Flatness frame via the symbol menu, Datum A, and Position to A under the diameter dimension; Hole/Thread Note (counterbore tab, text lines); General Note; timeline items and the PMI browser folder; click to select on the canvas, Delete, Ctrl+Z; double-click to edit; annotations follow edits to box length and hole diameter; suppressing the hole orphans its notes with a timeline warning; Show/Hide; undo/redo; Change PMI Settings Size and undo; save/open round trip; Edit Feature from the timeline.",
-   "Ad-hoc probes in tests/e2e/out/annotate/: hole note with a Thread feature reads 'M10x1.5 - 6H THRU'; boss note on a cylinder primitive; dimension between two parallel edges (10.00); visual checks of the dialogs (Note, Sizes and Dimensions, Hole/Thread Note, Geometric Tolerancing).",
-   "node --check on every annotate file passes. Engine tests were not run because I changed no engine files."
-  ],
-  "knownIssues": [
-   "Changing Default Precision, Default Tolerance or Leading/Trailing Zero in Change PMI Settings applies only to new annotations. Existing notes keep the display settings stored with them. Size, Standard and General Note Size apply to all annotations. I could not confirm Fusion's exact behaviour from local evidence. Fusion also has 'Custom Size' and 'Set as Default' strings that are not implemented; Size is a plain value field here.",
-   "Annotations are drawn in the overlay on top of the model (no depth test), so annotations on hidden faces (for example a datum on the bottom face) show through the body.",
-   "The canvas marking menu shows the generic 'Edit Feature' for a selected annotation, not Fusion's 'Edit PMI'. The browser PMI context menu does say 'Edit PMI'.",
-   "The rules about review subagents and skill logging were not applied: this subagent has no agent-spawning tool. I reviewed my own diff instead (4 small fixes, README, scenario).",
-   "ARCHITECTURE.md (not my file) still says there are 20 scenarios; run-all picks up annotate.mjs automatically."
-  ]
- },
- "review:annotate": {
-  "findings": [
-   {
-    "file": "src/modules/annotate/format.js",
-    "line": 148,
-    "severity": "medium",
-    "problem": "limitsStacked and limitsLinear use `Number(x) || nominal`, so a valid 0 limit (for example a lower limit of 0) is printed as the nominal value (line 149 has the same pattern)."
-   },
-   {
-    "file": "src/modules/annotate/annotations.js",
-    "line": 75,
-    "severity": "low",
-    "problem": "noteSpec reads f.plane.n when the reference is lost and f.plane is absent; specFor swallows the TypeError, so the note disappears with no orphan warning (same pattern at line 291 in gdtSpec)."
-   },
-   {
-    "file": "src/modules/annotate/geom.js",
-    "line": 398,
-    "severity": "low",
-    "problem": "Math.max or Math.min over an empty wallEnds array gives -Infinity or Infinity, so a counterbore depth can become non-finite."
-   },
-   {
-    "file": "src/modules/annotate/dlgkit.js",
-    "line": 435,
-    "severity": "low",
-    "problem": "popupMenu installs its window listeners in a setTimeout, so if closePopup runs first the listeners of the closed menu stay attached and call closePopup on later events."
-   },
-   {
-    "file": "src/modules/annotate/dlgkit.js",
-    "line": 413,
-    "severity": "low",
-    "problem": "popupMenu duplicates the framework openMenu (src/modules/dialogs/framework.js:1087); cmd-gdt.js:54 uses popupMenu while dlgkit.js:170 uses dlg.openMenu, so there are two menu systems."
-   },
-   {
-    "file": "src/modules/annotate/cmd-note.js",
-    "line": 157,
-    "severity": "low",
-    "problem": "quadrantRow rebuilds the label and control row that dlgkit.js labeled() already provides; cmd-gdt.js:45 hand-builds the same .pmi-lrow markup."
-   },
-   {
-    "file": "src/modules/annotate/cmd-dimension.js",
-    "line": 155,
-    "severity": "low",
-    "problem": "The status callback repeats the type-to-label map already defined as STEM at line 21."
-   },
-   {
-    "file": "src/modules/annotate/cmd-gdt.js",
-    "line": 115,
-    "severity": "low",
-    "problem": "The ternary `used.includes(l) ? l : `${l}`` returns the same label in both branches, so it does nothing."
-   },
-   {
-    "file": "src/modules/annotate/cmd-gdt.js",
-    "line": 15,
-    "severity": "low",
-    "problem": "`const V = G.V` is never used in this file."
-   },
-   {
-    "file": "src/modules/annotate/cmd-hole.js",
-    "line": 17,
-    "severity": "low",
-    "problem": "`const V = G.V` is never used in this file."
-   },
-   {
-    "file": "src/modules/annotate/cmd-note.js",
-    "line": 219,
-    "severity": "low",
-    "problem": "`export { V }` re-exports a constant that nothing imports; `const V` at line 14 is otherwise unused."
-   },
-   {
-    "file": "src/modules/annotate/cmd-gdt.js",
-    "line": 276,
-    "severity": "low",
-    "problem": "`export { isPmi }` re-exports an import that no module uses from this file."
-   },
-   {
-    "file": "src/modules/annotate/text.js",
-    "line": 261,
-    "severity": "low",
-    "problem": "The branch `else if (span && j === 0) { /* spanned cell */ }` is empty and does nothing."
-   },
-   {
-    "file": "src/modules/annotate/text.js",
-    "line": 84,
-    "severity": "low",
-    "problem": "isSymbolChar (line 84), richWidth (line 138) and the CH_TO_SYM export (line 291) have no importer in the annotate module."
-   },
-   {
-    "file": "src/modules/annotate/icons.js",
-    "line": 36,
-    "severity": "low",
-    "problem": "PMI_ICONS.glyph has no caller in the annotate module."
-   },
-   {
-    "file": "src/modules/annotate/format.js",
-    "line": 105,
-    "severity": "low",
-    "problem": "disp.anglePrecision has no producer (ANGLE_PRECISION_OPTIONS at line 57 is unused), so that branch is unreachable."
-   },
-   {
-    "file": "src/modules/annotate/render.js",
-    "line": 157,
-    "severity": "low",
-    "problem": "_texture writes e.used = performance.now() but no code reads the field, so it is dead state."
-   }
-  ]
- },
- "build:foundation-1": {
-  "summary": "Foundation part 1 is finished. I kept and checked the WIP from commit e450b32, fixed the defects I found, and added the docs and the QA scenario. Part A: the feature-type registry M.registerFeature works with helpers and a node test. Part B: body kinds work. A surface has its back side drawn gold. A mesh has flat facets and meshFace refs. Insert Mesh now makes a real mesh body that you can edit, move, delete, export to STL, save and open, and older docs that use doc.meshes are converted when they open. Part C: contextual environments work, with the FINISH panel, when:<mode> commands, the S toolbox, the marking menu and shortcuts. Part D: workspaces work, with Fusion's switcher order, a placeholder for unbuilt workspaces, Ctrl+] / Ctrl+[ and registerWorkspace. Part E: ARCHITECTURE.md has the new contract sections and each owned module has a README. Fixes made this session: two regexes in menus had a lost backslash or a literal backspace character. The browser opacity wrapper dropped the new material variant, so mesh facets and surface sides were not drawn. Delete and Move/Copy refused mesh bodies. newDocument did not leave environments. Default body names now skip mesh bodies, so the next solid after a mesh is Body2. A plain click on a mesh body now selects the body.",
-  "implemented": [
-   "M.registerFeature(type, def) (also app.M.registerFeature): fields, label, stem, apply, makesBodies, deps, touches, editor, icon, browser.folder. M.featureDef, featureTypes, registeredFeatures, isFeatureType, onFeatureRegistered and M.helpers are available. These are wired into core (prepareFeature/assignBodies, featureEditor, featureLabel, the 'feature-types' event), the timeline (labels, icons, dependency checks) and the browser (folders).",
-   "Body kinds solid, surface, mesh and tspline: st.meshBodies, M.bodyKind/shapeKind/bodyBBox/allBodyIds, app.allBodies/anyBody/bodyKind/bodyInfo, app.registerBodyKind(kind, {label, icon, mesh, render, pick, edges, info}). Rendering: a surface shows its front side in the appearance colour and its back side in gold; a mesh is drawn with flat facets plus group or sharp edges. Picking returns meshFace refs. Browser icons and subtitles per kind. Hide, isolate, rename and Delete work. STL export includes mesh triangles; STEP export uses B-rep bodies only.",
-   "ParaMeshInsertAlignCommand (Insert Mesh) accepts STL, OBJ and 3MF and makes a real 'mesh' timeline feature whose body is named after the file. Live preview, Move To Ground, Center and Reset work. Edit Feature reopens the dialog. Move/Copy and Delete work on the mesh body. Save/open keeps the data in doc.meshData. Older docs with doc.meshes are converted by M.migrateDoc when they open.",
-   "app.enterEnvironment / exitEnvironment / environment / environments / inMode. In an environment the toolbar shows the contextual tab with the green-check FINISH panel; spec.js has CONTEXTUAL_TABS for FormTab, BasefeatureSolid/SurfaceTab, FlatPatternSolid/SurfaceTab, ParaMeshBaseFeatureTab, EditSnapshotTab and PCBTab, with all their ids registered as stubs. Fallback finish commands leave the environment. when:<mode> commands become available. The marking menu follows MARKING_MENUS, the S toolbox title is per environment and the shortcut lists are per mode. Esc does not leave the environment. MODE_TOOLBARS covers Configure and Edit In Place.",
-   "Workspaces: app.registerWorkspace / setWorkspace / workspace / workspaceList / workspaceDef and the 'workspace' / 'workspaces' events. The switcher order is Design, Generative Design, Render, Animation, Simulation, Manufacture, Drawing. workspaces-spec.js holds the tabs and panels of 6 workspaces and 513 command stubs, each scoped by its workspace field. An unregistered workspace shows a placeholder card with Back to Design. A workspace can supply its own bottom strip, hide the browser or add a canvas layer. NextWorkspace / PreviousWorkspace use Ctrl+] / Ctrl+[.",
-   "app.ui.browser.registerFolder / invalidate. The timeline reads def.deps and def.touches.",
-   "ARCHITECTURE.md has new sections (Feature-type registry, Body kinds, Contextual environments, Workspaces, Browser and timeline hooks) and updated App, Events, Refs and Document sections. READMEs added for shell, viewport, browser, timeline and menus.",
-   "tests/e2e/scenarios/foundation.mjs (41 checks): registry, Insert Mesh through the UI, Delete/undo, Edit Feature, Move/Copy, STL export, save/open, legacy migration, surface body, FORM environment, workspaces."
-  ],
-  "notImplemented": [
-   {
-    "id": "Generative Design / Render / Animation / Simulation / Manufacture / Drawing workspace tools",
-    "reason": "Out of scope for foundation. Each workspace has its Fusion toolbar (stubs), a placeholder and the registerWorkspace contract; the real tools belong to the workspace modules."
-   },
-   {
-    "id": "New Component wiring (dialogs)",
-    "reason": "This is part 2 of the foundation task."
-   }
-  ],
-  "sharedEdits": [
-   "src/modules/dialogs/cmd-modify.js: deleteThings also deletes mesh bodies (state.meshBodies); the Move/Copy 'bodies' row has meshBodies:true",
-   "src/modules/dialogs/framework.js _accepts: accepts body refs of mesh-like bodies only when the row has meshBodies:true",
-   "src/modules/dialogs/util.js bodiesCenter: mesh bodies use the meshdata bbox (new import of bbox from src/meshdata.js)",
-   "src/modules/dialogs/README.md: documents the meshBodies row option",
-   "tests/e2e/scenarios/insert.mjs: Insert Mesh section rewritten for mesh bodies (mesh feature, Bodies folder row, state.meshBodies) in place of doc.meshes and the Mesh Bodies folder",
-   "From the WIP commit (kept): new src/meshdata.js, tests/registry_test.mjs added to npm test in package.json"
-  ],
-  "contracts": "Full text with examples is in ARCHITECTURE.md.\n(1) M.registerFeature(type, {label, stem?, fields?, apply(st, f, P, doc), makesBodies?, deps?, touches?, editor?, icon?, browser?:{folder}}). M.helpers lists the evaluator helpers. An unregistered type fails with a clear message.\n(2) Body kinds: st.bodies holds OCCT solids and surfaces. st.meshBodies holds {id, kind, mesh:{positions, indices|null, normals?, groups?}, data?, bbox?}. app.registerBodyKind(kind, {label, icon, mesh(entry), render(entry), pick(entry, x, y, ray, opts), edges, info}). app.allBodies / anyBody / bodyKind / bodyInfo. Ref {kind:'meshFace', body, tri, group, p, n}; a plain click selects the body, and a filter for meshFace gets face groups. Dialog selection rows accept mesh bodies only with meshBodies:true. Mesh data is stored in doc.meshData through M.storeMeshData; M.stageMeshData is for previews.\n(3) app.enterEnvironment({id, mode, label, tab, panels?, finishCommand, finishLabel?, baseTabs?, markingMenu?, shortcuts?, modeToolbar?, modeLabel?, feature?, onExit(reason)}) and exitEnvironment(id, {reason}). Commands with when:<mode> run only in that environment. The 'environment' event fires on enter and exit. A module that registers the real finish command replaces the shell fallback.\n(4) app.registerWorkspace({id, label?, tabs?, panels?, enter, exit, timeline?:(host, app) => dispose | false, browser?, canvas?, shortcuts?}) and app.setWorkspace(id). Workspace commands use workspace:<id>.\n(5) app.ui.browser.registerFolder({key, label, after?, before?, build(app)}) returns remove().\n(6) Default body names count only default-named bodies (counters.bodyName).",
-  "tests": [
-   "npm test (sketch_test, sketch_engine2, kernel_smoke, kernel2, dialogs_model, registry_test): all passed",
-   "node tests/spline_test.mjs: all passed; node tests/robust_test.mjs: ALL PASS",
-   "QA (build/foundation, ports 5400-5402): foundation 41/41, core-loop 65/65, modeling 83/83, toolbar 62/62, undo-redo 15/15, insert 58/58, browser 35/35, timeline 43/43, save-open 22/22, marking-menu 36/36, toolbox 11/11, shortcuts 35/35, inspect pass; zero console errors in all of them",
-   "Ad-hoc checks (tests/e2e/out/foundation/look.mjs, dbg.mjs, dbg2.mjs): mesh flat facets and surface sides rendered correctly; Move on a mesh body; Measure, Properties, Appearance, Isolate, Center of Mass and BOM run on a mesh body with no console errors"
-  ],
-  "knownIssues": [
-   "No local file gives the workspace switcher order: Fusion builds the list at runtime (ActivateEnvironmentCommand). The order used is the known Fusion UI order; it was not checked against a screenshot.",
-   "The gold back side of surface bodies and the mesh display (flat facets, edges only at face-group borders and sharp creases) follow Fusion's behaviour as I know it. They were not compared with a local reference screenshot.",
-   "A sketch made inside an environment shows the persistent tabs plus SKETCH. Fusion probably shows the environment tab plus SKETCH. This was not checked.",
-   "Inspect's Properties, BOM and Measure do not yet show mesh numbers; app.bodyInfo(id) is ready for the inspect engineer to use. BOM still lists B-rep bodies only (insert.mjs expects this).",
-   "inspect/insert.js, browser/index.js and menus/index.js still hold the old doc.meshes store and rendering code. It no longer runs, because M.migrateDoc converts doc.meshes on every open. inspect/index.js, which is not mine, still uses this code, so I did not remove it.",
-   "Default body names changed: the next solid after a mesh body is now Body2. Documents saved before this change keep their numbering through counters.bodyName.",
-   "Your working rules ask for review subagents. I had no tool to start subagents, so no fresh-eyes review ran. I reviewed the diff myself.",
-   "Another engineer edited menus/markingmenu.js (they added two tangent-handle overflow items) and converted the file to CRLF line endings. I kept that change."
-  ]
- },
- "build:manage": {
-  "summary": "All 23 UTILITIES / MANAGE / AUTOMATION / SELECT stubs are now real commands. The earlier WIP already covered Scripts and Add-Ins, the links, the Select tools, Design Advice, Find Features, Navigator, Generate Timeline and Compute Unresolved. I reviewed and tested that work and fixed 3 bugs. 1: the Scripts dialog + menu was hidden under the modal backdrop, so users could not click it. 2: the Run switch of an add-in closed the dialog. 3: Selection Filters relied on animation frames, so the list did not open when frames were slow. I also added the CSS that Design Advice and Navigator had no styles for. New work: pim.js (local Fusion Manage in doc.pim), tasks.js (local task system in browser storage), icons.js (9 original icons), README.md and the QA scenario tests/e2e/scenarios/manage.mjs. manage (52/52), core-loop (65/65), toolbar (62/62), undo-redo (15/15) and modeling (83/83) all pass with 0 console errors. The last run of modeling was one rebuild before the final one; the only changes after it were the task storage key and the scenario. I edited no shared files.",
-  "implemented": [
-   "ScriptsManagerCommand (Shift+S): Scripts and Add-Ins dialog, create (JavaScript), edit in the built-in code editor, run, stop, run on startup, samples, scripts persisted in localStorage, message when a strict CSP blocks eval. A typical Fusion JS sample script (sketch, rectangle, circle, extrude createInput+add, fillets, userParameters, messageBox) runs and is undone in one step",
-   "APIHelpCommand (public API reference in a new tab plus the in-app script API reference palette)",
-   "ExchangeAppStoreCommand (public store page in a new tab)",
-   "DesignAdviceCmd (Thickness / Undercuts / Draft / Knife Edges with painted regions; now styled)",
-   "FusionFindFeaturesCommand (doc.foundFeatures + browser Features folder, undoable)",
-   "GraphViewCmd (Navigator dependency graph palette; now styled)",
-   "TimelineBuilderCommand (rebuilds a body as sketches + extrudes and opens it as '<name> AutoTimeline')",
-   "FusionComputeUnresolvedCommand",
-   "SelectByNameCommand",
-   "FusionSelectBodiesBySizeCommand",
-   "SelectByBoundaryCommand",
-   "FusionSelectSeedAndBoundaryFacesCommand",
-   "SelectByInvertCommand",
-   "SelectionFilterCommand (opens the SELECT panel list; the shell's filter state filters canvas picks)",
-   "PIMAssignItemNumberCmd (Part Name / Numbering Scheme / Item Number, ITM-000001, Unreleased)",
-   "PIMQuickReleaseCmd (Unreleased -> Pre Release 1 -> 2 ...; Production items and items on a change order are refused)",
-   "PIMECOReleaseCmd (change order CO-000001; workflow Open -> In Review -> Released (Production A, B ...), Reject, Cancel; audit trail)",
-   "PIMGoToDashboardCmd / PIMGoToItemDetailsCmd / PIMGoToChangeOrderCmd ('Fusion Manage' palette with the tabs Dashboard, Details and Change Orders)",
-   "TaskManagementCreateTaskCmd (New Task dialog: Title, Description, Assignee, Due Date, Priority, Related To (preselected); Edit Task)",
-   "TaskManagementRelatedTasksCmd (tasks of this design related to the selection)",
-   "TaskManagementOpenTasksCmd (task board: Open / In Progress / Done, search, all designs or this design)"
-  ],
-  "notImplemented": [],
-  "sharedEdits": [],
-  "contracts": "See C:/Users/rohan/AppData/Local/Claude-Data/claude_pzs8sxrjxfjjc/scratch-workspaces/277da8b9-a5df-4bda-a412-d67d2fb496c0/195ff05d-3f34-4f32-95ee-4e7f8caef6d4/scratch-2026-11-08-0e6df6/fusion/src/modules/manage/README.md.\n\nAPIs:\n- app.ui.scripts: store, host, run(id), stop(id), edit(id), open(), create({name, source, isAddIn}), list(), reference(), canCompile().\n- app.ui.pim: components(), item(key), changeOrders(), assign(keys, scheme), quickRelease(keys), createChangeOrder({title, description, keys}), advance(coId, 'submit'|'approve'|'reject'|'cancel', comment), open(tab).\n- app.ui.tasks: list(), save(rec), remove(id), related(refs), openBoard(), openRelated(), newTask({task?, preselect?}).\n- app.ui.findFeatures: recognize(bodyId, types), list(), faces(found).\n- app.ui.timelineBuilder: generate(bodyId), open(doc), last.\n\nDocument data (undoable, saved with the design):\n- doc.pim = {seq, items:{root:{itemNumber, scheme, lifecycle, revision, changeOrder, history}}, changeOrders:[{id, number, title, description, items, targets, state, history}]}\n- doc.foundFeatures\n\nBrowser storage keys: fusionrec.manage.scripts.v1 and fusionrec.manage.tasks.v1.\n\nEvents: 'tasks', 'script', 'scripts', 'design-advice', 'timeline-builder'.\n\nDOM hooks:\n- PIM modals: [data-dialog=PIMAssignItemNumberCmd|PIMQuickReleaseCmd|PIMECOReleaseCmd]\n- palettes: [data-palette=pim|related-tasks|task-board|navigator|script-api-reference]\n- change order actions: [data-co-action=submit|approve|reject|cancel]\n- task cards: [data-task]; board columns: [data-status].",
-  "tests": [
-   "QA_OUT=build/manage ... run-all.mjs manage core-loop toolbar undo-redo --no-build: all PASS (manage 52/52, core-loop 65/65, toolbar 62/62, undo-redo 15/15), 0 console errors, on the final build",
-   "run-all.mjs modeling: PASS 83/83, 0 console errors, one rebuild before the final one (only the task storage key and the scenario changed after it)",
-   "Ad-hoc scripts under tests/e2e/out/manage/ (git-ignored): a smoke test of every command, a run of a Fusion-style JS sample script (sketch + extrude + fillet + userParameters; one undo removes it), the PIM and task flows, and visual checks of Design Advice, Navigator, the Scripts dialog and the MANAGE toolbar icons",
-   "No engine tests were run, because src/model.js, src/kernel.js and src/sketch/* were not changed"
-  ],
-  "knownIssues": [
-   "PIM and tasks are local equivalents of cloud services. The recreation has only one component, so the only item is the design ('root'). The ITM-/PRT- numbering schemes and the pre-release numbers (1, 2) and production letters (A, B) for revisions are my own choices: the local install does not show the real formats.",
-   "Tasks link to a design by its name, so unsaved 'Untitled' designs share one task list. Tasks are not undoable (like cloud tasks). The task dialog fields (Assignee, Due Date, Priority, Status) are not in the local install (it only has icons), so they are a reasonable guess.",
-   "Design Advice gives Fusion's real categories (Thickness, Undercuts, Draft, Knife Edges) from mesh ray casts. The task asked for 'tiny features' and 'sharp internal corners', but these are not separate categories in Fusion, so I did not add them.",
-   "Generate Timeline works only on prismatic (2.5D) bodies. Other bodies get Fusion's 'Timeline reconstruction failed' message.",
-   "The QA round trip calls loadDocument on the document JSON. It does not go through the Save/Open dialogs.",
-   "The New Task dialog uses the dialog framework OK button ('OK'), but Fusion's label is 'Ok'.",
-   "I did not spawn a separate review subagent (no agent tool in this run); I reviewed my own changes and ran the tests listed."
-  ]
- },
- "build:configure": {
-  "summary": "Fusion's design configurations now work end to end. The three CONFIGURE panel commands are real: Configure (FusionStartDesignConfigModeCmd), Display Configuration Table (FusionShowDesignConfigPanelCmd) and Create Configuration Rules (FusionConfigurationRulesCmd). So are the \"Configure\" items in the Timeline and Browser right-click menus (ConfigureFeatureCmd, ConfigureEntityCmd).\n\n**How it behaves:**\n- **Configure** opens the CONFIGURATION TABLE palette at the bottom of the canvas and enters Configuration Mode. A \"CONFIGURATION ✓\" bar appears at the top of the canvas (the check mark or Esc exits), timeline features and browser bodies, sketches and planes are highlighted, and a first-time intro card explains the mode.\n- **Clicking a highlighted item** opens the docked CONFIGURE dialog with one check box per aspect: feature parameters and sketch dimensions, Suppression, Visibility, Appearance, Physical Material. OK adds or removes the matching table columns.\n- **The table** has Parameters and Properties tabs, a row count with Add Configurations, Add Aspects, Add Parameters (a PARAMETERS dialog with a Configured column), Configuration Rules, and a More menu (sort columns and rows, export CSV). The first row is the Default Configuration; the active row is marked. Rows can be renamed, duplicated, deleted, sorted and dragged; columns can be renamed, deleted, dragged and bulk-edited (Suppress All, Invert, etc.). Cells are validated.\n- **Theme tables:** Appearance Theme and Physical Material Theme tables appear under the top table.\n- **Activating a configuration** (double-click a row name, the row's radio, right-click > Activate, or the searchable selector added under the BROWSER header) writes that row into the document through app.mutate. No evaluator change was needed, so undo/redo and save/open work like any other edit.\n- **Edits made elsewhere** to a configured aspect (Edit Feature, Change Parameters, timeline suppress, appearance) are written back into the active configuration only, inside the same undo step.\n- **Configuration Rules** is a local version of Fusion's block-based rules editor: Toolbox categories, Rule blocks with On/Off and status, if/else if/else Logic blocks, Getter, Setter, And/Or, Not, Comment. Rules run locally against every configuration: \"=\" drives a value (the cell becomes read-only), while min/max/range/any-of limit it. A violating edit is rejected with \"Value violates rule\", and Apply clamps values to the nearest allowed one.\n\n**Results:** my configure scenario passes 97/97, and core-loop, modeling, toolbar and undo-redo all pass with zero console errors. Outside my folder I made two one-line edits, so the \"Configure\" right-click items in the Browser and Timeline run the real command.",
-  "implemented": [
-   "FusionStartDesignConfigModeCmd",
-   "FusionShowDesignConfigPanelCmd",
-   "FusionConfigurationRulesCmd",
-   "ConfigureFeatureCmd",
-   "ConfigureEntityCmd",
-   "ActivateConfig"
-  ],
-  "notImplemented": [
-   {
-    "id": "FusionStartDesignConfigModeCmd (partial)",
-    "reason": "These parts of Fusion's configured-design workflow are missing: custom theme tables and Move to Theme Table, the Test Row, Sheet Metal and Plastic rule themes (this app has no such rules), component inserts and joint snaps (there are no assemblies), thread and hole-type aspect columns (only numeric hole and thread parameters can be configured), the 'Suppressed (implicit)' display, the 'Configure' tab inside modeling dialogs, and the Configured Design icon on the document tab and in the Data Panel (the app bar belongs to the shell owner)."
-   },
-   {
-    "id": "FusionConfigurationRulesCmd (partial)",
-    "reason": "Blocks are added by clicking a Toolbox block, which goes into the selected statement area or condition slot, and reordered with up/down buttons. Fusion uses free drag-and-drop on a Blockly canvas instead. Block From Object mode and the Workflow Guide are not built. Fusion runs rules on Autodesk's rules service; here they are evaluated locally in rules.js."
-   }
-  ],
-  "sharedEdits": [
-   "src/modules/timeline/index.js (one line in the timeline right-click menu): the 'Configure' item now calls runCmd(app, \"ConfigureFeatureCmd\", { id }, () => notAvailable(app, \"Configure\"), \"Configure\") instead of always showing notAvailable, and is disabled when several features are selected.",
-   "src/modules/browser/index.js (one line in the body right-click menu): the 'Configure' item now calls runOrSay(\"ConfigureEntityCmd\", \"Configure\", { ref: { kind: \"body\", body: id } }) instead of notAvailable."
-  ],
-  "contracts": "Full details are in src/modules/configure/README.md.\n\n**Document data (saved with the design):**\n- `doc.configurations = {version, nid, rows:[{id, name, partNumber, description}], active, columns, cells, themes, rules}`. `rows[0]` is the Default Configuration.\n- Column kinds: `{kind:'param', user:true, name}`, `{kind:'param', owner, field}`, `{kind:'param', owner, cid}` (sketch dimension), `{kind:'suppress', feature}`, `{kind:'visibility', body|feature}`, `{kind:'theme', table:'appearance'|'material'}`. Optional `title` (renamed column) and `param`.\n- Cell values: a parameter cell holds an expression string; suppress holds a bool (true = suppressed); visibility holds a bool (true = visible); a theme cell holds a theme row id.\n- `themes.appearance` / `themes.material = {rows, columns:[{id, body}], cells}`.\n- Rules: `{id, name, comment, active, body}`. Statements are set / if (with elifs and else) / comment; conditions are get / and / or / not. Getter ops: eq ne gt ge lt le range anyOf. Setter ops: eq ne min max range anyOf.\n\n**Runtime rule:** the document's live values always show the active configuration. Any other module's edit to a configured aspect is copied into the active row on the 'doc' event (same undo step) and re-checked against the rules.\n\n**Public API `app.ui.configure`:**\n- `configured`, `configurations()`, `active()`, `columns()`\n- `activate(idOrName)`, `addConfigurations(n)`, `addAspect(template)`, `setCell(row, col, value)` (validated and rule-checked)\n- `configure({kind:'feature'|'body', id})`, `enterMode()` / `exitMode()`, `openRules()`, `openParameters()`, `applyRules(rules)`\n- `table {visible, show, hide, toggle, render, startRename}`, `mode {active, enter, exit}`, `selector`\n- `data` (data.js) and `rules` (rules.js) are pure functions usable in Node.\n\n**Event:** `configure` with `{table: bool}` or `{mode: bool}`.\n\n**Commands:** `ConfigureFeatureCmd` takes ctx `{id}`; `ConfigureEntityCmd` takes `{ref:{kind:'body', body}}`. Other modules can route their own \"Configure\" menu items to these.\n\n**DOM hooks for tests:** `[data-cfg-table]`, `[data-cfg=\"count|add-configurations|add-aspects|add-parameters|rules|more|exit-mode|add-themes:<table>\"]`, `[data-table=\"top\"]`, `[data-row-name]`, `[data-col]`, `[data-input=\"<row>:<col>\"]` (state buttons expose `data-value`), `[data-cfg-mode]`, `[data-cfg-selector-head]`, `[data-cfg-option]`, `.dlg[data-dialog=\"ConfigureFeatureCmd|ConfigureEntityCmd\"]`, `[data-dialog=\"ConfigureParameters\"] .cfg-pm-check[data-param]`, `[data-dialog=\"FusionConfigurationRulesCmd\"]` (with `[data-cat]`, `[data-block]`, `[data-rule]`, `[data-rule-status]`, `[data-mutator]`).",
-  "tests": [
-   "New scenario tests/e2e/scenarios/configure.mjs: PASS 97/97, 0 console errors. It drives the real UI: the Configure toolbar button, timeline and browser clicks in Configuration Mode, the Configure dialog check boxes, the right-click Configure items, Add Configurations, cell edits and toggles, activating by double-click and from the browser selector, a timeline Unsuppress written back to the active configuration, Appearance and Physical Material theme tables, the Visibility column, the Add Parameters Configured column, rename / duplicate / delete (Default protected), undo/redo of activation and of rules, two rules (min Setter; if Configuration = Large then set Suppression), rejection of a rule-violating edit, the Properties tab, a save / new / open round trip with an exact data comparison, and toggling Display Configuration Table.",
-   "QA_OUT=build/configure QA_PORT=5500 run-all.mjs configure core-loop modeling toolbar undo-redo --no-build --parallel=3: 5/5 PASS (97/97, 65/65, 83/83, 62/62, 15/15), 0 console errors.",
-   "Earlier in the work (before my last few edits, all inside my own folder): browser, timeline, save-open, parameters, toolbox, marking-menu and shortcuts passed 7/7 with 0 errors.",
-   "Ad-hoc engine check tests/e2e/out/configure/engine_test.mjs (data + rules: add aspects and rows, activate, capture, enforce, checkEdit, range/step, sort, delete protection, theme removal, parameter rename): ALL PASS.",
-   "Ad-hoc browser scripts in tests/e2e/out/configure: drive2 (configuring a sketch dimension: activate 12000 mm³, local edit captured, default restored 8000 mm³), drive3 (a local edit is snapped to the rule's range and step, and undo works), drive4 (complex rule blocks, Discard, Esc with pending changes prompts, sort columns, Invert suppression, Rename Column renames the parameter, drag a row): all OK with 0 errors.",
-   "npm test, spline_test and robust_test were not run: I did not change src/model.js, src/kernel.js or src/sketch/*.",
-   "Build: node scripts/build.mjs --out=build/configure. At one point another engineer's in-progress inspect change (missing ./materials.js) broke the full build, so I temporarily built with --only=viewport,sketch,dialogs,shell,browser,timeline,menus,configure. Every final run used a full build."
-  ],
-  "knownIssues": [
-   "Default names are inferred, not confirmed by evidence: configurations are 'Configuration N' (taken from the Fusion blog's examples) and theme rows are 'Theme N'.",
-   "The table docks along the bottom of the canvas above the nav bar, and the selector sits as a strip under the BROWSER header. Both layouts are inferred; no reference capture of Fusion's configuration UI exists on this machine, and Autodesk's help images could not be fetched.",
-   "The rules editor uses click-to-insert blocks rather than free drag-and-drop. Rules are evaluated locally, with no Fusion Design Extension entitlement check.",
-   "When a configured feature or body is deleted, its column stays and is marked '(aspect no longer exists)' until the user deletes it. Downstream features of a suppressed one are not shown as 'Suppressed (implicit)'.",
-   "Rule evaluation re-applies each configuration row to a light copy of the document (a features clone per row) for parameter values. This is fine for typical tables but grows with rows × features.",
-   "Theme tables have no root-component column (the app has no components), and Fusion's warnings when deleting a column that drives other columns are not reproduced.",
-   "Changes from the latest edits (Logic block settings flyout, the user-parameter aspect label, resetting the browser selector on New/Open) were checked by the final configure scenario run and the ad-hoc scripts. The browser, timeline, save-open, parameters, toolbox, marking-menu and shortcuts scenarios were not re-run after them; those edits are inside my own module only."
-  ]
- }
+  "review:configure": {
+    "findings": [
+      {
+        "file": "src/modules/configure/index.js",
+        "line": 386,
+        "severity": "high",
+        "problem": "ctxTarget recurses forever when the selection's first item is a kind outside body/face/edge/feature/cplane (e.g. a vertex ref from pick.js), so calling ConfigureFeatureCmd or ConfigureEntityCmd without a usable ctx overflows the stack."
+      },
+      {
+        "file": "src/modules/configure/index.js",
+        "line": 299,
+        "severity": "high",
+        "problem": "validateExpr passes the live app.doc.bodies object into a temp doc (line 298), so D.applyRow writes the edited row's visibility, appearance and material into the live bodies on every parameter edit, outside undo, even when the edit is rejected; the next capture then copies those values into the active configuration."
+      },
+      {
+        "file": "src/modules/configure/rules-ui.js",
+        "line": 256,
+        "severity": "medium",
+        "problem": "The anyOf value parser maps empty tokens to 0 (Number('') is 0 and the filter keeps it), so '10,20,' or an empty field produces a valid any-of list that includes 0."
+      },
+      {
+        "file": "src/modules/configure/rules-ui.js",
+        "line": 249,
+        "severity": "low",
+        "problem": "Placeholder strings \", \" (U+2014 em dash) are added in lines 249, 250 and 251, which breaks the no-em-dash rule."
+      },
+      {
+        "file": "src/modules/configure/dialogs.js",
+        "line": 35,
+        "severity": "low",
+        "problem": "The fallback comment says it configures every unconfigured aspect, but the expression `values[...] || i === aspects.length - 1` configures only the last aspect."
+      },
+      {
+        "file": "src/modules/configure/glyphs.js",
+        "line": 23,
+        "severity": "low",
+        "problem": "Glyphs G.implicit (line 23), G.trash (line 36) and G.configured (line 42) are defined but never used."
+      },
+      {
+        "file": "src/modules/configure/style.css",
+        "line": 123,
+        "severity": "low",
+        "problem": "The .cfg-sel-count rules (lines 123-124) target a class that selector.js never renders."
+      },
+      {
+        "file": "src/modules/configure/data.js",
+        "line": 259,
+        "severity": "low",
+        "problem": "The exported activate() is unused by the app (index.js activate writes the active row through change()), so it is dead code kept only for tests/e2e/out."
+      },
+      {
+        "file": "src/modules/configure/rules.js",
+        "line": 272,
+        "severity": "low",
+        "problem": "Both branches of the ternary return L.min, so the expression is redundant and should be simplified to r = L.min."
+      },
+      {
+        "file": "tests/e2e/scenarios/configure.mjs",
+        "line": 246,
+        "severity": "low",
+        "problem": "The regex /s+/g matches the letter s instead of whitespace; it should be /\\s+/g."
+      },
+      {
+        "file": "src/modules/configure/index.js",
+        "line": 320,
+        "severity": "low",
+        "problem": "renameParamInDoc duplicates menus/params.js renameInDoc (line 170) and the regex-escape expression repeats at line 204, so the rename logic lives in two places."
+      },
+      {
+        "file": "src/modules/configure/table.js",
+        "line": 12,
+        "severity": "low",
+        "problem": "The h() DOM helper is copied in dialogs.js (line 6) and rules-ui.js (line 13) with slightly different features, and the store helper is duplicated in mode.js (line 7) and table.js (line 26)."
+      }
+    ]
+  },
+  "build:inspect": {
+    "summary": "I reviewed the earlier engineer's WIP work in src/modules/inspect (commit e450b32) and kept all of it. It already makes the 8 surface analyses and Manage Materials real: Fusion's dialog labels, order and defaults, live on-canvas display with legends, Analysis folder items (show/hide, edit, rename, delete), undo/redo, saving in the document, and refresh when the model changes. I checked the dialog labels against the install string table NaFusionUI10.xml (Zebra*, Draft*, CurvatureMap*, IsoCurve*, EnvMapAnalysis*, Accessibility*, MinimumRadius, MaximumToolRadius, OptimalMinimumRadius, SharpEdges) and found no differences. I looked at the screenshot of each analysis. My own changes are small: I removed the em dashes from my files, and I fixed two scenario checks that were only notes so they now really test. The Properties check now expands the browser Bodies folder before it right-clicks the body. The Analysis folder check now asserts that Section1 appears in the browser. I also made the test expand the Analysis folder only when it is collapsed. The final full build and all 5 required scenarios pass with 0 console errors.",
+    "implemented": [
+      "FusionZebraAnalysisCommand",
+      "FusionDraftAnalysisCommand",
+      "FusionCurvatureMapAnalysisCommand",
+      "FusionCurvatureCombAnalysisCommand",
+      "FusionIsoCurveAnalysisCommand",
+      "FusionEnvironmentMapAnalysisCommand",
+      "FusionAccessibilityAnalysisCommand",
+      "FusionMinimumRadiusAnalysisCommand",
+      "MaterialCommand"
+    ],
+    "notImplemented": [],
+    "sharedEdits": [
+      "None this session.",
+      "Earlier engineer, kept from WIP e450b32: src/modules/browser/index.js, Analysis folder rows use the optional a.kindLabel and a.icon from app.ui.inspect.analyses() (one additive line each, falls back to the old Section/Center of Mass behaviour)."
+    ],
+    "contracts": "Full contract: C:/Users/rohan/AppData/Local/Claude-Data/claude_pzs8sxrjxfjjc/scratch-workspaces/277da8b9-a5df-4bda-a412-d67d2fb496c0/195ff05d-3f34-4f32-95ee-4e7f8caef6d4/scratch-2026-11-08-0e6df6/fusion/src/modules/inspect/README.md.\n- app.ui.inspect:\n  - analyses() -> [{id, type, name, visible, kindLabel, icon, command}]\n  - analysis(id), setAnalysisVisible(id, v), removeAnalysis(id), renameAnalysis(id, name), editAnalysis(id)\n  - openAnalysis(type, {preselect, editId}), refreshAnalyses()\n  - curvature(bodyId) -> exact per-vertex k1/k2/K/H from the OCCT surfaces (EvalD2 at the face triangulation's UV nodes)\n  - optimalMinimumRadius(bodyIds), analysisObjects()\n  - materialBrowser {open, close, isOpen, libraries, store}\n- doc.analyses = [{id, type, name, visible, ...params}]. It is undoable through app.mutate, saved with the design, and analyses are not timeline features (same as Fusion).\n- Events: 'analyses' (list or visibility changed), 'materials' (libraries or the design's custom materials changed).\n- doc.customMaterials and doc.customAppearances hold copies of the user-library items that a design uses.\n- User libraries are stored in localStorage key fusionrec.materialLibraries.v1 (in try/catch, memory fallback), exported with app.download and opened with input type=file.",
+    "tests": [
+      "node --check on all edited files: OK",
+      "node scripts/build.mjs --out=build/inspect: OK (one earlier attempt failed on another engineer's src/modules/sketch/include3d.js import; the final full build succeeded)",
+      "Final run on the fresh build: QA_PORT=5440 run-all inspect core-loop modeling toolbar undo-redo: 5/5 PASS, 0 console errors. inspect 132/132, core-loop 65/65, modeling 83/83, toolbar 62/62, undo-redo 15/15.",
+      "The inspect scenario covers all 8 analyses through the INSPECT panel and real dialogs, plus: browser Analysis folder Edit and eye, undo/redo of an edit, following a model change, save, new and open round-trip, Delete and undo, and Manage Materials (library, new material, assign, mass from density, save/open, undo)."
+    ],
+    "knownIssues": [
+      "Some display details are inferred, not taken from Autodesk documentation: the Gaussian colour-scale normalisation, comb and isocurve colours, legend placement, the default Maximum/Minimum Limit (100 mm / 1 mm) and the environment pictures (procedural, not Fusion's HDRIs). The README lists these. Compare them with real Fusion on this machine.",
+      "Zebra stripes come from the reflected view ray. Planar faces show almost one uniform stripe (all white or all black). Real Fusion with a perspective camera can show broader stripes on planar faces.",
+      "I could not spawn the review subagent that the user's working rules ask for, because this subagent has no agent-spawning tool. I did a self-review only.",
+      "Engine tests (npm test, spline_test, robust_test) were not run because no engine file changed."
+    ]
+  },
+  "review:inspect": {
+    "findings": [
+      {
+        "file": "src/modules/inspect/mesh.js",
+        "line": 100,
+        "severity": "medium",
+        "problem": "parse3MF ignores build item and component transforms, so multi-part or transformed 3MF files are placed at raw mesh coordinates."
+      },
+      {
+        "file": "src/modules/inspect/surfanalysis.js",
+        "line": 339,
+        "severity": "medium",
+        "problem": "BufferGeometry objects cached in geoCache are never disposed, so GPU buffers persist after each body rebuild."
+      },
+      {
+        "file": "src/modules/inspect/surfanalysis.js",
+        "line": 654,
+        "severity": "medium",
+        "problem": "buildAccessibility renders two 2048x2048 depth maps on every refresh, and refresh runs on each dialog slider tick, which is costly."
+      },
+      {
+        "file": "src/modules/inspect/curvature.js",
+        "line": 78,
+        "severity": "medium",
+        "problem": "The Triangulation handle from BRep_Tool is never deleted (finally at line 95 deletes only loc), leaking a wasm object per call."
+      },
+      {
+        "file": "src/modules/inspect/mesh.js",
+        "line": 340,
+        "severity": "low",
+        "problem": "Re-picking a file in Edit Feature stores new triangles but never deletes the old doc.meshData record, leaving orphaned data in the saved file."
+      },
+      {
+        "file": "src/modules/inspect/mesh.js",
+        "line": 180,
+        "severity": "low",
+        "problem": "Two file reads in flight can resolve out of order, so an older file can overwrite mesh and staged after a newer pick."
+      },
+      {
+        "file": "src/modules/inspect/analysis-cmds.js",
+        "line": 204,
+        "severity": "low",
+        "problem": "display.directionOf is called without a null check (also line 283); store.display is null until the first refresh, so commit throws for Draft and Accessibility."
+      },
+      {
+        "file": "src/modules/inspect/curvature.js",
+        "line": 372,
+        "severity": "low",
+        "problem": "nearCentroid (line 351) scans every triangle of a face for each edge, giving O(edges x triangles) work that can stall on fillet-heavy bodies."
+      },
+      {
+        "file": "src/modules/inspect/materials.js",
+        "line": 531,
+        "severity": "low",
+        "problem": "Both branches of the categories ternary are identical, so the conditional is dead logic."
+      },
+      {
+        "file": "src/modules/inspect/materials.js",
+        "line": 565,
+        "severity": "low",
+        "problem": "The ternary always yields input, and SELECT elements then get both input and change listeners (lines 566-567), so _edit runs twice per change."
+      },
+      {
+        "file": "src/modules/inspect/materials.js",
+        "line": 746,
+        "severity": "low",
+        "problem": "The hidden file input for Open Existing Library is removed only on change, so cancelling the picker leaves an input in the DOM each time."
+      },
+      {
+        "file": "src/modules/inspect/analyses.js",
+        "line": 13,
+        "severity": "low",
+        "problem": "Command ids and titles are defined twice (ANALYSIS_META here and COMMANDS in analysis-cmds.js line 10), so they can drift apart."
+      }
+    ]
+  },
+  "build:annotate": {
+    "summary": "The five CREATE PMI commands now work end to end. The earlier engineer's WIP code (src/modules/annotate/*) was mostly complete and worked. I reviewed it, fixed 4 bugs, added the module README and wrote the QA scenario tests/e2e/scenarios/annotate.mjs. The required scenarios pass with zero console errors: annotate 85/85, core-loop 65/65, modeling 83/83, toolbar 62/62, undo-redo 15/15.\n\nEach annotation is a timeline feature (types pmiNote, pmiGeneralNote, pmiDimension, pmiGdt, pmiHoleNote) registered through app.M.registerFeature. Each one is listed under the PMI folder in the browser and drawn on an annotation plane in the viewport overlay (leaders, arrowheads or dots, frames, datum symbols, Arial-style text). Undo/redo, save/open, Edit Feature, suppress, roll back, rename, Show/Hide and Delete all work. I checked the dialog labels against the local Fusion string tables.\n\nFixes this session:\n- A feature control frame attached to a dimension showed as orphaned after reopening a document.\n- A boss on a cylinder that OCCT splits into several faces showed a wrong quantity (\"2x\").\n- Custom rows in the dialogs were not indented like the framework rows.\n- The Symbol dropdown caret was too large.",
+    "implemented": [
+      "LeaderLineNoteCommand (Note): select a face (dot leader) or an edge/vertex (arrow leader). The note follows the cursor and a click anchors it. Rows: Change annotation plane (cycles candidate planes), Alternate annotation plane, Perpendicular text, Leader line extension, multi-line text with alignment and Insert symbol. Live preview, double-click to edit, Delete, orphan warning.",
+      "GeneralNoteCommand (General Note): text fixed to the screen in one of four quadrants (Change note quadrant), size taken from the PMI settings.",
+      "DimensionNoteCommand (Sizes and Dimensions): linear, diameter, radius and angular dimensions from 1 or 2 faces, edges or vertices. Tabs: Leader line | Dimension | Text. Modeled value or override, tolerances (symmetric, deviation, limits, fits), Measurement alignment, Angular sector, Units and precision, Secondary units, %1% text template. Names follow the type (Linear Dimension1, Diameter Dimension1, Angular Dimension1). Values follow model edits.",
+      "GeometricToleranceNoteCommand (Geometric Tolerancing): feature control frames with 14 characteristics in an image symbol menu, diameter zone, material condition, primary/secondary/tertiary datums with modifiers, free state, tangent plane, projected zone, zone, associated feature and composite control. Datum feature symbol (Create Datum, identifier, leader, extension, offset). A frame can attach to a surface or hang under an existing dimension or hole note. Uses Fusion's validation messages. Names: Flatness1, Position1, Datum A.",
+      "HoleThreadNoteCommand (Hole/Thread Note): reads Hole features (diameter, depth or THRU, counterbore, countersink, quantity) and Thread features (designation, class, direction, depth) and handles bosses. Tabs Counterbore, Countersink and Thread appear only when they apply. Each value can be overridden and toleranced. The note follows model edits and, when orphaned, keeps its last text.",
+      "FusionChangePMISettingsCmd (Change PMI Settings, in the PMI folder context menu): Standard, Size, Default Precision, Default Tolerance, Leading Zero, Trailing Zero, General Note Size, Custom General Note Size. Undoable."
+    ],
+    "notImplemented": [],
+    "sharedEdits": [],
+    "contracts": "app.ui.pmi API:\n- features(): PMI features in timeline order.\n- spec(id): {orphan, warning, selRefs, plane, measured?, lines?, hole?, thread?}.\n- specs(), refresh(), settings(), ctxFor(state).\n- renderer.primsOf(id) -> {segs, tris, texts:[{block, c, H}]}. The id \"__preview__\" gives the live dialog preview; previewPrims() is the same.\n\nFeature types (from model.js registerFeature, icon = the command id): pmiNote, pmiGeneralNote, pmiDimension, pmiGdt, pmiHoleNote. A pmiGdt with an annot field hangs under a dimension or hole note; pmiDeps lists that host so timeline dependency checks see it.\n\nDocument data: settings live in doc.pmi. Default names count up in doc.counters['pmi:<stem>']. The full schema is in src/modules/annotate/README.md.\n\nBrowser: the folder is registered with app.ui.browser.registerFolder({key:'annotations', label:'PMI'}) and its rows are keyed feature:<id>.\n\nHidden commands EditLeaderLineNote, EditGeneralNote, EditDimensionNote, EditGeometricToleranceNote and EditHoleThreadNote edit the selected annotation.\n\nDOM hooks: tabs .pmi-tab[data-tab]; textarea [data-input=text]; symbol menu #overlay [data-menu=fcf_sym] [data-option=<characteristic>]; general notes .pmi-gnote[data-pmi=<id>].",
+    "tests": [
+      "QA_OUT=build/annotate QA_PORT=5480 node tests/e2e/run-all.mjs annotate core-loop modeling toolbar undo-redo --no-build --quiet: 5/5 PASS (annotate 85/85, core-loop 65/65, modeling 83/83, toolbar 62/62, undo-redo 15/15), 0 console errors.",
+      "New scenario tests/e2e/scenarios/annotate.mjs: opens all five commands from UTILITIES > CREATE PMI (checks none is a stub); Note via canvas face pick, cursor placement with live preview, typed text, OK; linear, diameter and angular dimensions including the Dimension and Text tabs; Flatness frame via the symbol menu, Datum A, and Position to A under the diameter dimension; Hole/Thread Note (counterbore tab, text lines); General Note; timeline items and the PMI browser folder; click to select on the canvas, Delete, Ctrl+Z; double-click to edit; annotations follow edits to box length and hole diameter; suppressing the hole orphans its notes with a timeline warning; Show/Hide; undo/redo; Change PMI Settings Size and undo; save/open round trip; Edit Feature from the timeline.",
+      "Ad-hoc probes in tests/e2e/out/annotate/: hole note with a Thread feature reads 'M10x1.5 - 6H THRU'; boss note on a cylinder primitive; dimension between two parallel edges (10.00); visual checks of the dialogs (Note, Sizes and Dimensions, Hole/Thread Note, Geometric Tolerancing).",
+      "node --check on every annotate file passes. Engine tests were not run because I changed no engine files."
+    ],
+    "knownIssues": [
+      "Changing Default Precision, Default Tolerance or Leading/Trailing Zero in Change PMI Settings applies only to new annotations. Existing notes keep the display settings stored with them. Size, Standard and General Note Size apply to all annotations. I could not confirm Fusion's exact behaviour from local evidence. Fusion also has 'Custom Size' and 'Set as Default' strings that are not implemented; Size is a plain value field here.",
+      "Annotations are drawn in the overlay on top of the model (no depth test), so annotations on hidden faces (for example a datum on the bottom face) show through the body.",
+      "The canvas marking menu shows the generic 'Edit Feature' for a selected annotation, not Fusion's 'Edit PMI'. The browser PMI context menu does say 'Edit PMI'.",
+      "The rules about review subagents and skill logging were not applied: this subagent has no agent-spawning tool. I reviewed my own diff instead (4 small fixes, README, scenario).",
+      "ARCHITECTURE.md (not my file) still says there are 20 scenarios; run-all picks up annotate.mjs automatically."
+    ]
+  },
+  "review:annotate": {
+    "findings": [
+      {
+        "file": "src/modules/annotate/format.js",
+        "line": 148,
+        "severity": "medium",
+        "problem": "limitsStacked and limitsLinear use `Number(x) || nominal`, so a valid 0 limit (for example a lower limit of 0) is printed as the nominal value (line 149 has the same pattern)."
+      },
+      {
+        "file": "src/modules/annotate/annotations.js",
+        "line": 75,
+        "severity": "low",
+        "problem": "noteSpec reads f.plane.n when the reference is lost and f.plane is absent; specFor swallows the TypeError, so the note disappears with no orphan warning (same pattern at line 291 in gdtSpec)."
+      },
+      {
+        "file": "src/modules/annotate/geom.js",
+        "line": 398,
+        "severity": "low",
+        "problem": "Math.max or Math.min over an empty wallEnds array gives -Infinity or Infinity, so a counterbore depth can become non-finite."
+      },
+      {
+        "file": "src/modules/annotate/dlgkit.js",
+        "line": 435,
+        "severity": "low",
+        "problem": "popupMenu installs its window listeners in a setTimeout, so if closePopup runs first the listeners of the closed menu stay attached and call closePopup on later events."
+      },
+      {
+        "file": "src/modules/annotate/dlgkit.js",
+        "line": 413,
+        "severity": "low",
+        "problem": "popupMenu duplicates the framework openMenu (src/modules/dialogs/framework.js:1087); cmd-gdt.js:54 uses popupMenu while dlgkit.js:170 uses dlg.openMenu, so there are two menu systems."
+      },
+      {
+        "file": "src/modules/annotate/cmd-note.js",
+        "line": 157,
+        "severity": "low",
+        "problem": "quadrantRow rebuilds the label and control row that dlgkit.js labeled() already provides; cmd-gdt.js:45 hand-builds the same .pmi-lrow markup."
+      },
+      {
+        "file": "src/modules/annotate/cmd-dimension.js",
+        "line": 155,
+        "severity": "low",
+        "problem": "The status callback repeats the type-to-label map already defined as STEM at line 21."
+      },
+      {
+        "file": "src/modules/annotate/cmd-gdt.js",
+        "line": 115,
+        "severity": "low",
+        "problem": "The ternary `used.includes(l) ? l : `${l}`` returns the same label in both branches, so it does nothing."
+      },
+      {
+        "file": "src/modules/annotate/cmd-gdt.js",
+        "line": 15,
+        "severity": "low",
+        "problem": "`const V = G.V` is never used in this file."
+      },
+      {
+        "file": "src/modules/annotate/cmd-hole.js",
+        "line": 17,
+        "severity": "low",
+        "problem": "`const V = G.V` is never used in this file."
+      },
+      {
+        "file": "src/modules/annotate/cmd-note.js",
+        "line": 219,
+        "severity": "low",
+        "problem": "`export { V }` re-exports a constant that nothing imports; `const V` at line 14 is otherwise unused."
+      },
+      {
+        "file": "src/modules/annotate/cmd-gdt.js",
+        "line": 276,
+        "severity": "low",
+        "problem": "`export { isPmi }` re-exports an import that no module uses from this file."
+      },
+      {
+        "file": "src/modules/annotate/text.js",
+        "line": 261,
+        "severity": "low",
+        "problem": "The branch `else if (span && j === 0) { /* spanned cell */ }` is empty and does nothing."
+      },
+      {
+        "file": "src/modules/annotate/text.js",
+        "line": 84,
+        "severity": "low",
+        "problem": "isSymbolChar (line 84), richWidth (line 138) and the CH_TO_SYM export (line 291) have no importer in the annotate module."
+      },
+      {
+        "file": "src/modules/annotate/icons.js",
+        "line": 36,
+        "severity": "low",
+        "problem": "PMI_ICONS.glyph has no caller in the annotate module."
+      },
+      {
+        "file": "src/modules/annotate/format.js",
+        "line": 105,
+        "severity": "low",
+        "problem": "disp.anglePrecision has no producer (ANGLE_PRECISION_OPTIONS at line 57 is unused), so that branch is unreachable."
+      },
+      {
+        "file": "src/modules/annotate/render.js",
+        "line": 157,
+        "severity": "low",
+        "problem": "_texture writes e.used = performance.now() but no code reads the field, so it is dead state."
+      }
+    ]
+  },
+  "build:foundation-1": {
+    "summary": "Foundation part 1 is finished. I kept and checked the WIP from commit e450b32, fixed the defects I found, and added the docs and the QA scenario. Part A: the feature-type registry M.registerFeature works with helpers and a node test. Part B: body kinds work. A surface has its back side drawn gold. A mesh has flat facets and meshFace refs. Insert Mesh now makes a real mesh body that you can edit, move, delete, export to STL, save and open, and older docs that use doc.meshes are converted when they open. Part C: contextual environments work, with the FINISH panel, when:<mode> commands, the S toolbox, the marking menu and shortcuts. Part D: workspaces work, with Fusion's switcher order, a placeholder for unbuilt workspaces, Ctrl+] / Ctrl+[ and registerWorkspace. Part E: ARCHITECTURE.md has the new contract sections and each owned module has a README. Fixes made this session: two regexes in menus had a lost backslash or a literal backspace character. The browser opacity wrapper dropped the new material variant, so mesh facets and surface sides were not drawn. Delete and Move/Copy refused mesh bodies. newDocument did not leave environments. Default body names now skip mesh bodies, so the next solid after a mesh is Body2. A plain click on a mesh body now selects the body.",
+    "implemented": [
+      "M.registerFeature(type, def) (also app.M.registerFeature): fields, label, stem, apply, makesBodies, deps, touches, editor, icon, browser.folder. M.featureDef, featureTypes, registeredFeatures, isFeatureType, onFeatureRegistered and M.helpers are available. These are wired into core (prepareFeature/assignBodies, featureEditor, featureLabel, the 'feature-types' event), the timeline (labels, icons, dependency checks) and the browser (folders).",
+      "Body kinds solid, surface, mesh and tspline: st.meshBodies, M.bodyKind/shapeKind/bodyBBox/allBodyIds, app.allBodies/anyBody/bodyKind/bodyInfo, app.registerBodyKind(kind, {label, icon, mesh, render, pick, edges, info}). Rendering: a surface shows its front side in the appearance colour and its back side in gold; a mesh is drawn with flat facets plus group or sharp edges. Picking returns meshFace refs. Browser icons and subtitles per kind. Hide, isolate, rename and Delete work. STL export includes mesh triangles; STEP export uses B-rep bodies only.",
+      "ParaMeshInsertAlignCommand (Insert Mesh) accepts STL, OBJ and 3MF and makes a real 'mesh' timeline feature whose body is named after the file. Live preview, Move To Ground, Center and Reset work. Edit Feature reopens the dialog. Move/Copy and Delete work on the mesh body. Save/open keeps the data in doc.meshData. Older docs with doc.meshes are converted by M.migrateDoc when they open.",
+      "app.enterEnvironment / exitEnvironment / environment / environments / inMode. In an environment the toolbar shows the contextual tab with the green-check FINISH panel; spec.js has CONTEXTUAL_TABS for FormTab, BasefeatureSolid/SurfaceTab, FlatPatternSolid/SurfaceTab, ParaMeshBaseFeatureTab, EditSnapshotTab and PCBTab, with all their ids registered as stubs. Fallback finish commands leave the environment. when:<mode> commands become available. The marking menu follows MARKING_MENUS, the S toolbox title is per environment and the shortcut lists are per mode. Esc does not leave the environment. MODE_TOOLBARS covers Configure and Edit In Place.",
+      "Workspaces: app.registerWorkspace / setWorkspace / workspace / workspaceList / workspaceDef and the 'workspace' / 'workspaces' events. The switcher order is Design, Generative Design, Render, Animation, Simulation, Manufacture, Drawing. workspaces-spec.js holds the tabs and panels of 6 workspaces and 513 command stubs, each scoped by its workspace field. An unregistered workspace shows a placeholder card with Back to Design. A workspace can supply its own bottom strip, hide the browser or add a canvas layer. NextWorkspace / PreviousWorkspace use Ctrl+] / Ctrl+[.",
+      "app.ui.browser.registerFolder / invalidate. The timeline reads def.deps and def.touches.",
+      "ARCHITECTURE.md has new sections (Feature-type registry, Body kinds, Contextual environments, Workspaces, Browser and timeline hooks) and updated App, Events, Refs and Document sections. READMEs added for shell, viewport, browser, timeline and menus.",
+      "tests/e2e/scenarios/foundation.mjs (41 checks): registry, Insert Mesh through the UI, Delete/undo, Edit Feature, Move/Copy, STL export, save/open, legacy migration, surface body, FORM environment, workspaces."
+    ],
+    "notImplemented": [
+      {
+        "id": "Generative Design / Render / Animation / Simulation / Manufacture / Drawing workspace tools",
+        "reason": "Out of scope for foundation. Each workspace has its Fusion toolbar (stubs), a placeholder and the registerWorkspace contract; the real tools belong to the workspace modules."
+      },
+      {
+        "id": "New Component wiring (dialogs)",
+        "reason": "This is part 2 of the foundation task."
+      }
+    ],
+    "sharedEdits": [
+      "src/modules/dialogs/cmd-modify.js: deleteThings also deletes mesh bodies (state.meshBodies); the Move/Copy 'bodies' row has meshBodies:true",
+      "src/modules/dialogs/framework.js _accepts: accepts body refs of mesh-like bodies only when the row has meshBodies:true",
+      "src/modules/dialogs/util.js bodiesCenter: mesh bodies use the meshdata bbox (new import of bbox from src/meshdata.js)",
+      "src/modules/dialogs/README.md: documents the meshBodies row option",
+      "tests/e2e/scenarios/insert.mjs: Insert Mesh section rewritten for mesh bodies (mesh feature, Bodies folder row, state.meshBodies) in place of doc.meshes and the Mesh Bodies folder",
+      "From the WIP commit (kept): new src/meshdata.js, tests/registry_test.mjs added to npm test in package.json"
+    ],
+    "contracts": "Full text with examples is in ARCHITECTURE.md.\n(1) M.registerFeature(type, {label, stem?, fields?, apply(st, f, P, doc), makesBodies?, deps?, touches?, editor?, icon?, browser?:{folder}}). M.helpers lists the evaluator helpers. An unregistered type fails with a clear message.\n(2) Body kinds: st.bodies holds OCCT solids and surfaces. st.meshBodies holds {id, kind, mesh:{positions, indices|null, normals?, groups?}, data?, bbox?}. app.registerBodyKind(kind, {label, icon, mesh(entry), render(entry), pick(entry, x, y, ray, opts), edges, info}). app.allBodies / anyBody / bodyKind / bodyInfo. Ref {kind:'meshFace', body, tri, group, p, n}; a plain click selects the body, and a filter for meshFace gets face groups. Dialog selection rows accept mesh bodies only with meshBodies:true. Mesh data is stored in doc.meshData through M.storeMeshData; M.stageMeshData is for previews.\n(3) app.enterEnvironment({id, mode, label, tab, panels?, finishCommand, finishLabel?, baseTabs?, markingMenu?, shortcuts?, modeToolbar?, modeLabel?, feature?, onExit(reason)}) and exitEnvironment(id, {reason}). Commands with when:<mode> run only in that environment. The 'environment' event fires on enter and exit. A module that registers the real finish command replaces the shell fallback.\n(4) app.registerWorkspace({id, label?, tabs?, panels?, enter, exit, timeline?:(host, app) => dispose | false, browser?, canvas?, shortcuts?}) and app.setWorkspace(id). Workspace commands use workspace:<id>.\n(5) app.ui.browser.registerFolder({key, label, after?, before?, build(app)}) returns remove().\n(6) Default body names count only default-named bodies (counters.bodyName).",
+    "tests": [
+      "npm test (sketch_test, sketch_engine2, kernel_smoke, kernel2, dialogs_model, registry_test): all passed",
+      "node tests/spline_test.mjs: all passed; node tests/robust_test.mjs: ALL PASS",
+      "QA (build/foundation, ports 5400-5402): foundation 41/41, core-loop 65/65, modeling 83/83, toolbar 62/62, undo-redo 15/15, insert 58/58, browser 35/35, timeline 43/43, save-open 22/22, marking-menu 36/36, toolbox 11/11, shortcuts 35/35, inspect pass; zero console errors in all of them",
+      "Ad-hoc checks (tests/e2e/out/foundation/look.mjs, dbg.mjs, dbg2.mjs): mesh flat facets and surface sides rendered correctly; Move on a mesh body; Measure, Properties, Appearance, Isolate, Center of Mass and BOM run on a mesh body with no console errors"
+    ],
+    "knownIssues": [
+      "No local file gives the workspace switcher order: Fusion builds the list at runtime (ActivateEnvironmentCommand). The order used is the known Fusion UI order; it was not checked against a screenshot.",
+      "The gold back side of surface bodies and the mesh display (flat facets, edges only at face-group borders and sharp creases) follow Fusion's behaviour as I know it. They were not compared with a local reference screenshot.",
+      "A sketch made inside an environment shows the persistent tabs plus SKETCH. Fusion probably shows the environment tab plus SKETCH. This was not checked.",
+      "Inspect's Properties, BOM and Measure do not yet show mesh numbers; app.bodyInfo(id) is ready for the inspect engineer to use. BOM still lists B-rep bodies only (insert.mjs expects this).",
+      "inspect/insert.js, browser/index.js and menus/index.js still hold the old doc.meshes store and rendering code. It no longer runs, because M.migrateDoc converts doc.meshes on every open. inspect/index.js, which is not mine, still uses this code, so I did not remove it.",
+      "Default body names changed: the next solid after a mesh body is now Body2. Documents saved before this change keep their numbering through counters.bodyName.",
+      "Your working rules ask for review subagents. I had no tool to start subagents, so no fresh-eyes review ran. I reviewed the diff myself.",
+      "Another engineer edited menus/markingmenu.js (they added two tangent-handle overflow items) and converted the file to CRLF line endings. I kept that change."
+    ]
+  },
+  "build:manage": {
+    "summary": "All 23 UTILITIES / MANAGE / AUTOMATION / SELECT stubs are now real commands. The earlier WIP already covered Scripts and Add-Ins, the links, the Select tools, Design Advice, Find Features, Navigator, Generate Timeline and Compute Unresolved. I reviewed and tested that work and fixed 3 bugs. 1: the Scripts dialog + menu was hidden under the modal backdrop, so users could not click it. 2: the Run switch of an add-in closed the dialog. 3: Selection Filters relied on animation frames, so the list did not open when frames were slow. I also added the CSS that Design Advice and Navigator had no styles for. New work: pim.js (local Fusion Manage in doc.pim), tasks.js (local task system in browser storage), icons.js (9 original icons), README.md and the QA scenario tests/e2e/scenarios/manage.mjs. manage (52/52), core-loop (65/65), toolbar (62/62), undo-redo (15/15) and modeling (83/83) all pass with 0 console errors. The last run of modeling was one rebuild before the final one; the only changes after it were the task storage key and the scenario. I edited no shared files.",
+    "implemented": [
+      "ScriptsManagerCommand (Shift+S): Scripts and Add-Ins dialog, create (JavaScript), edit in the built-in code editor, run, stop, run on startup, samples, scripts persisted in localStorage, message when a strict CSP blocks eval. A typical Fusion JS sample script (sketch, rectangle, circle, extrude createInput+add, fillets, userParameters, messageBox) runs and is undone in one step",
+      "APIHelpCommand (public API reference in a new tab plus the in-app script API reference palette)",
+      "ExchangeAppStoreCommand (public store page in a new tab)",
+      "DesignAdviceCmd (Thickness / Undercuts / Draft / Knife Edges with painted regions; now styled)",
+      "FusionFindFeaturesCommand (doc.foundFeatures + browser Features folder, undoable)",
+      "GraphViewCmd (Navigator dependency graph palette; now styled)",
+      "TimelineBuilderCommand (rebuilds a body as sketches + extrudes and opens it as '<name> AutoTimeline')",
+      "FusionComputeUnresolvedCommand",
+      "SelectByNameCommand",
+      "FusionSelectBodiesBySizeCommand",
+      "SelectByBoundaryCommand",
+      "FusionSelectSeedAndBoundaryFacesCommand",
+      "SelectByInvertCommand",
+      "SelectionFilterCommand (opens the SELECT panel list; the shell's filter state filters canvas picks)",
+      "PIMAssignItemNumberCmd (Part Name / Numbering Scheme / Item Number, ITM-000001, Unreleased)",
+      "PIMQuickReleaseCmd (Unreleased -> Pre Release 1 -> 2 ...; Production items and items on a change order are refused)",
+      "PIMECOReleaseCmd (change order CO-000001; workflow Open -> In Review -> Released (Production A, B ...), Reject, Cancel; audit trail)",
+      "PIMGoToDashboardCmd / PIMGoToItemDetailsCmd / PIMGoToChangeOrderCmd ('Fusion Manage' palette with the tabs Dashboard, Details and Change Orders)",
+      "TaskManagementCreateTaskCmd (New Task dialog: Title, Description, Assignee, Due Date, Priority, Related To (preselected); Edit Task)",
+      "TaskManagementRelatedTasksCmd (tasks of this design related to the selection)",
+      "TaskManagementOpenTasksCmd (task board: Open / In Progress / Done, search, all designs or this design)"
+    ],
+    "notImplemented": [],
+    "sharedEdits": [],
+    "contracts": "See C:/Users/rohan/AppData/Local/Claude-Data/claude_pzs8sxrjxfjjc/scratch-workspaces/277da8b9-a5df-4bda-a412-d67d2fb496c0/195ff05d-3f34-4f32-95ee-4e7f8caef6d4/scratch-2026-11-08-0e6df6/fusion/src/modules/manage/README.md.\n\nAPIs:\n- app.ui.scripts: store, host, run(id), stop(id), edit(id), open(), create({name, source, isAddIn}), list(), reference(), canCompile().\n- app.ui.pim: components(), item(key), changeOrders(), assign(keys, scheme), quickRelease(keys), createChangeOrder({title, description, keys}), advance(coId, 'submit'|'approve'|'reject'|'cancel', comment), open(tab).\n- app.ui.tasks: list(), save(rec), remove(id), related(refs), openBoard(), openRelated(), newTask({task?, preselect?}).\n- app.ui.findFeatures: recognize(bodyId, types), list(), faces(found).\n- app.ui.timelineBuilder: generate(bodyId), open(doc), last.\n\nDocument data (undoable, saved with the design):\n- doc.pim = {seq, items:{root:{itemNumber, scheme, lifecycle, revision, changeOrder, history}}, changeOrders:[{id, number, title, description, items, targets, state, history}]}\n- doc.foundFeatures\n\nBrowser storage keys: fusionrec.manage.scripts.v1 and fusionrec.manage.tasks.v1.\n\nEvents: 'tasks', 'script', 'scripts', 'design-advice', 'timeline-builder'.\n\nDOM hooks:\n- PIM modals: [data-dialog=PIMAssignItemNumberCmd|PIMQuickReleaseCmd|PIMECOReleaseCmd]\n- palettes: [data-palette=pim|related-tasks|task-board|navigator|script-api-reference]\n- change order actions: [data-co-action=submit|approve|reject|cancel]\n- task cards: [data-task]; board columns: [data-status].",
+    "tests": [
+      "QA_OUT=build/manage ... run-all.mjs manage core-loop toolbar undo-redo --no-build: all PASS (manage 52/52, core-loop 65/65, toolbar 62/62, undo-redo 15/15), 0 console errors, on the final build",
+      "run-all.mjs modeling: PASS 83/83, 0 console errors, one rebuild before the final one (only the task storage key and the scenario changed after it)",
+      "Ad-hoc scripts under tests/e2e/out/manage/ (git-ignored): a smoke test of every command, a run of a Fusion-style JS sample script (sketch + extrude + fillet + userParameters; one undo removes it), the PIM and task flows, and visual checks of Design Advice, Navigator, the Scripts dialog and the MANAGE toolbar icons",
+      "No engine tests were run, because src/model.js, src/kernel.js and src/sketch/* were not changed"
+    ],
+    "knownIssues": [
+      "PIM and tasks are local equivalents of cloud services. The recreation has only one component, so the only item is the design ('root'). The ITM-/PRT- numbering schemes and the pre-release numbers (1, 2) and production letters (A, B) for revisions are my own choices: the local install does not show the real formats.",
+      "Tasks link to a design by its name, so unsaved 'Untitled' designs share one task list. Tasks are not undoable (like cloud tasks). The task dialog fields (Assignee, Due Date, Priority, Status) are not in the local install (it only has icons), so they are a reasonable guess.",
+      "Design Advice gives Fusion's real categories (Thickness, Undercuts, Draft, Knife Edges) from mesh ray casts. The task asked for 'tiny features' and 'sharp internal corners', but these are not separate categories in Fusion, so I did not add them.",
+      "Generate Timeline works only on prismatic (2.5D) bodies. Other bodies get Fusion's 'Timeline reconstruction failed' message.",
+      "The QA round trip calls loadDocument on the document JSON. It does not go through the Save/Open dialogs.",
+      "The New Task dialog uses the dialog framework OK button ('OK'), but Fusion's label is 'Ok'.",
+      "I did not spawn a separate review subagent (no agent tool in this run); I reviewed my own changes and ran the tests listed."
+    ]
+  },
+  "build:configure": {
+    "summary": "Fusion's design configurations now work end to end. The three CONFIGURE panel commands are real: Configure (FusionStartDesignConfigModeCmd), Display Configuration Table (FusionShowDesignConfigPanelCmd) and Create Configuration Rules (FusionConfigurationRulesCmd). So are the \"Configure\" items in the Timeline and Browser right-click menus (ConfigureFeatureCmd, ConfigureEntityCmd).\n\n**How it behaves:**\n- **Configure** opens the CONFIGURATION TABLE palette at the bottom of the canvas and enters Configuration Mode. A \"CONFIGURATION ✓\" bar appears at the top of the canvas (the check mark or Esc exits), timeline features and browser bodies, sketches and planes are highlighted, and a first-time intro card explains the mode.\n- **Clicking a highlighted item** opens the docked CONFIGURE dialog with one check box per aspect: feature parameters and sketch dimensions, Suppression, Visibility, Appearance, Physical Material. OK adds or removes the matching table columns.\n- **The table** has Parameters and Properties tabs, a row count with Add Configurations, Add Aspects, Add Parameters (a PARAMETERS dialog with a Configured column), Configuration Rules, and a More menu (sort columns and rows, export CSV). The first row is the Default Configuration; the active row is marked. Rows can be renamed, duplicated, deleted, sorted and dragged; columns can be renamed, deleted, dragged and bulk-edited (Suppress All, Invert, etc.). Cells are validated.\n- **Theme tables:** Appearance Theme and Physical Material Theme tables appear under the top table.\n- **Activating a configuration** (double-click a row name, the row's radio, right-click > Activate, or the searchable selector added under the BROWSER header) writes that row into the document through app.mutate. No evaluator change was needed, so undo/redo and save/open work like any other edit.\n- **Edits made elsewhere** to a configured aspect (Edit Feature, Change Parameters, timeline suppress, appearance) are written back into the active configuration only, inside the same undo step.\n- **Configuration Rules** is a local version of Fusion's block-based rules editor: Toolbox categories, Rule blocks with On/Off and status, if/else if/else Logic blocks, Getter, Setter, And/Or, Not, Comment. Rules run locally against every configuration: \"=\" drives a value (the cell becomes read-only), while min/max/range/any-of limit it. A violating edit is rejected with \"Value violates rule\", and Apply clamps values to the nearest allowed one.\n\n**Results:** my configure scenario passes 97/97, and core-loop, modeling, toolbar and undo-redo all pass with zero console errors. Outside my folder I made two one-line edits, so the \"Configure\" right-click items in the Browser and Timeline run the real command.",
+    "implemented": [
+      "FusionStartDesignConfigModeCmd",
+      "FusionShowDesignConfigPanelCmd",
+      "FusionConfigurationRulesCmd",
+      "ConfigureFeatureCmd",
+      "ConfigureEntityCmd",
+      "ActivateConfig"
+    ],
+    "notImplemented": [
+      {
+        "id": "FusionStartDesignConfigModeCmd (partial)",
+        "reason": "These parts of Fusion's configured-design workflow are missing: custom theme tables and Move to Theme Table, the Test Row, Sheet Metal and Plastic rule themes (this app has no such rules), component inserts and joint snaps (there are no assemblies), thread and hole-type aspect columns (only numeric hole and thread parameters can be configured), the 'Suppressed (implicit)' display, the 'Configure' tab inside modeling dialogs, and the Configured Design icon on the document tab and in the Data Panel (the app bar belongs to the shell owner)."
+      },
+      {
+        "id": "FusionConfigurationRulesCmd (partial)",
+        "reason": "Blocks are added by clicking a Toolbox block, which goes into the selected statement area or condition slot, and reordered with up/down buttons. Fusion uses free drag-and-drop on a Blockly canvas instead. Block From Object mode and the Workflow Guide are not built. Fusion runs rules on Autodesk's rules service; here they are evaluated locally in rules.js."
+      }
+    ],
+    "sharedEdits": [
+      "src/modules/timeline/index.js (one line in the timeline right-click menu): the 'Configure' item now calls runCmd(app, \"ConfigureFeatureCmd\", { id }, () => notAvailable(app, \"Configure\"), \"Configure\") instead of always showing notAvailable, and is disabled when several features are selected.",
+      "src/modules/browser/index.js (one line in the body right-click menu): the 'Configure' item now calls runOrSay(\"ConfigureEntityCmd\", \"Configure\", { ref: { kind: \"body\", body: id } }) instead of notAvailable."
+    ],
+    "contracts": "Full details are in src/modules/configure/README.md.\n\n**Document data (saved with the design):**\n- `doc.configurations = {version, nid, rows:[{id, name, partNumber, description}], active, columns, cells, themes, rules}`. `rows[0]` is the Default Configuration.\n- Column kinds: `{kind:'param', user:true, name}`, `{kind:'param', owner, field}`, `{kind:'param', owner, cid}` (sketch dimension), `{kind:'suppress', feature}`, `{kind:'visibility', body|feature}`, `{kind:'theme', table:'appearance'|'material'}`. Optional `title` (renamed column) and `param`.\n- Cell values: a parameter cell holds an expression string; suppress holds a bool (true = suppressed); visibility holds a bool (true = visible); a theme cell holds a theme row id.\n- `themes.appearance` / `themes.material = {rows, columns:[{id, body}], cells}`.\n- Rules: `{id, name, comment, active, body}`. Statements are set / if (with elifs and else) / comment; conditions are get / and / or / not. Getter ops: eq ne gt ge lt le range anyOf. Setter ops: eq ne min max range anyOf.\n\n**Runtime rule:** the document's live values always show the active configuration. Any other module's edit to a configured aspect is copied into the active row on the 'doc' event (same undo step) and re-checked against the rules.\n\n**Public API `app.ui.configure`:**\n- `configured`, `configurations()`, `active()`, `columns()`\n- `activate(idOrName)`, `addConfigurations(n)`, `addAspect(template)`, `setCell(row, col, value)` (validated and rule-checked)\n- `configure({kind:'feature'|'body', id})`, `enterMode()` / `exitMode()`, `openRules()`, `openParameters()`, `applyRules(rules)`\n- `table {visible, show, hide, toggle, render, startRename}`, `mode {active, enter, exit}`, `selector`\n- `data` (data.js) and `rules` (rules.js) are pure functions usable in Node.\n\n**Event:** `configure` with `{table: bool}` or `{mode: bool}`.\n\n**Commands:** `ConfigureFeatureCmd` takes ctx `{id}`; `ConfigureEntityCmd` takes `{ref:{kind:'body', body}}`. Other modules can route their own \"Configure\" menu items to these.\n\n**DOM hooks for tests:** `[data-cfg-table]`, `[data-cfg=\"count|add-configurations|add-aspects|add-parameters|rules|more|exit-mode|add-themes:<table>\"]`, `[data-table=\"top\"]`, `[data-row-name]`, `[data-col]`, `[data-input=\"<row>:<col>\"]` (state buttons expose `data-value`), `[data-cfg-mode]`, `[data-cfg-selector-head]`, `[data-cfg-option]`, `.dlg[data-dialog=\"ConfigureFeatureCmd|ConfigureEntityCmd\"]`, `[data-dialog=\"ConfigureParameters\"] .cfg-pm-check[data-param]`, `[data-dialog=\"FusionConfigurationRulesCmd\"]` (with `[data-cat]`, `[data-block]`, `[data-rule]`, `[data-rule-status]`, `[data-mutator]`).",
+    "tests": [
+      "New scenario tests/e2e/scenarios/configure.mjs: PASS 97/97, 0 console errors. It drives the real UI: the Configure toolbar button, timeline and browser clicks in Configuration Mode, the Configure dialog check boxes, the right-click Configure items, Add Configurations, cell edits and toggles, activating by double-click and from the browser selector, a timeline Unsuppress written back to the active configuration, Appearance and Physical Material theme tables, the Visibility column, the Add Parameters Configured column, rename / duplicate / delete (Default protected), undo/redo of activation and of rules, two rules (min Setter; if Configuration = Large then set Suppression), rejection of a rule-violating edit, the Properties tab, a save / new / open round trip with an exact data comparison, and toggling Display Configuration Table.",
+      "QA_OUT=build/configure QA_PORT=5500 run-all.mjs configure core-loop modeling toolbar undo-redo --no-build --parallel=3: 5/5 PASS (97/97, 65/65, 83/83, 62/62, 15/15), 0 console errors.",
+      "Earlier in the work (before my last few edits, all inside my own folder): browser, timeline, save-open, parameters, toolbox, marking-menu and shortcuts passed 7/7 with 0 errors.",
+      "Ad-hoc engine check tests/e2e/out/configure/engine_test.mjs (data + rules: add aspects and rows, activate, capture, enforce, checkEdit, range/step, sort, delete protection, theme removal, parameter rename): ALL PASS.",
+      "Ad-hoc browser scripts in tests/e2e/out/configure: drive2 (configuring a sketch dimension: activate 12000 mm³, local edit captured, default restored 8000 mm³), drive3 (a local edit is snapped to the rule's range and step, and undo works), drive4 (complex rule blocks, Discard, Esc with pending changes prompts, sort columns, Invert suppression, Rename Column renames the parameter, drag a row): all OK with 0 errors.",
+      "npm test, spline_test and robust_test were not run: I did not change src/model.js, src/kernel.js or src/sketch/*.",
+      "Build: node scripts/build.mjs --out=build/configure. At one point another engineer's in-progress inspect change (missing ./materials.js) broke the full build, so I temporarily built with --only=viewport,sketch,dialogs,shell,browser,timeline,menus,configure. Every final run used a full build."
+    ],
+    "knownIssues": [
+      "Default names are inferred, not confirmed by evidence: configurations are 'Configuration N' (taken from the Fusion blog's examples) and theme rows are 'Theme N'.",
+      "The table docks along the bottom of the canvas above the nav bar, and the selector sits as a strip under the BROWSER header. Both layouts are inferred; no reference capture of Fusion's configuration UI exists on this machine, and Autodesk's help images could not be fetched.",
+      "The rules editor uses click-to-insert blocks rather than free drag-and-drop. Rules are evaluated locally, with no Fusion Design Extension entitlement check.",
+      "When a configured feature or body is deleted, its column stays and is marked '(aspect no longer exists)' until the user deletes it. Downstream features of a suppressed one are not shown as 'Suppressed (implicit)'.",
+      "Rule evaluation re-applies each configuration row to a light copy of the document (a features clone per row) for parameter values. This is fine for typical tables but grows with rows × features.",
+      "Theme tables have no root-component column (the app has no components), and Fusion's warnings when deleting a column that drives other columns are not reproduced.",
+      "Changes from the latest edits (Logic block settings flyout, the user-parameter aspect label, resetting the browser selector on New/Open) were checked by the final configure scenario run and the ad-hoc scripts. The browser, timeline, save-open, parameters, toolbox, marking-menu and shortcuts scenarios were not re-run after them; those edits are inside my own module only."
+    ]
+  },
+  "review:manage": {
+    "findings": [
+      {
+        "file": "src/modules/manage/scripts/fusion.js",
+        "line": 973,
+        "severity": "medium",
+        "problem": "UserParameter.expression setter keeps an invalid expression in the document after throwing; unlike UserParameters.add it does not roll back."
+      },
+      {
+        "file": "src/modules/manage/scripts/host.js",
+        "line": 152,
+        "severity": "medium",
+        "problem": "Command definitions made by non-add-in scripts are never cleaned up (cleanupOwner runs only for add-ins), so a second run of the same script throws 'already exists'."
+      },
+      {
+        "file": "src/modules/manage/select.js",
+        "line": 447,
+        "severity": "medium",
+        "problem": "Seed And Boundary 'Include Boundary Objects' ignores boundary edges; the comment says their owning faces should be added but the code does not do it."
+      },
+      {
+        "file": "src/modules/manage/scripts/editor.js",
+        "line": 49,
+        "severity": "medium",
+        "problem": "Closing the code editor via X or Esc discards unsaved edits without any prompt."
+      },
+      {
+        "file": "src/modules/manage/scripts/fusion.js",
+        "line": 468,
+        "severity": "low",
+        "problem": "interior() duplicates interior2() in timeline.js (line 49)."
+      },
+      {
+        "file": "src/modules/manage/features.js",
+        "line": 21,
+        "severity": "low",
+        "problem": "Vector helper object V duplicates V3 in advice.js (line 15)."
+      },
+      {
+        "file": "src/modules/manage/scripts/host.js",
+        "line": 10,
+        "severity": "low",
+        "problem": "esc() duplicates the escape helper in ui.js (line 6) with a different character set."
+      },
+      {
+        "file": "src/modules/manage/features.js",
+        "line": 310,
+        "severity": "low",
+        "problem": "'void x' lines suppress unused imports; dead code. Same at timeline.js 205 and 306, select.js 522, advice.js 230."
+      },
+      {
+        "file": "src/modules/manage/features.js",
+        "line": 111,
+        "severity": "low",
+        "problem": "Find Features runs a full generateTimeline on every run just to test whether the body is prismatic."
+      },
+      {
+        "file": "src/modules/manage/scripts/host.js",
+        "line": 250,
+        "severity": "low",
+        "problem": "DropDown item deleteMe() uses splice(indexOf(it), 1); after clear() indexOf is -1 and the last item is removed."
+      },
+      {
+        "file": "src/modules/manage/scripts/host.js",
+        "line": 183,
+        "severity": "low",
+        "problem": "addCommand calls p.dropdown.includes without an Array check."
+      },
+      {
+        "file": "src/modules/manage/scripts/host.js",
+        "line": 78,
+        "severity": "low",
+        "problem": "pump() sets showing=true before m.confirm(); a synchronous throw stalls the message queue."
+      },
+      {
+        "file": "src/modules/manage/scripts/manager.js",
+        "line": 251,
+        "severity": "low",
+        "problem": "linkFromDevice leaves a hidden file input in the DOM when the picker is cancelled."
+      },
+      {
+        "file": "src/modules/manage/navigator.js",
+        "line": 168,
+        "severity": "low",
+        "problem": "The svg click handler also fires at the end of a pan drag and clears the selection."
+      },
+      {
+        "file": "src/modules/manage/pim.js",
+        "line": 170,
+        "severity": "low",
+        "problem": "Assign Item Number with several components creates one undo step per component."
+      }
+    ]
+  },
+  "build:sketch": {
+    "summary": "Resumed sketch. Every sketch task id is real and driven by the QA scenario. Added curvature handles on fit point splines, exact G2 at both ends of 3 point splines, adaptive offset of splines/ellipses/conics (0.002 mm).",
+    "implemented": [
+      "CircleTanTanRadius",
+      "CircleThreeTangent",
+      "ConicCurveCmd",
+      "ShapeArcSlotCenterTwoPoint",
+      "ShapeArcSlotThreePoint",
+      "MTextCmd",
+      "BreakSketchCmd",
+      "SketchScaleCmd",
+      "RectangularSketchPatternCommand",
+      "CircularSketchPatternCommand",
+      "IntersectCmd",
+      "IntersectionCurve",
+      "ProjectToSurface",
+      "Include3DGeometry",
+      "SketchIsoparametricCurve",
+      "SpunProfileCmd",
+      "DrawCVMSpline3D",
+      "SketchImportSVG",
+      "ImportDxfFileCommand",
+      "SketchAutoConstraintAndDimCmd",
+      "SketchAutoConstraintAndDimFromDatumCmd",
+      "SketchAutoConstrainAndFinish",
+      "ConstraintSmooth",
+      "SketchPolygonConstraintCmd",
+      "AddTangentHandle",
+      "DeleteTangentCommand",
+      "AddCurvatureHandle",
+      "DeleteCurvatureCommand",
+      "Offset (splines, ellipses, conics, control point splines)"
+    ],
+    "notImplemented": [
+      {
+        "id": "InsertControlPoint",
+        "reason": "not in the task list"
+      },
+      {
+        "id": "InsertControlPolygon",
+        "reason": "not in the task list"
+      }
+    ],
+    "sharedEdits": [
+      "src/modules/menus/markingmenu.js: two additive lines for AddCurvatureHandle / DeleteCurvatureCommand in the sketch context menu"
+    ],
+    "contracts": "app.ui.sketch.fitPointInfo(items) returns {spline, k, point, active, curv}. spline.hk = {fitIndex: curvatureLineId}. app.S exports splineOf, handleCurvatures, curvatureHandlePoint, fitCurvatureAt.",
+    "tests": [
+      "all engine tests pass",
+      "QA: sketch 176/176, core-loop 65/65, modeling 83/83, toolbar 62/62, undo-redo 15/15, 0 console errors"
+    ],
+    "knownIssues": [
+      "Curvature handle look is an own design.",
+      "Impossible curvature on a span shared by two handles keeps tangents only.",
+      "Local Font Access not testable headless; only bundled Fira Sans is tested."
+    ]
+  },
+  "review:sketch": {
+    "note": "Reviewer saw CRLF churn in the diff (for example src/modules/sketch/modify.js, palette.js): check and restore the original line endings.",
+    "findings": [
+      {
+        "file": "src/sketch/sketch.js",
+        "line": 428,
+        "severity": "high",
+        "problem": "Trim of a closed control point spline leaves the curve unchanged (branch only pushes the id) while trimFreeform still drops its equal/distance constraints."
+      },
+      {
+        "file": "src/modules/sketch/text.js",
+        "line": 214,
+        "severity": "medium",
+        "problem": "frameLines of box text are never removed with the text, and the edit path drops the reference, leaving orphan frame geometry."
+      },
+      {
+        "file": "src/sketch/ops2.js",
+        "line": 97,
+        "severity": "medium",
+        "problem": "2-tangent circle on parallel lines ignores the typed radius and uses half the gap; the typed radius dimension is silently skipped (tools2.js:96)."
+      },
+      {
+        "file": "src/sketch/ops2.js",
+        "line": 307,
+        "severity": "medium",
+        "problem": "scaleEntities skips fixed points but still scales their curves, distorting geometry and rescaling dimensions."
+      },
+      {
+        "file": "src/modules/sketch/env.js",
+        "line": 491,
+        "severity": "low",
+        "problem": "windowProvider uses render.curveLines, which returns [] for single-point curves, so points are not previewed during window selection."
+      },
+      {
+        "file": "src/modules/sketch/importx.js",
+        "line": 21,
+        "severity": "low",
+        "problem": "pickFile never resolves when the file dialog is cancelled and the hidden input stays in document.body."
+      },
+      {
+        "file": "src/modules/sketch/include3d.js",
+        "line": 115,
+        "severity": "low",
+        "problem": "Projection Link checkbox (also lines 257, 261, 335, 427) is never read."
+      },
+      {
+        "file": "src/modules/sketch/autoconstrain.js",
+        "line": 116,
+        "severity": "low",
+        "problem": "afterCommit tests opts.finish, which no caller passes; dead branch."
+      },
+      {
+        "file": "src/sketch/curves.js",
+        "line": 285,
+        "severity": "low",
+        "problem": "fitD2 duplicates the second-derivative formula in fitCurvatureAt's at() helper (line 364)."
+      },
+      {
+        "file": "src/modules/sketch/patterns.js",
+        "line": 43,
+        "severity": "low",
+        "problem": "Unit-direction-from-line computation duplicated here, in dirOf (line 204) and in ops2.js buildPattern."
+      },
+      {
+        "file": "src/sketch/ops2.js",
+        "line": 444,
+        "severity": "low",
+        "problem": "removePattern deletes copied curves but not their orphan points."
+      },
+      {
+        "file": "package.json",
+        "line": 15,
+        "severity": "low",
+        "problem": "npm test does not run tests/sketch3_test.mjs."
+      }
+    ]
+  },
+  "build:foundation-2": {
+    "summary": "Foundation part 2 done: Fusion's component model end to end (components, occurrences Name:n, nested; features own f.occ; browser tree with activation radios; Pin/Unpin, Show/Hide, Selectable, Rename, Isolate, Delete; Move/Copy components with POSITION tab and Capture/Revert; occurrence transforms in evaluation state; display-only transforms; per-component Properties/BOM; save/open; old docs open). Contracts in ARCHITECTURE.md 'Components'.",
+    "implemented": [
+      "FusionCreateNewComponentCommand",
+      "FusionCreateNewCompCmdFromBody",
+      "FusionActivateLocalCompCmd",
+      "FusionGroundComponents",
+      "FusionUnGroundComponents",
+      "CopyCommand",
+      "PasteCommand",
+      "FusionPasteNewCommand",
+      "SnapshotEditAccept / SnapshotCmd",
+      "SnapshotEditCancel",
+      "FusionMoveCommand (Components mode)",
+      "FusionDeleteCommand on occurrences",
+      "SelectComponentPriorityCommand",
+      "operation New Component",
+      "FusionPropertiesCommand for components",
+      "MaterializedBomHybridCmd per component",
+      "component browser menu",
+      "app.components API + model helpers"
+    ],
+    "notImplemented": [
+      {
+        "id": "CutCommand",
+        "reason": "still a stub"
+      },
+      {
+        "id": "External components / Edit In Place",
+        "reason": "cloud or linked documents, deferred"
+      },
+      {
+        "id": "Combine New Component check",
+        "reason": "still disabled"
+      },
+      {
+        "id": "Edit Feature dialog for component entries",
+        "reason": "reveals and renames instead"
+      }
+    ],
+    "sharedEdits": [
+      "src/modules/inspect/properties.js: Properties on a selected occurrence",
+      "src/modules/inspect/bom.js: one BOM row per component"
+    ],
+    "contracts": "See ARCHITECTURE.md section Components. For assembly: joints are registered features whose apply calls M.moveOccurrence; world geometry via M.occBodiesDeep(st, oid) or app.components.worldBodies(oid); motion via app.components.setDisplayTransform then clearDisplay. Pinned occurrences refuse setTransform unless {force:true}.",
+    "tests": [
+      "npm test, spline_test, robust_test: pass",
+      "full suite 24/25 (robustness fails, not foundation); components 45/45"
+    ],
+    "knownIssues": [
+      "robustness: annotate dlgkit.js textRow stops propagation of Escape, so GeneralNoteCommand does not close on Esc (fix: skip stopPropagation for Escape).",
+      "robustness: solidx BaseFeatureCreationCommand leaves the app in the basefeature environment (was under development).",
+      "sheetmetal did not build at that time (missing ./convert.js, ./style.css; was under development).",
+      "Face/edge features picked on pasted instance bodies do not edit the component; sketches and construction are not instanced; component Origin folders are display only.",
+      "Deleting a component entry from the timeline leaves its features (bodies fall back to root).",
+      "Display-only transforms do not shift edge or vertex picking.",
+      "SOLID tab has no New Component in Fusion 2706 part designs (reachable from other create panels, browser and S toolbox)."
+    ]
+  }
 }

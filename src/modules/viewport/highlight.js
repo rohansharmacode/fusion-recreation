@@ -98,6 +98,7 @@ export class Highlighter {
       case "body": return this._body(ref.body, selected);
       case "meshFace": return this._meshFace(ref, selected);
       case "feature": for (const b of this._featureBodies(ref.id)) this._body(b, selected); return;
+      case "occurrence": { const c = this.vp.app.components; if (c) for (const b of c.bodiesOf(ref.occ)) if (this._bodyObj(b)) this._body(b, selected); return; }
       default: return;
     }
   }

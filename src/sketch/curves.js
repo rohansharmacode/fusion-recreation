@@ -15,12 +15,14 @@
 // closed, T, at(t), der(t)} with t in [0, T] (spline: one unit per span; ellipse: the angle).
 // Used by the region finder (regions.js), trim, picking, rendering and the kernel conversion.
 
+import { cvsplineGeom, conicGeom } from "./curves2.js";
+
 const TAU = Math.PI * 2;
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1]];
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1];
 const len = (a) => Math.hypot(a[0], a[1]);
 
-export const isFreeform = (cv) => !!cv && (cv.type === "spline" || cv.type === "ellipse" || cv.type === "earc");
+export const isFreeform = (cv) => !!cv && (cv.type === "spline" || cv.type === "ellipse" || cv.type === "earc" || cv.type === "cvspline" || cv.type === "conic");
 
 // ---------------------------------------------------------------------------
 // linear algebra
@@ -77,7 +79,13 @@ export function splineFit(P, opts = {}) {
   const del = (i) => { const d = sub(P[(i + 1) % n], P[i]); return [d[0] / h[i], d[1] / h[i]]; };
   const A = new Float64Array(n), B = new Float64Array(n), C = new Float64Array(n);
   const Dx = new Float64Array(n), Dy = new Float64Array(n);
+  const fixed = opts.fixed || null;
   for (let i = 0; i < n; i++) {
+    if (fixed && fixed[i] && (closed || (i > 0 && i < n - 1))) {
+      // an activated tangent handle prescribes the derivative at this fit point
+      B[i] = 1; Dx[i] = fixed[i][0]; Dy[i] = fixed[i][1];
+      continue;
+    }
     if (!closed && i === 0) {
       if (opts.d0) { B[0] = 1; Dx[0] = opts.d0[0]; Dy[0] = opts.d0[1]; }
       else { const d = del(0); B[0] = 2; C[0] = 1; Dx[0] = 3 * d[0]; Dy[0] = 3 * d[1]; }
@@ -157,6 +165,19 @@ export function outwardTangent(sk, id, pid, visiting = new Set(), P = ptOf(sk)) 
     const t = unit(ellipseDer(E, ellipseAngle(E, P(pid))));
     return t && (pid === cv.p2 ? t : [-t[0], -t[1]]);
   }
+  if (cv.type === "cvspline" && !cv.closed) {
+    // a control point spline leaves its end along its first / last control polygon leg
+    const n = cv.pts.length;
+    if (n < 2 || (pid !== cv.pts[0] && pid !== cv.pts[n - 1])) return null;
+    const a = P(pid), b = P(pid === cv.pts[0] ? cv.pts[1] : cv.pts[n - 2]);
+    return a && b ? unit(sub(a, b)) : null;
+  }
+  if (cv.type === "conic") {
+    // the end tangents run through the vertex point
+    if (pid !== cv.p1 && pid !== cv.p2) return null;
+    const a = P(pid), v = P(cv.v);
+    return a && v ? unit(sub(a, v)) : null;
+  }
   if (cv.type === "spline" && !cv.closed) {
     const n = cv.pts.length;
     if (pid !== cv.pts[0] && pid !== cv.pts[n - 1]) return null;
@@ -175,19 +196,98 @@ function splineClamps(sk, id, visiting, P) {
   if (cv.closed || cv.pts.length < 2) return out;
   const first = cv.pts[0], last = cv.pts[cv.pts.length - 1];
   for (const c of sk.constraints || []) {
-    if (c.type !== "tangent" || c.suppressed || !c.refs.includes(id)) continue;
+    if ((c.type !== "tangent" && c.type !== "smooth") || c.suppressed || !c.refs.includes(id)) continue;
     const other = c.refs[0] === id ? c.refs[1] : c.refs[0];
     if (!other || other === id || visiting.has(other) || !sk.curves[other]) continue;
     const vis = new Set(visiting); vis.add(id);
     for (const [pid, key, sgn] of [[first, "d0", 1], [last, "d1", -1]]) {
       if (out[key]) continue;
       const t = outwardTangent(sk, other, pid, vis, P);
-      if (t) out[key] = [sgn * t[0], sgn * t[1]];
+      if (t) {
+        out[key] = [sgn * t[0], sgn * t[1]];
+        if (c.type === "smooth") {
+          // Curvature constraint (G2): the end curvature follows the other curve's
+          const k = curvatureToward(sk, other, pid, vis, P);
+          if (k !== null && Number.isFinite(k)) out[key === "d0" ? "g2a" : "g2b"] = { k: key === "d0" ? k : -k };
+        }
+      }
     }
   }
   if (!out.d0 && Array.isArray(cv.tan0)) out.d0 = cv.tan0;
   if (!out.d1 && Array.isArray(cv.tan1)) out.d1 = cv.tan1;
   return out;
+}
+
+/**
+ * Derivatives prescribed by activated tangent handles: cv.hd = {fitIndex: handleLineId} (a
+ * construction line from the fit point to the handle end point), cv.hs = {fitIndex: scale}: the
+ * derivative (chord-length units) is (handle end - fit point) * scale.
+ */
+export function handleDerivs(sk, cv, pt = ptOf(sk)) {
+  if (!cv.hd) return null;
+  const out = {};
+  let any = false;
+  for (const [k, lid] of Object.entries(cv.hd)) {
+    const l = sk.curves[lid];
+    const i = Number(k);
+    if (!l || l.type !== "line" || !(i >= 0 && i < cv.pts.length)) continue;
+    const f = cv.pts[i];
+    if (l.p1 !== f && l.p2 !== f) continue;
+    const a = pt(f), b = pt(l.p1 === f ? l.p2 : l.p1);
+    if (!a || !b) continue;
+    const s = (cv.hs && Number(cv.hs[k])) || 1;
+    out[i] = [(b[0] - a[0]) * s, (b[1] - a[1]) * s];
+    any = true;
+  }
+  return any ? out : null;
+}
+
+/** Signed curvature of curve `id` traversed towards its end point pid (G2 target), or null. */
+export function curvatureToward(sk, id, pid, visiting = new Set(), P = ptOf(sk)) {
+  const cv = sk.curves[id];
+  if (!cv) return null;
+  if (cv.type === "line") return 0;
+  if (cv.type === "arc") {
+    const c = P(cv.c), p = P(pid);
+    if (!c || !p) return null;
+    const r = Math.hypot(p[0] - c[0], p[1] - c[1]);
+    if (r < 1e-12) return null;
+    return pid === cv.p2 ? 1 / r : pid === cv.p1 ? -1 / r : null;
+  }
+  if (cv.type === "earc") {
+    const E = ellipseOf(sk, cv, P);
+    if (!E) return null;
+    const th = ellipseAngle(E, P(pid));
+    const k = (E.r1 * E.r2) / Math.pow(E.r1 * E.r1 * Math.sin(th) ** 2 + E.r2 * E.r2 * Math.cos(th) ** 2, 1.5);
+    return pid === cv.p2 ? k : pid === cv.p1 ? -k : null;
+  }
+  if (cv.type === "spline" || cv.type === "cvspline" || cv.type === "conic") {
+    const vis = new Set(visiting); vis.add(id);
+    const g = cv.type === "spline" ? splineGeom(splineOf(sk, id, vis, P), id) : freeformGeom(sk, id, P);
+    if (!g || g.closed) return null;
+    const ends = cv.type === "conic" ? [cv.p1, cv.p2] : [cv.pts[0], cv.pts[cv.pts.length - 1]];
+    const kap = (t) => {
+      const h = 1e-5 * Math.max(1, g.T);
+      const ta = Math.max(0, t - h), tb = Math.min(g.T, t + h);
+      const d1 = g.der(t), da = g.der(ta), db = g.der(tb);
+      const d2 = [(db[0] - da[0]) / (tb - ta), (db[1] - da[1]) / (tb - ta)];
+      const l = Math.hypot(d1[0], d1[1]);
+      return l < 1e-12 ? 0 : (d1[0] * d2[1] - d1[1] * d2[0]) / (l * l * l);
+    };
+    if (pid === ends[1]) return kap(g.T);
+    if (pid === ends[0]) return -kap(0);
+    return null;
+  }
+  return null;
+}
+
+/** Second derivative (chord-length parameter) at the start / end of a fitted spline. */
+function fitD2(f, atEnd) {
+  const s = atEnd ? f.spans[f.spans.length - 1] : f.spans[0];
+  const h = atEnd ? f.h[f.h.length - 1] : f.h[0];
+  const [p0, c1, c2, p3] = s;
+  if (atEnd) return [(6 * (p3[0] - 2 * c2[0] + c1[0])) / (h * h), (6 * (p3[1] - 2 * c2[1] + c1[1])) / (h * h)];
+  return [(6 * (p0[0] - 2 * c1[0] + c2[0])) / (h * h), (6 * (p0[1] - 2 * c1[1] + c2[1])) / (h * h)];
 }
 
 /** Fitted spline of curve `id` (null when it has fewer than two fit points). */
@@ -197,7 +297,78 @@ export function splineOf(sk, id, visiting = new Set(), pt = ptOf(sk)) {
   const P = [];
   for (const pid of cv.pts) { const p = pt(pid); if (!p) return null; P.push(p); }
   if (P.length < 2) return null;
-  return splineFit(P, { closed: cv.closed, hr: Array.isArray(cv.hr) && cv.hr.length === (cv.closed ? P.length : P.length - 1) ? cv.hr : null, ...splineClamps(sk, id, visiting, pt) });
+  const opts = { closed: cv.closed, hr: Array.isArray(cv.hr) && cv.hr.length === (cv.closed ? P.length : P.length - 1) ? cv.hr : null, ...splineClamps(sk, id, visiting, pt) };
+  const hdv = handleDerivs(sk, cv, pt);
+  if (hdv) {
+    opts.fixed = hdv;
+    if (!cv.closed) {
+      if (hdv[0] && !opts.g2a) opts.d0 = hdv[0];
+      if (hdv[P.length - 1] && !opts.g2b) opts.d1 = hdv[P.length - 1];
+    }
+  }
+  if (!opts.g2a && !opts.g2b) return splineFit(P, opts);
+  return g2Fit(P, opts);
+}
+
+/**
+ * Fit with curvature-continuous (G2) ends. A C2 cubic through fixed points has one free condition per
+ * end, which the tangent already uses; for G2 the end span becomes a cubic with the prescribed end
+ * tangent and end curvature (its tangential second derivative and the speed come from the G1 fit, so
+ * the shape stays close), joined C1 to the C2 spline through the remaining fit points.
+ */
+function g2Fit(P, opts) {
+  const n = P.length;
+  const base = splineFit(P, opts);
+  if (!base || base.closed) return base;
+  const h = base.h.slice();
+  const spans = base.spans.map((q) => q.map((v) => v.slice()));
+  const m = base.m.map((v) => v.slice());
+  // end span from p0 (derivative m0, second derivative D2) to p1 over chord-parameter length hh
+  const endSpan = (p0, p1, m0, D2, k, hh) => {
+    const l = Math.hypot(m0[0], m0[1]) || 1;
+    const t = [m0[0] / l, m0[1] / l], nr = [-t[1], t[0]];
+    const dn = D2[0] * nr[0] + D2[1] * nr[1];
+    const D = [D2[0] + nr[0] * (k * l * l - dn), D2[1] + nr[1] * (k * l * l - dn)];
+    const b = [(p1[0] - p0[0] - m0[0] * hh - (D[0] / 2) * hh * hh) / (hh * hh * hh), (p1[1] - p0[1] - m0[1] * hh - (D[1] / 2) * hh * hh) / (hh * hh * hh)];
+    const m1 = [m0[0] + D[0] * hh + 3 * b[0] * hh * hh, m0[1] + D[1] * hh + 3 * b[1] * hh * hh];
+    return { m1, span: [p0, [p0[0] + (m0[0] * hh) / 3, p0[1] + (m0[1] * hh) / 3], [p1[0] - (m1[0] * hh) / 3, p1[1] - (m1[1] * hh) / 3], p1] };
+  };
+  let lo = 0, hi = n - 1;
+  if (opts.g2a && n >= 2) {
+    const e = endSpan(P[0], P[1], base.m[0], fitD2(base, false), opts.g2a.k, h[0]);
+    spans[0] = e.span; m[1] = e.m1; lo = 1;
+  }
+  if (opts.g2b && n >= 2 && !(n === 2 && opts.g2a)) {
+    // mirrored: run the last span backwards
+    const mb = [-base.m[n - 1][0], -base.m[n - 1][1]];
+    const e = endSpan(P[n - 1], P[n - 2], mb, fitD2(base, true), -opts.g2b.k, h[n - 2]);
+    const r = e.span;
+    spans[n - 2] = [r[3], r[2], r[1], r[0]];
+    const mEnd = [-e.m1[0], -e.m1[1]];
+    if (lo === 1 && n === 3) {
+      // both ends meet at the single middle point: share the averaged derivative
+      const avg = [(m[1][0] + mEnd[0]) / 2, (m[1][1] + mEnd[1]) / 2];
+      m[1] = avg;
+      spans[0][2] = [P[1][0] - (avg[0] * h[0]) / 3, P[1][1] - (avg[1] * h[0]) / 3];
+      spans[1][1] = [P[1][0] + (avg[0] * h[1]) / 3, P[1][1] + (avg[1] * h[1]) / 3];
+      return { P, h, m, spans, closed: false };
+    }
+    m[n - 2] = mEnd;
+    hi = n - 2;
+  }
+  if (hi - lo >= 1 && (lo > 0 || hi < n - 1)) {
+    const fixed = {};
+    if (opts.fixed) for (const [k, v] of Object.entries(opts.fixed)) { const i = Number(k) - lo; if (i > 0 && i < hi - lo) fixed[i] = v; }
+    const mid = splineFit(P.slice(lo, hi + 1), {
+      d0: lo > 0 ? m[lo] : opts.d0, d1: hi < n - 1 ? m[hi] : opts.d1,
+      hr: opts.hr ? opts.hr.slice(lo, hi) : null, fixed,
+    });
+    if (mid) {
+      for (let i = 0; i < mid.spans.length; i++) spans[lo + i] = mid.spans[i];
+      for (let i = 0; i < mid.m.length; i++) m[lo + i] = mid.m[i];
+    }
+  }
+  return { P, h, m, spans, closed: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +411,8 @@ export function freeformGeom(sk, id, pt = ptOf(sk)) {
   if (!cv) return null;
   if (cv.type === "spline") return splineGeom(splineOf(sk, id, new Set(), pt), id);
   if (cv.type === "ellipse" || cv.type === "earc") return ellipseGeom(ellipseOf(sk, cv, pt), cv.type === "earc" ? [pt(cv.p1), pt(cv.p2)] : null, id);
+  if (cv.type === "cvspline") return cvsplineGeom(sk, id, pt);
+  if (cv.type === "conic") return conicGeom(sk, id, pt);
   return null;
 }
 

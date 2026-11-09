@@ -11,7 +11,7 @@ const SKIP_KEYS = new Set(["id", "name", "p", "newBody", "newBodies", "sk", "sup
 
 /** Explicit references of a feature: {sketches, cplanes, bodies, geo:[{kind:'edge'|'face', body, p, n?}]} */
 export function refsOf(f) {
-  const r = { sketches: new Set(), cplanes: new Set(), bodies: new Set(), geo: [] };
+  const r = { sketches: new Set(), cplanes: new Set(), bodies: new Set(), features: new Set(), geo: [] };
   if (!f) return r;
   const addGeo = (kind, o) => {
     if (!o || typeof o.body !== "string" || !Array.isArray(o.p)) return;
@@ -45,8 +45,25 @@ export function refsOf(f) {
   // sketch features: only their plane reference matters (sk holds the geometry)
   if (f.type === "sketch") walk({ planeRef: f.planeRef }, "", 0);
   else walk(f, "", 0);
+  // registered feature types may declare extra references (model.js registerFeature def.deps(f))
+  const def = REGISTRY_LOOKUP && REGISTRY_LOOKUP(f.type);
+  if (def && typeof def.deps === "function") {
+    let x = null;
+    try { x = def.deps(f) || null; } catch (e) { console.error(e); }
+    if (x) {
+      for (const id of x.sketches || []) if (typeof id === "string") r.sketches.add(id);
+      for (const id of x.cplanes || []) if (typeof id === "string") r.cplanes.add(id);
+      for (const id of x.bodies || []) if (typeof id === "string") r.bodies.add(id);
+      for (const id of x.features || []) if (typeof id === "string") r.features.add(id);
+      for (const g of x.geo || []) if (g && typeof g.body === "string" && Array.isArray(g.p)) { r.bodies.add(g.body); r.geo.push({ kind: g.kind === "edge" ? "edge" : "face", body: g.body, p: g.p, n: Array.isArray(g.n) ? g.n : null }); }
+    }
+  }
   return r;
 }
+
+// Registered feature definitions (set by the timeline module from app.M.featureDef, so this file stays model-free).
+let REGISTRY_LOOKUP = null;
+export function setFeatureDefLookup(fn) { REGISTRY_LOOKUP = typeof fn === "function" ? fn : null; }
 
 /** Map body id -> id of the feature that created it. */
 export function bodyCreators(doc) {
@@ -76,6 +93,8 @@ export function bodiesTouched(doc, results, f) {
   if (["shell", "draft"].includes(f.type)) { for (const x of f.faces || []) if (x && x.body) out.add(x.body); for (const b of f.bodies || []) out.add(b); }
   if (f.type === "move" && !f.copy) for (const b of f.bodies || []) out.add(b);
   if (f.type === "combine" && f.target) out.add(f.target);
+  const def = REGISTRY_LOOKUP && REGISTRY_LOOKUP(f.type);
+  if (def && typeof def.touches === "function") { try { for (const b of def.touches(f) || []) if (typeof b === "string") out.add(b); } catch (e) { console.error(e); } }
   if (f.type === "mirror" && f.operation === "join") for (const b of f.bodies || []) out.add(b);
   return out;
 }
@@ -88,6 +107,7 @@ export function explicitDeps(doc, results, f, creators = bodyCreators(doc)) {
   const r = refsOf(f);
   for (const s of r.sketches) if (ids.has(s)) deps.add(s);
   for (const c of r.cplanes) if (ids.has(c)) deps.add(c);
+  for (const x of r.features) if (ids.has(x)) deps.add(x);
   for (const b of r.bodies) { const c = creatorOf(creators, doc, b); if (c) deps.add(c); }
   // Boolean features with implicit participants (join/cut/intersect into whatever bodies existed)
   const res = results && results[f.id];
@@ -99,7 +119,7 @@ export function explicitDeps(doc, results, f, creators = bodyCreators(doc)) {
 // ---------------------------------------------------------------------------
 // Geometric checks against the evaluator cache (state after each evaluated feature)
 // ---------------------------------------------------------------------------
-const EMPTY_STATE = { bodies: new Map(), sketches: new Map(), planes: new Map() };
+const EMPTY_STATE = { bodies: new Map(), sketches: new Map(), planes: new Map(), meshBodies: new Map() };
 
 /** Model state right after feature index `idx` (-1 = empty), or null when unknown. */
 export function stateAfter(app, idx) {

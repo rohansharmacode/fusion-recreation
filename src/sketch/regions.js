@@ -2,7 +2,8 @@
 // Curves are split at every intersection, dangling edges are pruned, and the
 // faces of the resulting planar graph are traced with a half-edge walk.
 // Splines and ellipses take part as parametric "pcurve" geoms (see curves.js).
-import { freeformGeom, pcurveIntersect, pcurveNearest, pcurveSamples } from "./curves.js";
+import { freeformGeom, pcurveIntersect, pcurveNearest, pcurveSamples, bezierAt, bezierDer } from "./curves.js";
+import { textContours, contourPolyline, asParametric } from "./curves2.js";
 
 const TAU = Math.PI * 2;
 const EPS = 1e-6;
@@ -12,7 +13,8 @@ const norm = (a) => ((a % TAU) + TAU) % TAU;
 export function curveGeom(sk, id) {
   const cv = sk.curves[id];
   const P = (pid) => [sk.points[pid].x, sk.points[pid].y];
-  if (cv.type === "spline" || cv.type === "ellipse" || cv.type === "earc") return freeformGeom(sk, id);
+  if (cv.type === "spline" || cv.type === "ellipse" || cv.type === "earc" || cv.type === "cvspline" || cv.type === "conic") return freeformGeom(sk, id);
+  if (cv.type === "text" || cv.type === "c3d") return null;
   if (cv.type === "line") return { kind: "line", id, a: P(cv.p1), b: P(cv.p2) };
   if (cv.type === "circle") {
     const c = P(cv.c);
@@ -429,6 +431,8 @@ export function computeRegions(sk) {
   const faces = cycles.filter((c) => c.area > tol * tol);
   const outers = cycles.filter((c) => c.area < -tol * tol);
   const regions = faces.map((f) => ({ outer: f, holes: [], area: f.area }));
+  const textRegs = [];
+  try { textRegs.push(...textRegions(sk, vid, vertices, tol)); } catch (e) { void e; }
   for (const o of outers) {
     const probe = o.poly[0];
     let best = null;
@@ -458,7 +462,72 @@ export function computeRegions(sk) {
     list.forEach((r, i) => (r.key = list.length > 1 ? `${r.baseKey}#${i}` : r.baseKey));
   }
   regions.forEach((r) => (r.curves = [...new Set([...r.outer.hes, ...r.holes.flatMap((h) => h.hes)].map((h) => h.e.curve))]));
+  for (const r of textRegs) regions.push(r);
   return { regions, vertices, edges: live };
+}
+
+/** One cubic Bezier as a pcurve geom (a single span; the kernel builds it as one exact B-spline edge). */
+function bezGeom(b, id) {
+  const L = Math.max(1e-9, Math.hypot(b[3][0] - b[0][0], b[3][1] - b[0][1]));
+  return { kind: "pcurve", sub: "spline", id, closed: false, T: 1, spans: [b], fit: { h: [L], P: [], m: [] }, per: 16, at: (t) => bezierAt(b, Math.max(0, Math.min(1, t))), der: (t) => bezierDer(b, Math.max(0, Math.min(1, t))) };
+}
+
+/**
+ * Profiles of sketch text: every glyph contour is a closed loop (lines + cubic Beziers); contours
+ * nested an odd number of times are holes of the loop around them. Text does not take part in the
+ * curve arrangement (as in Fusion, text profiles are independent of the other sketch curves).
+ */
+function textRegions(sk, vid, vertices, tol) {
+  const out = [];
+  for (const [id, cv] of Object.entries(sk.curves)) {
+    if (cv.type !== "text" || cv.cons) continue;
+    const pathGeom = (pid) => { const c = sk.curves[pid]; if (!c) return null; try { return asParametric(curveGeom(sk, pid)); } catch { return null; } };
+    const contours = textContours(sk, id, pathGeom);
+    const items = [];
+    for (const segs of contours) {
+      const poly = contourPolyline(segs, 8);
+      if (poly.length < 3) continue;
+      if (Math.hypot(poly[0][0] - poly[poly.length - 1][0], poly[0][1] - poly[poly.length - 1][1]) < 1e-12) poly.pop();
+      const a = polyArea(poly);
+      if (Math.abs(a) < tol * tol) continue;
+      items.push({ segs, poly, area: a, depth: 0, parent: null });
+    }
+    for (const it of items) {
+      const probe = it.poly[0];
+      for (const o of items) if (o !== it && Math.abs(o.area) > Math.abs(it.area) && pointInPoly(probe, o.poly)) {
+        it.depth++;
+        if (!it.parent || Math.abs(o.area) < Math.abs(it.parent.area)) it.parent = o;
+      }
+    }
+    const cycleOf = (it, ccw) => {
+      let segs = it.segs;
+      if ((it.area > 0) !== ccw) segs = segs.slice().reverse().map((g) => (g.kind === "line" ? { kind: "line", a: g.b, b: g.a } : { kind: "bez", a: g.b, c1: g.c2, c2: g.c1, b: g.a }));
+      const hes = [];
+      for (const g of segs) {
+        const u = vid(g.a), v = vid(g.b);
+        if (u === v && g.kind === "line") continue;
+        let e;
+        if (g.kind === "line") e = { kind: "line", curve: id, u, v, pu: vertices[u], pv: vertices[v], t0: 0, t1: 1 };
+        else e = { kind: "pcurve", curve: id, u, v, pu: vertices[u], pv: vertices[v], g: bezGeom([vertices[u], g.c1, g.c2, vertices[v]], id), t0: 0, t1: 1 };
+        hes.push({ e, from: u, to: v, fwd: true });
+      }
+      for (let k = 0; k < hes.length; k++) hes[k].next = hes[(k + 1) % hes.length];
+      const poly = ccw === it.area > 0 ? it.poly : it.poly.slice().reverse();
+      return { hes, poly, area: ccw ? Math.abs(it.area) : -Math.abs(it.area) };
+    };
+    let k = 0;
+    for (const it of items) {
+      if (it.depth % 2 !== 0) continue;
+      const outer = cycleOf(it, true);
+      if (outer.hes.length < 1) continue;
+      const holes = items.filter((h) => h.depth === it.depth + 1 && h.parent === it).map((h) => cycleOf(h, false)).filter((h) => h.hes.length);
+      let cx = 0, cy = 0;
+      for (const q of outer.poly) { cx += q[0]; cy += q[1]; }
+      const key = `text:${id}#${k++}`;
+      out.push({ outer, holes, area: outer.area + holes.reduce((a, h) => a + h.area, 0), key, baseKey: key, centroid: [cx / outer.poly.length, cy / outer.poly.length], curves: [id], text: id });
+    }
+  }
+  return out;
 }
 
 /** Convert a cycle into an ordered list of primitive segments in traversal order. */

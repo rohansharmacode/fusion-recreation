@@ -356,6 +356,10 @@ const editHandler = {
     if (h.ref.kind === "sketchDim") { editDimension(h.ref.cid); return true; }
     if (h.ref.kind === "sketchCurve") {
       const d = activeData();
+      // Edit Text / Edit Conic Curve open their dialogs on double-click (registered by those commands)
+      const cv0 = d && d.sk.curves[h.ref.curve];
+      const ed = cv0 && ST.curveEditors && ST.curveEditors[cv0.type];
+      if (ed) { ed(h.ref.curve); return true; }
       const ch = A.S.chainOf(d.sk, h.ref.curve);
       A.selection.set(ch.ids.map((id) => ({ kind: "sketchCurve", sketch: ST.sketchId, curve: id })));
       return true;
@@ -382,7 +386,7 @@ function dragBegin(p, d, ref) {
   if (ref.kind === "sketchCurve" && work.curves[ref.curve].type === "point") { p.drag.ref = { kind: "sketchPoint", sketch: ref.sketch, point: work.curves[ref.curve].p }; }
   // splines and ellipses move as a whole: every defining point follows the cursor offset
   const cv = ref.kind === "sketchCurve" && work.curves[ref.curve];
-  if (cv && (cv.type === "spline" || cv.type === "ellipse" || cv.type === "earc") && uv) {
+  if (cv && (cv.type === "spline" || cv.type === "ellipse" || cv.type === "earc" || cv.type === "cvspline" || cv.type === "conic" || cv.type === "text") && uv) {
     p.drag.translate = { from: uv.uv, pts: S.curvePoints(cv).filter((q) => work.points[q]).map((q) => ({ id: q, x: work.points[q].x, y: work.points[q].y })) };
   }
   ST.app.selection.setHover(null);
@@ -484,7 +488,8 @@ function windowProvider(region) {
   const sk = d.sk;
   for (const [id, cv] of Object.entries(sk.curves)) {
     if (cv.type === "point" ? false : !curveVisible(cv, true)) continue;
-    const poly = A.S.curvePolyline(sk, id, 48).map((q) => proj(q[0], q[1]));
+    const poly = render.curveLines(sk, id, 48).flat().map((q) => proj(q[0], q[1]));
+    if (!poly.length) continue;
     let hit;
     if (region.crossing) {
       hit = poly.length === 1 ? region.inside(poly[0][0], poly[0][1]) : false;
@@ -529,7 +534,8 @@ function windowEnd(p, ctx) {
   const sk = d.sk;
   for (const [id, cv] of Object.entries(sk.curves)) {
     if (!curveVisible(cv, true) && cv.type !== "point") continue;
-    const poly = A.S.curvePolyline(sk, id, 48).map((q) => proj(q[0], q[1]));
+    const poly = (cv.type === "point" ? [A.S.curvePolyline(sk, id, 48)] : render.curveLines(sk, id, 48)).flat().map((q) => proj(q[0], q[1]));
+    if (!poly.length) continue;
     const ins = poly.map(inside);
     if (crossing ? ins.some(Boolean) || segCrossesRect(poly, x0, y0, x1, y1) : ins.every(Boolean)) refs.push({ kind: "sketchCurve", sketch: ST.sketchId, curve: id });
   }

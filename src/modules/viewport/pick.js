@@ -8,7 +8,7 @@ const V3 = THREE.Vector3;
 export const EDGE_PX = 5;
 export const POINT_PX = 7;
 const RANK = { point: 0, curve: 1, area: 2 };
-const AREA_PRIO = { profile: 0, sketchCurve: 0, sketchPoint: 0, originPlane: 1, cplane: 1, face: 2, body: 3 };
+const AREA_PRIO = { profile: 0, sketchCurve: 0, sketchPoint: 0, originPlane: 1, cplane: 1, face: 2, meshFace: 2, body: 3 };
 
 function segDist2(px, py, ax, ay, bx, by) {
   const dx = bx - ax, dy = by - ay;
@@ -140,6 +140,21 @@ export class Picker {
         const body = h.object.userData.body;
         const entry = h.object.userData.entry;
         if (!entry) continue;
+        if (entry.isMesh) {
+          // mesh-like bodies: the hit triangle (and its face group) + the body
+          const tri = h.faceIndex;
+          if (tri == null || tri < 0) continue;
+          // a mesh without face groups is one face group (0), like a freshly inserted mesh in Fusion
+          const group = entry.groups ? entry.groups[tri] : 0;
+          const key = `${body}:m:${group >= 0 ? `g${group}` : tri}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const n = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld).toArray() : [0, 0, 1];
+          const p = h.point.toArray();
+          hits.push({ ref: { kind: "meshFace", body, tri, group: group >= 0 ? group : -1, p, n }, point: p, depth: h.distance, screenDist: 0, type: "area" });
+          if (!seen.has(`${body}:m:body`)) { seen.add(`${body}:m:body`); hits.push({ ref: { kind: "body", body }, point: p, depth: h.distance, screenDist: 0, type: "area" }); }
+          continue;
+        }
         const g = vp.cache.faceOfTriangle(entry, h.faceIndex);
         if (!g || g.face < 0) continue;
         const key = `${body}:${g.face}`;
@@ -178,6 +193,7 @@ export class Picker {
       const tmp = [0, 0, 0, 1];
       for (const b of bodies) {
         const entry = b.entry;
+        if (entry.isMesh) continue; // mesh edges are display only (B-rep edge refs need an OCCT edge)
         if (want("edge")) {
           const P = this._proj(entry);
           for (const e of entry.edges) {
@@ -294,6 +310,17 @@ export class Picker {
           hits.push({ ref: { kind: "cplane", id }, point: best.P.toArray(), depth: best.P.clone().sub(R.o).dot(R.d), screenDist: Math.sqrt(best.d2), type: "curve" });
         }
       }
+    }
+
+    // --- body-kind pick hooks (app.registerBodyKind(kind, {pick})): T-spline cage points / edges ... ---
+    const kindHooks = vp.app.bodyKinds || {};
+    for (const b of bodies) {
+      const hk = kindHooks[b.kind];
+      if (!hk || typeof hk.pick !== "function") continue;
+      try {
+        const st = vp.app.anyBody ? vp.app.anyBody(b.id) : null;
+        for (const hh of hk.pick((st && st.entry) || st, x, y, Rarr, opts) || []) if (hh && hh.ref) hits.push(hh);
+      } catch (e) { console.error(`[viewport] ${b.kind} pick hook failed`, e); }
     }
 
     // --- providers (sketch entities, manipulators, ...) ---

@@ -6,6 +6,29 @@
 import * as THREE from "three";
 import { CanvasOverlay } from "./overlay.js";
 import { V, massProps, visibleBodyIds } from "./geom.js";
+import { createSurfaceDisplay } from "./surfanalysis.js";
+import { icon as cmdIcon } from "../icons/icons.js";
+
+/** Analysis kinds of the browser's Analysis folder: default name stem (Fusion's *AnalysisDefaultUserName), label, command. */
+export const ANALYSIS_META = {
+  section: { stem: "Section", label: "Section Analysis", cmd: "FusionHalfSectionViewCommand" },
+  com: { stem: "CenterOfMass", label: "Center of Mass", cmd: "FusionCenterOfMassCommand" },
+  zebra: { stem: "Zebra", label: "Zebra Analysis", cmd: "FusionZebraAnalysisCommand" },
+  draft: { stem: "Draft", label: "Draft Analysis", cmd: "FusionDraftAnalysisCommand" },
+  curvatureMap: { stem: "CurvatureMap", label: "Curvature Map Analysis", cmd: "FusionCurvatureMapAnalysisCommand" },
+  curvatureComb: { stem: "Curvature", label: "Curvature Comb Analysis", cmd: "FusionCurvatureCombAnalysisCommand" },
+  isocurve: { stem: "IsoCurve", label: "Isocurve Analysis", cmd: "FusionIsoCurveAnalysisCommand" },
+  environmentMap: { stem: "Environment Map", label: "Environment Map Analysis", cmd: "FusionEnvironmentMapAnalysisCommand" },
+  accessibility: { stem: "Accessibility", label: "Accessibility Analysis", cmd: "FusionAccessibilityAnalysisCommand" },
+  minimumRadius: { stem: "MinimumRadius", label: "Minimum Radius Analysis", cmd: "FusionMinimumRadiusAnalysisCommand" },
+};
+const iconCache = {};
+function iconFor(type) {
+  const m = ANALYSIS_META[type];
+  if (!m || type === "section" || type === "com") return undefined; // the browser's own glyphs
+  if (!iconCache[type]) { try { iconCache[type] = cmdIcon(m.cmd, { size: 16 }); } catch { iconCache[type] = undefined; } }
+  return iconCache[type];
+}
 
 export const SECTION_COMPONENT_COLOR = "#e391e6"; // first entry of Fusion's component colour cycle ("Light Purple")
 const HATCH_COLOR = new THREE.Color("#3a3a3a");
@@ -67,6 +90,9 @@ export function createAnalyses(app) {
   let previewSection = null; // section definition shown while the dialog is open (overrides the stored ones)
   let previewSectionId = null; // id of the analysis being edited (hidden while previewing)
   let previewCom = null; // {bodies}
+  let previewAnalysis = null; // surface analysis definition shown while its dialog is open
+  let previewAnalysisId = null; // id of the analysis being edited (its stored version is hidden meanwhile)
+  let display = null;
   const clipPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
   const clipList = [clipPlane];
   let clipOn = false;
@@ -81,14 +107,19 @@ export function createAnalyses(app) {
   // ------------------------------------------------------------------ store
   const docList = () => (Array.isArray(app.doc.analyses) ? app.doc.analyses : []);
   const store = {
-    list() { return docList().map((a) => ({ id: a.id, type: a.type, name: a.name, visible: a.visible !== false })); },
+    list() {
+      return docList().map((a) => {
+        const m = ANALYSIS_META[a.type] || {};
+        return { id: a.id, type: a.type, name: a.name, visible: a.visible !== false, kindLabel: m.label, icon: iconFor(a.type), command: m.cmd };
+      });
+    },
     get(id) { return docList().find((a) => a.id === id) || null; },
     add(def, label) {
-      return app.mutate(label || (def.type === "section" ? "Section Analysis" : "Center of Mass"), (doc) => {
+      return app.mutate(label || ((ANALYSIS_META[def.type] || {}).label || "Analysis"), (doc) => {
         doc.analyses = Array.isArray(doc.analyses) ? doc.analyses : [];
         doc.counters = doc.counters || {};
         doc.counters.analysis = (doc.counters.analysis || 0) + 1;
-        const stem = def.type === "section" ? "Section" : "CenterOfMass";
+        const stem = (ANALYSIS_META[def.type] || {}).stem || "Analysis";
         doc.counters[`analysis:${stem}`] = (doc.counters[`analysis:${stem}`] || 0) + 1;
         const a = { ...JSON.parse(JSON.stringify(def)), id: `a${doc.counters.analysis}`, name: def.name || `${stem}${doc.counters[`analysis:${stem}`]}`, visible: true };
         if (a.type === "section") for (const o of doc.analyses) if (o.type === "section") o.visible = false; // one live section at a time
@@ -126,6 +157,20 @@ export function createAnalyses(app) {
     },
     setPreviewSection(def, editingId = null) { previewSection = def; previewSectionId = editingId; refresh(); },
     setPreviewCom(def) { previewCom = def; refreshCom(); },
+    /** Show a tentative surface analysis (dialog open); editingId hides the stored one being edited. */
+    setPreviewAnalysis(def, editingId = null) { previewAnalysis = def; previewAnalysisId = editingId; if (display) display.refresh(); },
+    /** Visible surface analyses in display order (stored ones + the dialog preview). */
+    activeSurfaceAnalyses() {
+      const out = [];
+      for (const a of docList()) {
+        if (a.type === "section" || a.type === "com" || a.visible === false) continue;
+        if (previewAnalysisId && a.id === previewAnalysisId) continue;
+        out.push(a);
+      }
+      if (previewAnalysis) out.push(previewAnalysis);
+      return out;
+    },
+    get display() { return display; },
     activeSection() {
       if (previewSection) return previewSection;
       const s = [...docList()].reverse().find((a) => a.type === "section" && a.visible !== false && a.id !== previewSectionId);
@@ -333,11 +378,20 @@ export function createAnalyses(app) {
     }
   }
 
-  function refresh() { clearTimeout(refreshTimer); refreshTimer = null; refreshSection(); refreshCom(); }
+  function refreshSurface() {
+    if (!display) display = createSurfaceDisplay(app, store);
+    try { display.refresh(); } catch (e) { console.warn("[inspect] analyses display", e); }
+  }
+  function refresh() { clearTimeout(refreshTimer); refreshTimer = null; refreshSection(); refreshCom(); refreshSurface(); }
   /** Coalesce the doc + model events of one mutation into one refresh. */
   function schedule() { if (!refreshTimer) refreshTimer = setTimeout(refresh, 0); }
 
-  app.on("model", () => { modelVersion++; schedule(); });
+  app.on("model", (e) => {
+    modelVersion++;
+    // live previews of other commands: let the surface analyses follow, but coalesce rapid drags
+    if (e && e.preview && store.activeSurfaceAnalyses().length) { clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 120); return; }
+    schedule();
+  });
   app.on("camera", () => updateHatchSpacing());
   app.on("doc", () => { schedule(); app.emit("analyses", {}); });
   app.on("ready", () => refresh());

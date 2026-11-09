@@ -5,7 +5,8 @@
 // Spline fit points and ellipse centre / axis points are ordinary point variables; the curves add
 // implicit residuals (ellipse axes perpendicular, elliptical arc ends on the ellipse) and support
 // on-curve, tangent (line-ellipse) and drag ("grab") constraints through curves.js.
-import { splineOf, splineGeom, ellipseOf, ellipseResidual, ellipseSupport, pcurveNearest, ellipseGeom } from "./curves.js";
+import { splineOf, splineGeom, ellipseOf, ellipseResidual, ellipseSupport, pcurveNearest, ellipseGeom, freeformGeom, outwardTangent } from "./curves.js";
+import { patternResiduals, polygonResiduals, endJoinResiduals } from "./solver2.js";
 
 const D2R = Math.PI / 180;
 
@@ -152,6 +153,7 @@ export function buildSystem(sk, dimValues = {}, pinned = new Set(), extra = {}) 
   const pcGeom = (id, x) => {
     const cv = sk.curves[id];
     const pt = ptAt(x);
+    if (cv.type === "cvspline" || cv.type === "conic") return freeformGeom(sk, id, pt);
     if (cv.type === "spline") return splineGeom(splineOf(sk, id, new Set(), pt), id);
     return ellipseGeom(ellipseOf(sk, cv, pt), cv.type === "earc" ? [pt(cv.p1), pt(cv.p2)] : null, id);
   };
@@ -203,7 +205,8 @@ export function buildSystem(sk, dimValues = {}, pinned = new Set(), extra = {}) 
   }
   const isRound = (id) => sk.curves[id] && (sk.curves[id].type === "circle" || sk.curves[id].type === "arc");
   const isLine = (id) => sk.curves[id] && sk.curves[id].type === "line";
-  const isFree = (id) => sk.curves[id] && (sk.curves[id].type === "spline" || sk.curves[id].type === "ellipse" || sk.curves[id].type === "earc");
+  const isFree = (id) => sk.curves[id] && ["spline", "ellipse", "earc", "cvspline", "conic"].includes(sk.curves[id].type);
+  const isCV = (id) => sk.curves[id] && (sk.curves[id].type === "cvspline" || sk.curves[id].type === "conic");
   const isEll = (id) => sk.curves[id] && (sk.curves[id].type === "ellipse" || sk.curves[id].type === "earc");
   const distPtLine = (p, a, b) => {
     const dx = b[0] - a[0], dy = b[1] - a[1];
@@ -294,6 +297,11 @@ export function buildSystem(sk, dimValues = {}, pinned = new Set(), extra = {}) 
       }
       case "tangent": {
         let [l, k] = R;
+        if (isCV(R[0]) || isCV(R[1])) {
+          // control point spline / conic: G1 where its end meets the other curve
+          for (const r of endJoinResiduals(sk, c, { P, ptAt, outwardTangent, freeformGeom, g2: false })) add(c.id, r.vars, r.f);
+          break;
+        }
         if (isLine(k)) [l, k] = [k, l];
         // a spline end tangent to the curve it meets is G1 by construction (curves.js clamps the end)
         if (sk.curves[l] && sk.curves[k] && (sk.curves[l].type === "spline" || sk.curves[k].type === "spline")) break;
@@ -342,6 +350,20 @@ export function buildSystem(sk, dimValues = {}, pinned = new Set(), extra = {}) 
         break;
       }
       case "fix":
+        break;
+      case "smooth": {
+        // Curvature (G2): fit point spline ends are clamped by curves.js; control point splines /
+        // conics get G1 + curvature residuals
+        if (R.some((r) => sk.curves[r] && sk.curves[r].type === "spline")) break;
+        for (const r of endJoinResiduals(sk, c, { P, ptAt, outwardTangent, freeformGeom, g2: true })) add(c.id, r.vars, r.f);
+        break;
+      }
+      case "polygon":
+        for (const r of polygonResiduals(sk, c, { P, line })) add(c.id, r.vars, r.f);
+        break;
+      case "rpattern":
+      case "cpattern":
+        for (const r of patternResiduals(sk, c, { P, Rr, line, values: dimValues })) add(c.id, r.vars, r.f);
         break;
       // ---- temporary soft "grab" used while dragging (never stored in a document) ----
       // {type:'grab', refs:[pointId|curveId], x, y, t?, w?}: pulls a point / the point at
@@ -448,6 +470,9 @@ export function curvePoints(cv) {
   if (cv.type === "spline") return [...new Set(cv.pts || [])];
   if (cv.type === "ellipse") return [cv.c, cv.a, cv.b];
   if (cv.type === "earc") return [cv.c, cv.a, cv.b, cv.p1, cv.p2];
+  if (cv.type === "cvspline") return [...new Set(cv.pts || [])];
+  if (cv.type === "conic") return [cv.p1, cv.p2, cv.v];
+  if (cv.type === "text") return cv.frame ? [...cv.frame] : [];
   return [];
 }
 
@@ -546,6 +571,12 @@ function degenerateWith(sk, getP, getR) {
     } else if (cv.type === "ellipse" || cv.type === "earc") {
       if (d(getP(cv.c), getP(cv.a)) < DEGENERATE_TOL || d(getP(cv.c), getP(cv.b)) < DEGENERATE_TOL) out.add(id);
       if (cv.type === "earc" && d(getP(cv.p1), getP(cv.p2)) < DEGENERATE_TOL) out.add(id);
+    } else if (cv.type === "cvspline") {
+      const pts = cv.pts || [];
+      if (pts.length >= 2 && !cv.closed && d(getP(pts[0]), getP(pts[pts.length - 1])) < DEGENERATE_TOL && pts.length === 2) out.add(id);
+    } else if (cv.type === "conic") {
+      const A = getP(cv.p1), B = getP(cv.p2), Vv = getP(cv.v);
+      if (d(A, B) < DEGENERATE_TOL || d(A, Vv) < DEGENERATE_TOL || d(B, Vv) < DEGENERATE_TOL) out.add(id);
     }
   }
   return out;
@@ -575,6 +606,8 @@ function constraintRoles(c) {
   const R = c.refs || [];
   switch (c.type) {
     case "onCurve": case "midpoint": case "pointLine": return { anchors: R.slice(1), movers: R.slice(0, 1) };
+    case "rpattern": case "cpattern": return { anchors: c.srcPts || [], movers: (c.pairs || []).map((q) => q[1]) };
+    case "polygon": case "smooth": return null;
     case "symmetric": return { anchors: [R[0], R[2]], movers: [R[1]] };
     case "grab": case "fix": return null;
     default: return R.length >= 2 ? { anchors: R.slice(0, -1), movers: R.slice(-1) } : { anchors: [], movers: R.slice() };
@@ -604,6 +637,7 @@ function stagePlans(sk, sys, pinned) {
       if (isRound(m)) moverRound.add(m);
     }
     if ((c.type === "radius" || c.type === "diameter") && isRound(c.refs[0])) sizeR.add(c.refs[0]);
+    if (c.type === "rpattern" || c.type === "cpattern") for (const q of c.rpairs || []) sizeR.add(q[1]);
     if (c.type === "equal") for (const m of ro.movers) if (isRound(m)) sizeR.add(m);
     if (c.type === "angle" || c.type === "parallel" || c.type === "perpendicular" || c.type === "collinear") for (const m of ro.movers) if (isLine(m)) keep.add(m);
   }

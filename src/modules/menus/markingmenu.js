@@ -20,6 +20,7 @@
 // click runs it. Right-press-drag ("flick") toward an item and release runs it without waiting.
 import { el, esc, iconHtml, glyphHtml, shortcutOf } from "./util.js";
 import { SHORTCUT_LABELS } from "./shortcuts.js";
+import { MARKING_MENUS, TAB_ENVIRONMENTS } from "../shell/spec.js";
 
 const POS = ["E", "SE", "S", "SW", "W", "NW", "N", "NE"]; // index = round(angle/45) (screen y down)
 // Button placement relative to the cursor (measured on Fusion 2706, light theme, 21 px buttons):
@@ -283,7 +284,7 @@ export function createMarkingMenu(app, opts = {}) {
       put("E", { kind: "action", action: "ok", label: "OK", glyph: "greenCheck", enabled: okEnabled, ok: true });
       return slots;
     }
-    const spec = level === "sketch" ? SKETCH_MENU : BASE_MENU;
+    const spec = level === "sketch" ? SKETCH_MENU : level === "base" ? baseMenu() : (envSubmenus[level] || BASE_MENU);
     for (const s of spec) {
       if (s.submenu) { put(s.pos, { kind: "submenu", submenu: s.submenu, label: s.label, enabled: true }); continue; }
       const id = resolveId(s.id);
@@ -326,12 +327,40 @@ export function createMarkingMenu(app, opts = {}) {
     return out;
   }
 
+  // Radial layout of the active environment (MarkingMenus.xml per EnvId): a contextual environment's own
+  // (env.markingMenu: an EnvId of spec MARKING_MENUS or an explicit [{pos, id}] list), else the active toolbar
+  // tab's TabEnvironment (SURFACE -> FusionSurfaceEnvironment, SHEET METAL -> FusionSheetMetalEnvironment),
+  // else the Design menu. Second tiers named "Sketch" reuse the sketch tier.
+  const envSubmenus = {};
+  function adoptMenu(items) {
+    if (!Array.isArray(items) || !items.length) return null;
+    return items.map((it) => {
+      if (!it.submenu || typeof it.submenu === "string") return it;
+      const key = /^sketch$/i.test(it.label || "") ? "sketch" : `env-${String(it.label || "more").toLowerCase().replace(/W+/g, "-")}`;
+      if (key !== "sketch") envSubmenus[key] = it.submenu;
+      return { pos: it.pos, submenu: key, label: it.label || "More" };
+    });
+  }
+  function baseMenu() {
+    let env = null;
+    try { env = app.environment; } catch { env = null; }
+    if (env && env.mode !== "sketch" && env.markingMenu) {
+      const m = adoptMenu(Array.isArray(env.markingMenu) ? env.markingMenu : MARKING_MENUS[env.markingMenu]);
+      if (m) return m;
+    }
+    const tab = app.ui.toolbar && app.ui.toolbar.activeTab;
+    const te = tab && TAB_ENVIRONMENTS[tab];
+    if (!env && te && MARKING_MENUS[te]) { const m = adoptMenu(MARKING_MENUS[te]); if (m) return m; }
+    return BASE_MENU;
+  }
+
   function workspaceItems() {
-    let ws = WORKSPACES_FALLBACK;
-    try { const w = app.ui.toolbar && app.ui.toolbar.spec && app.ui.toolbar.spec.WORKSPACES; if (Array.isArray(w) && w.length) ws = w; } catch { /* ignore */ }
+    let ws = WORKSPACES_FALLBACK.map((w) => ({ ...w, registered: w.id === "FusionSolidEnvironment" }));
+    try { if (typeof app.workspaceList === "function") ws = app.workspaceList(); } catch { /* ignore */ }
+    const cur = app.workspace || "FusionSolidEnvironment";
     return ws.map((w) => ({
-      label: w.label, icon: false, checked: w.id === "FusionSolidEnvironment",
-      run: w.id === "FusionSolidEnvironment" ? () => {} : () => app.toast(`The ${w.label} workspace isn't available in this unofficial recreation`, "info"),
+      label: w.label, icon: false, checked: w.id === cur,
+      run: () => { if (w.id === cur) return; if (typeof app.setWorkspace === "function") app.setWorkspace(w.id); else app.toast(`The ${w.label} workspace isn't available in this unofficial recreation`, "info"); },
     }));
   }
 

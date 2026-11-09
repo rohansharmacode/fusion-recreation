@@ -22,6 +22,8 @@ import { createTooltip } from "./tooltip.js";
 import { buildToolbar } from "./toolbar.js";
 import { buildAppbar } from "./appbar.js";
 import { buildDataPanel, buildComments, modal } from "./panels.js";
+import { WORKSPACE_SPECS, WORKSPACE_PANELS, WORKSPACE_COMMANDS } from "./workspaces-spec.js";
+import { installWorkspaces } from "./workspace.js";
 
 // Stub shortcuts that no other module owns (pressing them gives Fusion-like feedback).
 const STUB_SHORTCUTS = { JointAssembleCmdNew: "J", JointAsBuiltCmd: "Shift+J", FusionViewColorCyclingToggleCmd: "Shift+N", ScriptsManagerCommand: "Shift+S" };
@@ -63,6 +65,7 @@ export function init(app) {
 
   registerShellCommands(app, shell, svc);
   registerStubs(app);
+  shell.workspaces = installWorkspaces(app);
 
   const guard = (name, fn) => { try { return fn(); } catch (e) { console.error(`[shell] ${name}`, e); return null; } };
   const dataPanel = guard("data panel", () => buildDataPanel(app, svc));
@@ -187,9 +190,7 @@ function registerShellCommands(app, shell, svc) {
     id: "ShowCommandHelp", label: "Help for Command", tooltip: "Opens help for the command under the cursor.", shortcut: "Ctrl+/",
     run: () => app.toast("Online help isn't available in this unofficial recreation. Hover a tool for its description, or see Help > Keyboard Shortcuts.", "info", 4500),
   });
-  const wsToast = () => app.toast("Other workspaces aren't available in this unofficial recreation", "info");
-  reg({ id: "NextWorkspace", label: "Next Workspace", tooltip: "Switches to the next workspace.", shortcut: "Ctrl+]", run: wsToast });
-  reg({ id: "PreviousWorkspace", label: "Previous Workspace", tooltip: "Switches to the previous workspace.", shortcut: "Ctrl+[", run: wsToast });
+  // NextWorkspace / PreviousWorkspace: workspace.js
 }
 
 function registerStubs(app) {
@@ -206,6 +207,14 @@ function registerStubs(app) {
     if (STUB_SHORTCUTS[id]) extra.shortcut = STUB_SHORTCUTS[id];
     stub(id, c[0], c[1], extra);
   }
+  // commands of the other workspaces' toolbars (workspaces-spec.js), scoped to their workspace
+  const wsOf = new Map();
+  for (const w of WORKSPACE_SPECS) {
+    const panels = WORKSPACE_PANELS[w.id] || {};
+    const walk = (arr) => { for (const x of arr || []) { if (typeof x === "string") { if (x !== "-" && !wsOf.has(x)) wsOf.set(x, w.id); } else if (x && x.id) { if (!wsOf.has(x.id)) wsOf.set(x.id, w.id); } else if (x && x.items) walk(x.items); } };
+    for (const pnl of Object.values(panels)) { walk(pnl.controls); walk(pnl.dropdown); }
+  }
+  for (const [id, c] of Object.entries(WORKSPACE_COMMANDS)) stub(id, c[0], c[1], { workspace: wsOf.get(id) });
   // Fallbacks for application commands owned by other modules (replaced when those register).
   const L = (id) => APP_COMMANDS[id];
   stub("Undo", L("Undo")[0], L("Undo")[1], { shortcut: "Ctrl+Z", run: () => app.history.undo(), enabled: () => app.history.canUndo() });

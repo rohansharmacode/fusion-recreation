@@ -19,10 +19,22 @@ const KEY = (env) => `fusion-rec:shortcuts:${env}`;
 const MAX = 24;
 
 export function createShortcuts(app) {
-  const env = () => (app.mode === "sketch" ? "sketch" : "model");
+  // one list per environment: 'model' (Design), 'sketch', a contextual environment's mode ('form' ...) or a
+  // workspace id (Render, Manufacture ...); defaults: DEFAULT_SHORTCUTS, else the environment's spec.shortcuts
+  const env = () => {
+    const ws = app.workspace;
+    if (ws && ws !== "FusionSolidEnvironment") return ws;
+    return app.mode === "sketch" ? "sketch" : app.mode && app.mode !== "model" ? app.mode : "model";
+  };
+  const defaults = (e) => {
+    if (DEFAULT_SHORTCUTS[e]) return DEFAULT_SHORTCUTS[e].slice();
+    try { const en = app.environment; if (en && en.mode === e && Array.isArray(en.shortcuts)) return en.shortcuts.slice(); } catch { /* ignore */ }
+    try { const w = app.workspaceDef && app.workspaceDef(e); if (w && Array.isArray(w.shortcuts)) return w.shortcuts.slice(); } catch { /* ignore */ }
+    return [];
+  };
   function list(e = env()) {
     const raw = store.getJSON(KEY(e), null);
-    if (!Array.isArray(raw)) return DEFAULT_SHORTCUTS[e].slice();
+    if (!Array.isArray(raw)) return defaults(e);
     return raw.filter((x) => typeof x === "string");
   }
   function save(ids, e = env()) {

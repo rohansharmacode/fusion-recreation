@@ -24,6 +24,9 @@ export { M, K, S, E };
 // {kind:'originPoint'}
 // {kind:'cplane', id}                               construction plane feature id
 // {kind:'feature', id}                              timeline / browser item
+// {kind:'meshFace', body, tri, group, p, n}         triangle `tri` of a mesh body; group = its face group
+//                                                   (-1 / undefined when the mesh has none). Two meshFace refs of
+//                                                   the same group are the same selection unless triOnly:true.
 export function refKey(r) {
   if (!r) return "";
   switch (r.kind) {
@@ -40,6 +43,7 @@ export function refKey(r) {
     case "originPoint": return "opt";
     case "cplane": return `cp:${r.id}`;
     case "feature": return `f:${r.id}`;
+    case "meshFace": return r.group != null && r.group >= 0 && !r.triOnly ? `mfg:${r.body}:${r.group}` : `mf:${r.body}:${r.tri}`;
     default: return `${r.kind}:${JSON.stringify(r)}`;
   }
 }
@@ -95,6 +99,9 @@ export class CommandRegistry {
   isEnabled(id) {
     const d = this.defs.get(id);
     if (!d) return false;
+    // commands of a contextual environment (when: 'form', 'basefeature' ...) only run inside it;
+    // 'model' / 'sketch' keep their own enabled() rules (sketch tools start a sketch from the model)
+    if (d.when && d.when !== "model" && d.when !== "sketch" && !d.stub && !this.app.inMode(d.when)) return false;
     try { return d.enabled ? !!d.enabled(this.app) : true; } catch { return false; }
   }
   run(id, ctx = {}) {
@@ -113,9 +120,13 @@ export class CommandRegistry {
   /** Find a command bound to a normalized key string ("Ctrl+Z", "Shift+N", "E") in the current mode. */
   forShortcut(key, mode) {
     let fallback = null;
+    const ws = this.app.workspace || DESIGN_WORKSPACE;
     for (const d of this.defs.values()) {
       const sc = Array.isArray(d.shortcut) ? d.shortcut : d.shortcut ? [d.shortcut] : [];
       if (!sc.includes(key)) continue;
+      // outside the Design workspace only that workspace's commands and application-wide ui/view commands answer keys
+      if (ws !== DESIGN_WORKSPACE && d.workspace !== ws && (d.workspace || d.kind === "feature" || d.kind === "tool")) continue;
+      if (ws === DESIGN_WORKSPACE && d.workspace && d.workspace !== ws) continue;
       if (d.when === mode) return d;
       if (!d.when) fallback = fallback || d;
     }
@@ -213,8 +224,29 @@ export const DEFAULT_APPEARANCES = {
   "glass": { name: "Glass - Clear", color: "#cfe6f0", metalness: 0, roughness: 0.05, opacity: 0.35 },
 };
 
-// Feature types that create a body when their operation is new/join.
+// Feature types that create a body when their operation is new/join (registered types: def.makesBodies, M.assignBodies).
 const BODY_MAKERS = new Set(["extrude", "revolve", "loft", "sweep", "box", "cylinder", "sphere", "torus"]);
+
+// Workspaces in the order of Fusion's workspace switcher (DESIGN ▾) for a part design. Modules register
+// real ones with app.registerWorkspace({id, ...}); the others show a placeholder.
+export const DESIGN_WORKSPACE = "FusionSolidEnvironment";
+export const WORKSPACE_ORDER = [
+  { id: "FusionSolidEnvironment", label: "Design" },
+  { id: "GenerativeEnvironment", label: "Generative Design" },
+  { id: "FusionRenderEnvironment", label: "Render" },
+  { id: "Publisher3DEnvironment", label: "Animation" },
+  { id: "SimulationEnvironment", label: "Simulation" },
+  { id: "CAMEnvironment", label: "Manufacture" },
+  { id: "FusionDocumentationEnvironment", label: "Drawing" },
+];
+
+// Built-in look of body kinds (modules extend / override with app.registerBodyKind).
+const BUILTIN_BODY_KINDS = {
+  solid: { label: "Body", brep: true },
+  surface: { label: "Surface Body", brep: true },
+  mesh: { label: "Mesh Body", brep: false },
+  tspline: { label: "T-Spline Body", brep: false },
+};
 
 // ---------------------------------------------------------------------------
 // App
@@ -234,6 +266,8 @@ export class App extends EventTarget {
     this.input = new InputStack(this);
     this.history = new History(this);
     this.featureEditors = {}; // type -> (app, featureId) => void
+    // Insert Mesh features (type 'mesh', Fusion's mesh base feature) reopen the Insert Mesh dialog
+    this.featureEditors.mesh = (app, id) => app.commands.run("ParaMeshInsertAlignCommand", { editId: id });
     this.appearances = clone(DEFAULT_APPEARANCES); // id -> {name, color, metalness, roughness, opacity?}; inspect module extends
     this.ui = {}; // modules publish their public objects here (app.ui.toolbar, app.ui.dialog, ...)
     this.viewport = null; // set by the viewport module
@@ -242,7 +276,192 @@ export class App extends EventTarget {
     this.activeCommand = null; // {id, cancel(), ok()} while a command dialog is open
     this.dirty = false;
     this.status = ""; // bottom-right canvas status text (Fusion: "1 Profile | Area : 800.00 mm^2", "Edge", "Body1")
+    this.bodyKinds = clone(BUILTIN_BODY_KINDS); // kind -> hooks (see registerBodyKind)
+    this._envStack = []; // contextual environments (enterEnvironment), innermost last
+    this._workspaces = new Map(); // id -> registered workspace def
+    this.workspace = DESIGN_WORKSPACE;
+    this._workspaces.set(DESIGN_WORKSPACE, { id: DESIGN_WORKSPACE, label: "Design", builtin: true });
+    // Edit Feature entries of registered feature types (app.featureEditors[type] set by a module wins)
+    this._offFeatureReg = M.onFeatureRegistered((type) => this.emit("feature-types", { type }));
     this._installKeyboard();
+  }
+
+  // ----- feature types (registry in model.js) -----
+  /** Edit Feature entry for a feature type: app.featureEditors[type], else the registered def.editor. */
+  featureEditor(type) {
+    if (this.featureEditors[type]) return this.featureEditors[type];
+    const d = M.featureDef(type);
+    return d && typeof d.editor === "function" ? d.editor : null;
+  }
+  hasFeatureEditor(type) { return !!this.featureEditor(type); }
+  /** Label of a feature type ("Extrude", "Rib" ...). */
+  featureLabel(type) { const d = M.featureDef(type); return (d && d.label) || M.TYPE_LABEL[type] || type; }
+
+  // ----- body kinds -----
+  /**
+   * Register / extend how a body kind is shown and handled (merged into app.bodyKinds[kind]):
+   *   { label: "T-Spline Body",              browser tooltip / status text
+   *     icon: "<svg ...>",                   browser row icon (16 px markup; default per kind)
+   *     brep: false,                         true = OCCT shape in st.bodies, false = st.meshBodies entry
+   *     mesh(body, app) -> {positions, indices?, normals?, groups?}   triangles to draw / pick (default body.mesh)
+   *     render(body, app) -> THREE.Object3D | null   extra scene objects (cage, control points), rebuilt with the body
+   *     pick(body, x, y, ray, opts) -> hits[]   extra pick hits (same format as viewport pick providers)
+   *     edges: 'groups' | 'sharp' | 'none'   which mesh edges to draw (default 'groups': open + face-group borders)
+   *     info(body) -> {volume?, area?, triangles?}   Properties / BOM numbers
+   *     exportSTL: true }                   included in STL export (mesh-like kinds)
+   */
+  registerBodyKind(kind, hooks = {}) {
+    if (!kind) throw new Error("registerBodyKind needs a kind");
+    this.bodyKinds[kind] = { ...(this.bodyKinds[kind] || { label: `${kind} Body`, brep: false }), ...hooks };
+    this.emit("body-kinds", { kind });
+    if (this.result && !this.previewing) this.emit("model", { result: this.result, preview: false });
+    return this.bodyKinds[kind];
+  }
+  /** Kind of body `id` in the visible result ('solid' | 'surface' | 'mesh' | 'tspline' | ...), or null. */
+  bodyKind(id) { return this.result ? M.bodyKind(this.result.state, id) : null; }
+  /** Every body alive in the visible result, any kind: [{id, kind, shape?, mesh?, data?, meta}] (B-rep first). */
+  allBodies() {
+    if (!this.result) return [];
+    const st = this.result.state;
+    const out = [];
+    for (const b of st.bodies.values()) out.push({ id: b.id, kind: b.kind || M.shapeKind(b.shape) || "solid", shape: b.shape, sheetMetal: b.sheetMetal, meta: this.bodyMeta(b.id) });
+    if (st.meshBodies) for (const b of st.meshBodies.values()) out.push({ id: b.id, kind: b.kind || "mesh", mesh: this.bodyMesh(b), data: b.data, entry: b, meta: this.bodyMeta(b.id) });
+    return out;
+  }
+  /** One body of any kind ({id, kind, shape?, mesh?, data?, meta}) or null. */
+  anyBody(id) {
+    if (!this.result) return null;
+    const st = this.result.state;
+    const b = st.bodies.get(id);
+    if (b) return { id, kind: b.kind || M.shapeKind(b.shape) || "solid", shape: b.shape, sheetMetal: b.sheetMetal, meta: this.bodyMeta(id) };
+    const m = st.meshBodies && st.meshBodies.get(id);
+    return m ? { id, kind: m.kind || "mesh", mesh: this.bodyMesh(m), data: m.data, entry: m, meta: this.bodyMeta(id) } : null;
+  }
+  /** Triangle mesh to display a mesh-like body entry (kind hook mesh(), else entry.mesh). */
+  bodyMesh(entry) {
+    const k = this.bodyKinds[entry.kind || "mesh"];
+    if (k && typeof k.mesh === "function") { try { return k.mesh(entry, this) || entry.mesh || null; } catch (e) { console.error(e); } }
+    return entry.mesh || null;
+  }
+  /** Numbers for Properties / BOM: {id, kind, name, volume (mm3), area (mm2), bbox, triangles?} or null. */
+  bodyInfo(id) {
+    const b = this.anyBody(id);
+    if (!b) return null;
+    const out = { id, kind: b.kind, name: b.meta && b.meta.name, volume: 0, area: 0, bbox: null };
+    try {
+      if (b.shape) {
+        out.bbox = K.bboxOf(b.shape);
+        out.volume = b.kind === "solid" ? K.volumeOf(b.shape) : 0;
+        try { out.area = K.R.measureArea(b.shape); } catch { out.area = 0; }
+      } else {
+        const hook = this.bodyKinds[b.kind] && this.bodyKinds[b.kind].info;
+        const extra = typeof hook === "function" ? hook(b.entry || b, this) || {} : {};
+        const mesh = b.mesh;
+        if (mesh) {
+          out.bbox = M.meshOps.bbox(mesh);
+          out.triangles = M.meshOps.triCount(mesh);
+          out.area = M.meshOps.area(mesh);
+          out.volume = Math.abs(M.meshOps.volume(mesh));
+        }
+        Object.assign(out, extra);
+      }
+    } catch (e) { console.warn("bodyInfo", e); }
+    return out;
+  }
+
+  // ----- contextual environments -----
+  /**
+   * Enter a contextual environment (Fusion's FORM, BASE FEATURE, FLAT PATTERN, DIRECT EDIT ... tabs):
+   *   { id, mode (app.mode while active; commands with when:<mode> become available), label,
+   *     tab: tabId from spec CONTEXTUAL_TABS | {id, label, panels:[panelIds]} | [several],
+   *     panels?: {panelId: {label, controls, dropdown, finish?}}   extra panel definitions,
+   *     finishCommand?: command id of the green FINISH <NAME> button, finishLabel?,
+   *     baseTabs?: null (all persistent tabs stay) | [] (none) | [tabIds],
+   *     markingMenu?: 'TSplineEnvironment' | [{pos, id}] radial layout, shortcuts?: [ids] default S-toolbox row,
+   *     feature?: featureId being edited, onExit(reason) }   reason 'finish' | 'cancel' | 'exit' | 'replaced'
+   * Environments nest (a sketch inside a Form). Emits 'environment' {env, action:'enter'} and 'mode'.
+   */
+  enterEnvironment(spec) {
+    if (!spec || !spec.id) throw new Error("enterEnvironment needs an id");
+    const env = { ...spec, mode: spec.mode || spec.id, prevMode: this.mode, prevSketch: this.activeSketch, enteredAt: Date.now() };
+    const i = this._envStack.findIndex((e) => e.id === spec.id);
+    if (i >= 0) this.exitEnvironment(spec.id, { reason: "replaced" });
+    if (this.activeCommand) { try { this.activeCommand.cancel(); } catch { /* ignore */ } }
+    this._envStack.push(env);
+    this.emit("environment", { env, action: "enter" });
+    this._setModeRaw(env.mode, null);
+    return env;
+  }
+  /** Leave environment `id` (and any nested inside it); onExit(reason) runs once. Returns true when it was active. */
+  exitEnvironment(id, opts = {}) {
+    const i = id ? this._envStack.findIndex((e) => e.id === id) : this._envStack.length - 1;
+    if (i < 0) return false;
+    const gone = this._envStack.splice(i);
+    const env = gone[0];
+    for (const e of gone.reverse()) {
+      try { if (typeof e.onExit === "function") e.onExit(opts.reason || "exit", e); } catch (err) { console.error(err); }
+      this.emit("environment", { env: e, action: "exit", reason: opts.reason || "exit" });
+    }
+    const top = this._envStack[this._envStack.length - 1];
+    this._setModeRaw(top ? top.mode : (env.prevMode && env.prevMode !== env.mode && env.prevMode !== "sketch" ? env.prevMode : "model"), null);
+    return true;
+  }
+  /** Innermost active environment: a registered one, the sketch (built-in), or null in the plain model. */
+  get environment() {
+    if (this.mode === "sketch") return { id: "sketch", mode: "sketch", label: "SKETCH", tab: "SketchTab", finishCommand: "SketchStop", builtin: true, sketch: this.activeSketch };
+    return this._envStack[this._envStack.length - 1] || null;
+  }
+  get environments() { return this._envStack.slice(); }
+  /** True when `mode` is the current mode or the mode of an enclosing environment. */
+  inMode(mode) { return this.mode === mode || this._envStack.some((e) => e.mode === mode); }
+
+  // ----- workspaces -----
+  /**
+   * Register a workspace (DESIGN ▾ switcher entry):
+   *   { id: "FusionRenderEnvironment", label: "Render",
+   *     tabs: [{id, label, panels:[panelIds]}], panels: {panelId: {label, controls, dropdown}},
+   *     enter(app), exit(app),
+   *     timeline?: false | (host, app) => dispose?   replace the bottom strip (false hides the timeline),
+   *     browser?: true | false,                   show the browser (default true)
+   *     canvas?: (host, app) => dispose?          optional overlay over the canvas }
+   * Unregistered Fusion workspaces still appear in the switcher with a placeholder.
+   */
+  registerWorkspace(def) {
+    if (!def || !def.id) throw new Error("registerWorkspace needs an id");
+    const known = WORKSPACE_ORDER.find((w) => w.id === def.id);
+    const d = { label: (known && known.label) || def.id, ...def };
+    this._workspaces.set(def.id, d);
+    this.emit("workspaces", { id: def.id });
+    if (this.workspace === def.id) this.emit("workspace", { id: def.id, def: d, prev: def.id, refresh: true });
+    return d;
+  }
+  /** Ordered switcher list: [{id, label, registered, def}] (Fusion's workspaces first, then other registered ones). */
+  workspaceList() {
+    const out = WORKSPACE_ORDER.map((w) => ({ ...w, registered: this._workspaces.has(w.id), def: this._workspaces.get(w.id) || null }));
+    for (const [id, d] of this._workspaces) if (!out.some((w) => w.id === id)) out.push({ id, label: d.label || id, registered: true, def: d });
+    return out;
+  }
+  workspaceDef(id = this.workspace) { return this._workspaces.get(id) || null; }
+  /** Switch workspace (finishes the sketch / leaves environments first). Emits 'workspace' {id, prev, def}. */
+  setWorkspace(id) {
+    if (!id || id === this.workspace) return false;
+    const entry = this.workspaceList().find((w) => w.id === id);
+    if (!entry) throw new Error(`Unknown workspace ${id}`);
+    if (this.activeCommand) { try { this.activeCommand.cancel(); } catch { /* ignore */ } }
+    if (this.mode === "sketch") {
+      const stop = this.commands.get("SketchStop");
+      if (stop && !stop.stub) this.commands.run("SketchStop"); else this.setMode("model");
+    }
+    while (this._envStack.length) this.exitEnvironment(this._envStack[this._envStack.length - 1].id, { reason: "workspace" });
+    const prev = this.workspace;
+    const pd = this._workspaces.get(prev);
+    try { if (pd && typeof pd.exit === "function") pd.exit(this); } catch (e) { console.error(e); }
+    this.workspace = id;
+    const nd = this._workspaces.get(id) || null;
+    this.selection.clear();
+    try { if (nd && typeof nd.enter === "function") nd.enter(this); } catch (e) { console.error(e); this.reportError(e, { where: entry.label }); }
+    this.emit("workspace", { id, prev, def: nd, label: entry.label });
+    return true;
   }
 
   /**
@@ -299,12 +518,12 @@ export class App extends EventTarget {
   // ----- document access -----
   feature(id) { return this.doc.features.find((f) => f.id === id) || null; }
   featureIndex(id) { return this.doc.features.findIndex((f) => f.id === id); }
-  /** Bodies alive in the current result: [{id, shape, meta}] */
+  /** B-rep bodies (solids and surfaces, OCCT shapes) alive in the current result: [{id, shape, meta, kind}]. allBodies() adds mesh-like kinds. */
   bodies() {
     if (!this.result) return [];
-    return [...this.result.state.bodies.values()].map((b) => ({ id: b.id, shape: b.shape, meta: this.bodyMeta(b.id) }));
+    return [...this.result.state.bodies.values()].map((b) => ({ id: b.id, shape: b.shape, meta: this.bodyMeta(b.id), kind: b.kind || M.shapeKind(b.shape) || "solid" }));
   }
-  body(id) { const b = this.result && this.result.state.bodies.get(id); return b ? { id, shape: b.shape, meta: this.bodyMeta(id) } : null; }
+  body(id) { const b = this.result && this.result.state.bodies.get(id); return b ? { id, shape: b.shape, meta: this.bodyMeta(id), kind: b.kind || M.shapeKind(b.shape) || "solid" } : null; }
   bodyMeta(id) {
     if (!this.doc.bodies[id] && this.previewing && this._previewMeta && this._previewMeta[id]) return this._previewMeta[id];
     if (!this.doc.bodies[id]) {
@@ -331,9 +550,21 @@ export class App extends EventTarget {
     }
     this.result = r;
     this.previewing = false;
-    for (const id of r.state.bodies.keys()) this.bodyMeta(id);
+    this._syncBodyMeta(r.state, (id) => this.bodyMeta(id));
     this.emit("model", { result: r, preview: false });
     return r;
+  }
+  /** Mirror derived body data (kind, sheet metal) into the body metadata so the browser / files can read it. */
+  _syncBodyMeta(st, metaOf) {
+    for (const id of M.allBodyIds(st)) {
+      const meta = metaOf(id);
+      if (!meta) continue;
+      const kind = M.bodyKind(st, id) || "solid";
+      if (kind === "solid") { if (meta.kind && meta.kind !== "solid") delete meta.kind; } else if (meta.kind !== kind) meta.kind = kind;
+      const b = st.bodies.get(id);
+      const sm = b && b.sheetMetal ? (typeof b.sheetMetal === "object" ? b.sheetMetal : true) : undefined;
+      if (sm) meta.sheetMetal = sm; else if (meta.sheetMetal && b) delete meta.sheetMetal;
+    }
   }
 
   /**
@@ -371,7 +602,8 @@ export class App extends EventTarget {
     // Bodies that exist only in the preview get transient metadata (never written into app.doc,
     // so a cancelled preview leaves no phantom body and body numbering stays in step with commit).
     this._previewMeta = {};
-    for (const id of r.state.bodies.keys()) if (!this.doc.bodies[id]) this._previewMeta[id] = clone(doc.bodies[id] || { name: "Body", visible: true, appearance: "steel-satin", material: "steel" });
+    for (const id of M.allBodyIds(r.state)) if (!this.doc.bodies[id]) this._previewMeta[id] = clone(doc.bodies[id] || { name: "Body", visible: true, appearance: "steel-satin", material: "steel" });
+    this._syncBodyMeta(r.state, (id) => this._previewMeta[id] || null);
     this.emit("model", { result: r, preview: true, feature: nf });
     return { result: r, feature: nf };
   }
@@ -397,7 +629,7 @@ export class App extends EventTarget {
 
   /** Insert a feature at the marker (assigns id, name, parameters, body ids). Returns the stored feature. */
   addFeature(f, label) {
-    return this.mutate(label || `Create ${M.TYPE_LABEL[f.type] || f.type}`, (doc) => {
+    return this.mutate(label || `Create ${this.featureLabel(f.type)}`, (doc) => {
       const nf = clone(f);
       prepareFeature(doc, nf);
       doc.features.splice(doc.marker, 0, nf);
@@ -431,8 +663,8 @@ export class App extends EventTarget {
   editFeature(id) {
     const f = this.feature(id);
     if (!f) return;
-    const ed = this.featureEditors[f.type];
-    if (!ed) { this.toast(`Editing ${M.TYPE_LABEL[f.type] || f.type} is not available yet`, "info"); return; }
+    const ed = this.featureEditor(f.type);
+    if (!ed) { this.toast(`Editing ${this.featureLabel(f.type)} is not available yet`, "info"); return; }
     this.emit("command-start", { id: `edit:${f.type}` });
     ed(this, id);
   }
@@ -459,15 +691,25 @@ export class App extends EventTarget {
     this.history.redoStack = [];
     this.evaluator.invalidate();
     this.dirty = false;
+    try { M.migrateDoc(doc); } catch (e) { console.warn("document migration failed", e); }
+    while (this._envStack.length) this.exitEnvironment(this._envStack[this._envStack.length - 1].id, { reason: "document" });
     this._replaceDoc(doc);
     this.emit("history", {});
   }
 
   // ----- modes -----
+  /**
+   * 'model' | 'sketch' | an environment mode. Leaving the sketch ('model') inside an environment returns to
+   * that environment's mode (a sketch made in the Form environment goes back to the Form).
+   */
   setMode(mode, sketchId = null) {
+    if (mode === "model" && this._envStack.length) mode = this._envStack[this._envStack.length - 1].mode;
+    this._setModeRaw(mode, sketchId);
+  }
+  _setModeRaw(mode, sketchId = null) {
     this.mode = mode;
     this.activeSketch = mode === "sketch" ? sketchId : null;
-    this.emit("mode", { mode, sketch: this.activeSketch });
+    this.emit("mode", { mode, sketch: this.activeSketch, env: this.environment });
   }
 
   // ----- keyboard -----
@@ -532,6 +774,7 @@ export function prepareFeature(doc, f) {
   if (!f.id) { doc.counters.feature += 1; f.id = `f${doc.counters.feature}`; }
   if (!f.name) f.name = M.nextName(doc, f.type);
   M.assignParams(doc, f);
+  M.assignBodies(doc, f); // registered types (def.makesBodies) and the built-in body makers
   const op = f.operation || "new";
   if (BODY_MAKERS.has(f.type) && (op === "new" || op === "join" || op === "newComponent") && !f.newBody) f.newBody = M.nextBody(doc);
   if (f.type === "mirror" && f.operation !== "join" && (!f.newBodies || f.newBodies.length < (f.bodies || []).length)) {

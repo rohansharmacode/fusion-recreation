@@ -68,11 +68,11 @@ export class SelectionTool {
     const accepts = (r) => this.app.selection.accepts(r);
     const all = this.vp.pickAll(ctx.x, ctx.y, { filter: accepts });
     if (this.priority === "body") {
-      const h = all.find((x) => !["face", "edge", "vertex"].includes(x.ref.kind));
+      const h = all.find((x) => !["face", "edge", "vertex", "meshFace"].includes(x.ref.kind));
       return h || null;
     }
     if (this.priority === "edge") {
-      const h = all.find((x) => !["face", "body"].includes(x.ref.kind));
+      const h = all.find((x) => !["face", "body", "meshFace"].includes(x.ref.kind));
       return h || null;
     }
     return ctx.hit;

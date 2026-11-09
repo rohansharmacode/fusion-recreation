@@ -96,6 +96,7 @@ export class Highlighter {
       case "edge": return this._edge(ref, selected);
       case "vertex": return this._vertex(ref.p, selected);
       case "body": return this._body(ref.body, selected);
+      case "meshFace": return this._meshFace(ref, selected);
       case "feature": for (const b of this._featureBodies(ref.id)) this._body(b, selected); return;
       default: return;
     }
@@ -115,6 +116,39 @@ export class Highlighter {
     m.userData.sharedPos = true;
     m.renderOrder = 3;
     return m;
+  }
+
+  /** A mesh triangle, or its whole face group when the mesh has groups (Fusion selects face groups). */
+  _meshFace(ref, selected) {
+    const o = this._bodyObj(ref.body);
+    if (!o || !o.entry.isMesh) return;
+    const T = o.entry.md.triangles;
+    let idx;
+    const groups = o.entry.groups;
+    if (!groups && ref.group === 0 && !ref.triOnly) {
+      idx = T; // the whole mesh is its only face group
+    } else if (groups && ref.group != null && ref.group >= 0 && !ref.triOnly) {
+      const list = [];
+      for (let t = 0; t < o.entry.triCount; t++) if (groups[t] === ref.group) list.push(T[3 * t], T[3 * t + 1], T[3 * t + 2]);
+      idx = Uint32Array.from(list);
+    } else {
+      const t = ref.tri | 0;
+      if (t < 0 || 3 * t + 2 >= T.length) return;
+      idx = Uint32Array.from([T[3 * t], T[3 * t + 1], T[3 * t + 2]]);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", o.entry.geo.getAttribute("position"));
+    if (o.entry.geo.getAttribute("normal")) geo.setAttribute("normal", o.entry.geo.getAttribute("normal"));
+    geo.setIndex(new THREE.BufferAttribute(idx, 1));
+    const common = { depthWrite: false, depthFunc: THREE.LessEqualDepth, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: -1 };
+    const mat = selected
+      ? new THREE.MeshStandardMaterial({ ...common, color: HL.selFace, roughness: 0.7, metalness: 0, flatShading: true, envMap: this.vp.envMap || null, envMapIntensity: 0.06 })
+      : new THREE.MeshBasicMaterial({ ...common, color: HL.hovFace, transparent: true, opacity: HL.hovFaceOpacity });
+    const m = new THREE.Mesh(geo, mat);
+    m.userData.ownGeo = true;
+    m.userData.sharedPos = true;
+    m.renderOrder = 3;
+    this.root.add(m);
   }
 
   _face(ref, selected) {
@@ -183,10 +217,11 @@ export class Highlighter {
     if (!f || f.type === "sketch" || f.type === "cplane") return [];
     const r = (app.result && app.result.results && app.result.results[id]) || {};
     if (r.rolled || r.suppressed || f.suppressed) return [];
-    const alive = app.result && app.result.state && app.result.state.bodies;
+    const st = app.result && app.result.state;
+    const alive = { has: (b) => !!st && ((st.bodies && st.bodies.has(b)) || (st.meshBodies && st.meshBodies.has(b))) };
     const cands = [...(r.affected || []), f.newBody, ...(f.newBodies || []), ...(f.edges || []).map((e) => e && e.body), ...(f.faces || []).map((x) => x && x.body), ...(f.bodies || []), f.target];
     const out = [];
-    for (const b of cands) if (b && alive && alive.has && alive.has(b) && !out.includes(b)) out.push(b);
+    for (const b of cands) if (b && typeof b === "string" && alive.has(b) && !out.includes(b)) out.push(b);
     return out;
   }
 

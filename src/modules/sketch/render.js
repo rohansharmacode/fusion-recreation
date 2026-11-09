@@ -147,7 +147,15 @@ function curveClass(sk, id, status, fixed) {
 }
 
 function segmentsFromPolyline(pl, out) {
-  for (let i = 0; i + 1 < pl.length; i++) out.push(pl[i][0], pl[i][1], 0, pl[i + 1][0], pl[i + 1][1], 0);
+  for (let i = 0; i + 1 < pl.length; i++) out.push(pl[i][0], pl[i][1], pl[i][2] || 0, pl[i + 1][0], pl[i + 1][1], pl[i + 1][2] || 0);
+}
+/** Polylines drawing a curve (text: one per glyph contour, 3D curves with their height over the plane). */
+export function curveLines(sk, id, segs = 96) {
+  const S = ST.app.S;
+  const cv = sk.curves[id];
+  if (cv && (cv.type === "text" || cv.type === "c3d")) return S.curvePolylines(S, sk, id, segs);
+  const pl = S.curvePolyline(sk, id, segs);
+  return pl.length >= 2 ? [pl] : [];
 }
 
 // ---------------------------------------------------------------------------
@@ -198,10 +206,9 @@ export function rebuild() {
       if (active && cv.cons && !opts.showConstruction) continue;
       if (active && cv.proj && !opts.showProjected) continue;
       if (!inSketch && cv.proj) continue; // projected geometry only shows while editing
-      const pl = S.curvePolyline(sk, id, 96);
-      if (pl.length < 2) continue;
       const pos = [];
-      segmentsFromPolyline(pl, pos);
+      for (const pl of curveLines(sk, id, 96)) segmentsFromPolyline(pl, pos);
+      if (!pos.length) continue;
       const geo = new LineSegmentsGeometry();
       geo.setPositions(pos);
       const cls = curveClass(sk, id, d.status, fixed);
@@ -610,6 +617,7 @@ const GLYPH_TITLE = {
   horizontal: "Horizontal", vertical: "Vertical", parallel: "Parallel", perpendicular: "Perpendicular",
   coincident: "Coincident", onCurve: "Coincident", tangent: "Tangent", equal: "Equal", midpoint: "Midpoint",
   concentric: "Concentric", collinear: "Collinear", symmetric: "Symmetric", fix: "Fixed",
+  smooth: "Curvature", polygon: "Polygon", rpattern: "Rectangular Pattern", cpattern: "Circular Pattern",
 };
 
 const P2 = (sk, id) => [sk.points[id].x, sk.points[id].y];
@@ -711,6 +719,31 @@ function glyphSpots(sk, c) {
       case "fix":
         for (const r of R0) { if (sk.points[r]) atPoint(r); else onCurve(r); }
         break;
+      case "smooth": {
+        const S = ST.app.S;
+        const J = S.sharedEnd(sk, R0[0], R0[1]);
+        if (J && sk.points[J]) out.push({ p: P2(sk, J), n: [0.7, -0.7], ent: "g" + c.id, pt: true });
+        break;
+      }
+      case "polygon": {
+        // one glyph inside the polygon, near its first side
+        const pts = (c.loop || []).map((q) => sk.points[q[1]]).filter(Boolean);
+        if (pts.length) {
+          const cx = pts.reduce((a, q) => a + q.x, 0) / pts.length, cy = pts.reduce((a, q) => a + q.y, 0) / pts.length;
+          out.push({ p: [cx, cy], n: [0, 0], ent: "poly" + c.id, pt: true });
+        }
+        break;
+      }
+      case "rpattern": {
+        // Fusion: the pattern glyph sits beside the original instance
+        const pts = (c.srcPts || []).map((q) => sk.points[q]).filter(Boolean);
+        if (pts.length) {
+          const mx = Math.max(...pts.map((q) => q.x)), mn = Math.min(...pts.map((q) => q.y));
+          out.push({ p: [mx, mn], n: [0.7, -0.7], ent: "rp" + c.id, pt: true });
+        }
+        break;
+      }
+      case "cpattern": if (sk.points[c.center]) out.push({ p: P2(sk, c.center), n: [0.7, 0.7], ent: "cp" + c.id, pt: true }); break;
       default: break;
     }
   } catch { /* stale refs */ }

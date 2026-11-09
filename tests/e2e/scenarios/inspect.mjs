@@ -1,12 +1,15 @@
 // INSPECT + appearance tools through the real UI: Measure (I) on canvas edges, Center of Mass,
 // Section Analysis on a clicked face (cut + hatched cap + Analysis item), Appearance (A) by drag &
-// drop and click, Physical Material, Properties from the browser body context menu.
+// drop and click, Physical Material, Properties from the browser body context menu; then the 8 surface
+// analyses (Zebra, Draft, Curvature Map, Minimum Radius, Accessibility, Isocurve, Curvature Comb, Environment Map)
+// and Manage Materials (Material Browser) — see ../inspect-analyses-part.mjs.
 import { defineScenario, mainIfDirect, apiBox, near } from "../lib.mjs";
+import { analysesPart, materialsPart } from "../inspect-analyses-part.mjs";
 
 const scenario = defineScenario({
   name: "inspect",
-  title: "Measure, Section Analysis, Center of Mass, Appearance, Physical Material, Properties",
-  timeout: 150000,
+  title: "Measure, Section Analysis, Center of Mass, Appearance, Physical Material, Properties, surface analyses, Manage Materials",
+  timeout: 420000,
   async run(t) {
     t.step("setup: 40 x 20 x 10 box (App API)");
     const box = await apiBox(t);
@@ -162,7 +165,14 @@ const scenario = defineScenario({
     t.require("front face pickable", !!f);
     await t.canvasClick(f.x, f.y);
     await t.settle(200);
-    await t.fill('.dlg [data-input="distance"]', "-10 mm");
+    // the distance HUD takes focus once the manipulators appear (slow under load): retry until the value sticks
+    for (let i = 0; i < 4; i++) {
+      await t.settle(250);
+      await t.fill('.dlg [data-input="distance"]', "-10 mm");
+      await t.settle(300);
+      if (await t.app(() => /^-10/.test(String(window.app.ui.dialog.current && window.app.ui.dialog.current.values.distance)))) break;
+    }
+    await t.waitFor(() => { const c = window.app.ui.inspect.clipping; return !!c; }, { timeout: 2000 });
     await t.settle(500);
     const cap = await t.canvasXY([-12, 0, 5]);
     const capC = await t.colorAt(cap.x, cap.y, 3);
@@ -175,6 +185,10 @@ const scenario = defineScenario({
     const browserHas = await t.app(() => /Section1/.test((document.getElementById("browser-host") || {}).innerText || ""));
     if (!browserHas) t.note("browser does not show the Analysis folder yet (browser module reads app.ui.inspect.analyses())");
     await t.escapeAll();
+
+    // ------------------------------------------------------------- surface analyses + Manage Materials
+    await analysesPart(t);
+    await materialsPart(t);
   },
 });
 

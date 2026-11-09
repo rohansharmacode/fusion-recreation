@@ -2,7 +2,14 @@
 import { solveSketch, curvePoints, degenerateCurves } from "./solver.js";
 import { computeRegions, curveGeom, intersect } from "./regions.js";
 import { pcurveNearest, pcurveSamples, outwardTangent, splineFit, splineGeom, ellipseFrame, ellipseGeom, ellipseAngle, isFreeform } from "./curves.js";
+import { splitCurve2 } from "./ops2.js";
+import { patternValues as _patternValues } from "./solver2.js";
 export { splineFit, splineGeom, ellipseFrame, ellipseGeom, isFreeform };
+export * from "./ops2.js";
+export { cvsplineGeomFrom, conicGeomFrom, textContours, textFrame, contourPolyline, cvDegree, conicWeight as conicW, arcLengthTable, asParametric, splitConic, conicAt } from "./curves2.js";
+export { curveGeom } from "./regions.js";
+export { handleDerivs, curvatureToward, outwardTangent } from "./curves.js";
+export { patternValues, sharedEnd } from "./solver2.js";
 
 export function newSketch() {
   return {
@@ -188,6 +195,11 @@ export function removeEntities(sk, ids) {
   // removing a point removes curves using it
   for (const id of [...set]) if (sk.points[id]) for (const c of curvesUsingPoint(sk, id)) set.add(c);
   for (const id of set) delete sk.curves[id];
+  // text on a path goes with its path; tangent handles go with their spline
+  for (const [id, cv] of Object.entries(sk.curves)) {
+    if (cv.type === "text" && cv.mode === "path" && !sk.curves[cv.path]) { delete sk.curves[id]; set.add(id); }
+    if (cv.type === "spline" && cv.hd) for (const [k, l] of Object.entries(cv.hd)) if (!sk.curves[l]) { delete cv.hd[k]; if (cv.hs) delete cv.hs[k]; }
+  }
   // drop orphan points
   const used = new Set(["o"]);
   for (const cv of Object.values(sk.curves)) for (const p of curvePoints(cv)) used.add(p);
@@ -201,6 +213,10 @@ export function dimValues(sk, params) {
   const out = {};
   const errors = {};
   for (const c of sk.constraints) {
+    if (c.type === "rpattern" || c.type === "cpattern") {
+      try { out[c.id + ":pat"] = _patternValues(c, params); } catch (e) { errors[c.id] = e.message; }
+      continue;
+    }
     if (c.expr === undefined || c.driven) continue;
     try {
       out[c.id] = params.eval(c.expr, c.type === "angle" ? "angle" : "length");
@@ -387,18 +403,32 @@ function splineChordDer(g, t) {
 
 /** Trim the piece [t0, t1] (curve parameters, see trimPiece) out of a spline / ellipse / elliptical arc. */
 function trimFreeform(sk, id, g, t0, t1) {
+  const T = g.T, eps = 1e-7 * Math.max(1, T);
+  const keep = g.closed ? [[t1, t0 + T]] : [...(t0 > eps ? [[0, t0]] : []), ...(t1 < T - eps ? [[t1, T]] : [])];
+  if (!keep.length) { removeEntities(sk, [id]); return; }
+  splitFreeform(sk, id, g, keep);
+}
+
+/**
+ * Replace free-form curve `id` by pieces covering the parameter ranges `keep` (Trim keeps what is
+ * left, Break keeps every piece). Returns the ids of the pieces (the first one keeps `id`).
+ */
+export function splitFreeform(sk, id, g, keep) {
   const cv = sk.curves[id];
   const T = g.T, eps = 1e-7 * Math.max(1, T);
   const newPt = (t) => { const p = g.at(t); return addPoint(sk, p[0], p[1]); };
-  const keep = g.closed ? [[t1, t0 + T]] : [...(t0 > eps ? [[0, t0]] : []), ...(t1 < T - eps ? [[t1, T]] : [])];
-  if (!keep.length) { removeEntities(sk, [id]); return; }
   const inRange = (t, r) => {
     if (!g.closed) return t >= r[0] - eps && t <= r[1] + eps;
     for (const k of [-1, 0, 1]) { const tt = t + k * T; if (tt >= r[0] - eps && tt <= r[1] + eps) return true; }
     return false;
   };
   const ids = [];
-  if (g.sub === "ellipse") {
+  if (cv.type === "cvspline" || cv.type === "conic") {
+    if (cv.type === "cvspline" && cv.closed) {
+      // a closed control point spline opens at the cut: one open piece through the kept range
+      ids.push(id);
+    } else ids.push(...splitCurve2(sk, id, g, keep));
+  } else if (g.sub === "ellipse") {
     if (cv.type === "ellipse") {
       sk.curves[id] = { type: "earc", c: cv.c, a: cv.a, b: cv.b, p1: newPt(keep[0][0]), p2: newPt(keep[0][1]), cons: cv.cons };
       ids.push(id);
@@ -450,7 +480,7 @@ function trimFreeform(sk, id, g, t0, t1) {
     });
   }
   // constraints on the trimmed curve follow the piece they now belong to (or go with the removed part)
-  const ends = (cid) => { const c = sk.curves[cid]; return c.type === "spline" ? [c.pts[0], c.pts[c.pts.length - 1]] : c.type === "earc" ? [c.p1, c.p2] : []; };
+  const ends = (cid) => { const c = sk.curves[cid]; return c.type === "spline" || c.type === "cvspline" ? [c.pts[0], c.pts[c.pts.length - 1]] : c.type === "earc" || c.type === "conic" ? [c.p1, c.p2] : []; };
   sk.constraints = sk.constraints.filter((c) => {
     const k = c.refs.indexOf(id);
     if (k < 0) return true;
@@ -462,7 +492,7 @@ function trimFreeform(sk, id, g, t0, t1) {
       c.refs[1] = ids[at];
       return true;
     }
-    if (c.type === "tangent" && g.sub === "spline") {
+    if ((c.type === "tangent" || c.type === "smooth") && g.sub === "spline") {
       const other = c.refs[1 - k];
       const op = sk.curves[other] ? curvePoints(sk.curves[other]) : [];
       const at = ids.findIndex((pid) => ends(pid).some((e) => op.includes(e)));
@@ -472,6 +502,7 @@ function trimFreeform(sk, id, g, t0, t1) {
     }
     return !["equal", "distance", "radius", "diameter"].includes(c.type);
   });
+  return ids;
 }
 
 /** Mirror a spline / ellipse / elliptical arc (helper for mirrorEntities). */
@@ -486,6 +517,8 @@ function mirrorFreeform(sk, cv, mp, reflDir) {
   }
   if (cv.type === "ellipse") { const id = nid(sk, "e"); sk.curves[id] = { type: "ellipse", c: mp(cv.c), a: mp(cv.a), b: mp(cv.b), cons: cv.cons }; return id; }
   if (cv.type === "earc") return addEllipticArc(sk, mp(cv.c), mp(cv.a), mp(cv.b), mp(cv.p2), mp(cv.p1), cv.cons);
+  if (cv.type === "cvspline") { const id = nid(sk, "s"); sk.curves[id] = { type: "cvspline", pts: cv.pts.map(mp), degree: cv.degree, cons: cv.cons, ...(cv.closed ? { closed: true } : {}), ...(cv.knots ? { knots: [...cv.knots] } : {}) }; return id; }
+  if (cv.type === "conic") { const id = nid(sk, "n"); sk.curves[id] = { type: "conic", p1: mp(cv.p1), p2: mp(cv.p2), v: mp(cv.v), rho: cv.rho, cons: cv.cons }; return id; }
   return null;
 }
 
@@ -799,7 +832,7 @@ export function tryConstraints(sk, params, cons) {
   const s1 = solve(test, params);
   if (!s1.ok) return { ok: false, reason: "conflict", ...(s1.degenerate ? { degenerate: s1.degenerate } : {}) };
   // a spline end made tangent (G1) is shaped by the other curve, it removes no degree of freedom
-  if (cons.every((c) => c.type === "tangent" && c.refs.some((r) => sk.curves[r] && sk.curves[r].type === "spline"))) return { ok: true, sk: test, status: s1 };
+  if (cons.every((c) => (c.type === "tangent" || c.type === "smooth") && c.refs.some((r) => sk.curves[r] && sk.curves[r].type === "spline"))) return { ok: true, sk: test, status: s1 };
   if (s0.ok && s0.nullity !== undefined && s1.nullity !== undefined && s1.nullity >= s0.nullity) return { ok: false, reason: "redundant", sk: test, status: s1 };
   return { ok: true, sk: test, status: s1 };
 }
@@ -855,15 +888,15 @@ export function curvePolyline(sk, id, segs = 64) {
 /** Endpoints of an open curve as [startPointId, endPointId] (arcs: p1, p2). */
 export function curveEnds(cv) {
   if (!cv) return [];
-  if (cv.type === "line" || cv.type === "arc" || cv.type === "earc") return [cv.p1, cv.p2];
-  if (cv.type === "spline" && !cv.closed && cv.pts.length >= 2) return [cv.pts[0], cv.pts[cv.pts.length - 1]];
+  if (cv.type === "line" || cv.type === "arc" || cv.type === "earc" || cv.type === "conic") return [cv.p1, cv.p2];
+  if ((cv.type === "spline" || cv.type === "cvspline") && !cv.closed && cv.pts.length >= 2) return [cv.pts[0], cv.pts[cv.pts.length - 1]];
   return [];
 }
 
 /** Unit direction continuing a line/arc past its endpoint pid. */
 export function tangentAt(sk, id, pid) {
   const cv = sk.curves[id];
-  if (cv && (cv.type === "spline" || cv.type === "earc")) return outwardTangent(sk, id, pid);
+  if (cv && (cv.type === "spline" || cv.type === "earc" || cv.type === "cvspline" || cv.type === "conic")) return outwardTangent(sk, id, pid);
   const P = (q) => [sk.points[q].x, sk.points[q].y];
   if (cv.type === "line") {
     const a = P(cv.p1), b = P(cv.p2);
@@ -885,8 +918,8 @@ export function tangentAt(sk, id, pid) {
 export function chainOf(sk, id, opts = {}) {
   const start = sk.curves[id];
   if (!start || start.type === "point" || start.type === "circle") return { ids: [id], closed: !!start && start.type === "circle" };
-  if (start.type === "ellipse" || (start.type === "spline" && start.closed)) return { ids: [id], closed: true };
-  const filt = (cid) => sk.curves[cid] && (opts.linesArcs ? ["line", "arc"] : ["line", "arc", "earc", "spline"]).includes(sk.curves[cid].type) && !(sk.curves[cid].type === "spline" && sk.curves[cid].closed) && (!opts.sameType || !!sk.curves[cid].cons === !!start.cons);
+  if (start.type === "ellipse" || ((start.type === "spline" || start.type === "cvspline") && start.closed) || start.type === "text" || start.type === "c3d") return { ids: [id], closed: start.type === "ellipse" || !!start.closed };
+  const filt = (cid) => sk.curves[cid] && (opts.linesArcs ? ["line", "arc"] : ["line", "arc", "earc", "spline", "cvspline", "conic"]).includes(sk.curves[cid].type) && !((sk.curves[cid].type === "spline" || sk.curves[cid].type === "cvspline") && sk.curves[cid].closed) && (!opts.sameType || !!sk.curves[cid].cons === !!start.cons);
   const users = (pid) => curvesUsingPoint(sk, pid).filter((c) => filt(c) && curveEnds(sk.curves[c]).includes(pid));
   const seq = [id];
   const used = new Set([id]);

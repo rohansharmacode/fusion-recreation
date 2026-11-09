@@ -103,7 +103,7 @@ function refStatus(app, items) {
     if (r.kind === "feature" || r.kind === "cplane") { const f = app.feature(r.id); return (f && f.name) || ""; }
     return "";
   };
-  const LABEL = { face: ["Face", "Faces"], edge: ["Edge", "Edges"], vertex: ["Vertex", "Vertices"], body: ["Body", "Bodies"], originPlane: ["Plane", "Planes"], originAxis: ["Axis", "Axes"], originPoint: ["Point", "Points"], cplane: ["Plane", "Planes"], feature: ["Feature", "Features"] };
+  const LABEL = { face: ["Face", "Faces"], meshFace: ["Mesh Face", "Mesh Faces"], edge: ["Edge", "Edges"], vertex: ["Vertex", "Vertices"], body: ["Body", "Bodies"], originPlane: ["Plane", "Planes"], originAxis: ["Axis", "Axes"], originPoint: ["Point", "Points"], cplane: ["Plane", "Planes"], feature: ["Feature", "Features"] };
   if (one) {
     if (one.kind === "body" || one.kind === "feature" || one.kind === "cplane") return nameOf(one);
     if (one.kind === "originPlane") return `${one.name} Plane`;

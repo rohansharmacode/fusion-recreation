@@ -147,6 +147,8 @@ export function createFiles(app, modals) {
     doc.bodies = doc.bodies && typeof doc.bodies === "object" ? doc.bodies : {};
     doc.counters = doc.counters && typeof doc.counters === "object" ? doc.counters : {};
     doc.origin = doc.origin || { visible: false };
+    if (doc.meshData && typeof doc.meshData !== "object") delete doc.meshData;
+    try { if (app.M.migrateDoc) app.M.migrateDoc(doc); } catch (e) { console.warn("migrate", e); } // older doc.meshes -> mesh bodies
     doc.marker = Math.max(0, Math.min(doc.features.length, doc.marker));
     return doc;
   }
@@ -402,8 +404,10 @@ export function createFiles(app, modals) {
   }
 
   // ------------------------------------------------------------------ export
+  /** Visible bodies of every kind that can be written to a file (B-rep shapes and triangle meshes). */
   function visibleBodies() {
-    return app.bodies().filter((b) => b.meta && b.meta.visible !== false && b.shape);
+    const list = typeof app.allBodies === "function" ? app.allBodies() : app.bodies();
+    return list.filter((b) => b.meta && b.meta.visible !== false && (b.shape || b.mesh));
   }
   function bodyColor(b) {
     const ap = app.appearances && b.meta && app.appearances[b.meta.appearance];
@@ -412,6 +416,19 @@ export function createFiles(app, modals) {
   function stlBlob(bodies, { binary = true, refinement = "medium" } = {}) {
     const tol = { low: [0.5, 0.6], medium: [0.1, 0.3], high: [0.02, 0.12] }[refinement] || [0.1, 0.3];
     const R = app.K.R;
+    if (bodies.some((b) => !b.shape)) {
+      // mesh bodies take part: triangulate the B-rep bodies and write one STL with every body's triangles
+      const MD = app.M.meshOps;
+      const soups = [];
+      for (const b of bodies) {
+        if (b.mesh) { soups.push(MD.soup(b.mesh)); continue; }
+        if (!b.shape) continue;
+        const m = b.shape.mesh({ tolerance: tol[0], angularTolerance: tol[1] });
+        soups.push(MD.soup({ positions: Float32Array.from(m.vertices), indices: Uint32Array.from(m.triangles) }));
+      }
+      const name = safeFileName(app.doc.name || "Untitled");
+      return binary ? new Blob([MD.stlBinary(soups, name)], { type: "model/stl" }) : new Blob([MD.stlAscii(soups, name)], { type: "model/stl" });
+    }
     let shape = bodies[0].shape;
     if (bodies.length > 1) {
       try { shape = R.makeCompound(bodies.map((b) => b.shape)); } catch (e) { console.warn("compound failed, exporting the first body", e); }
@@ -429,7 +446,11 @@ export function createFiles(app, modals) {
       const bodies = o.bodies || visibleBodies();
       if (!bodies.length) throw new Error("There are no visible bodies to export");
       if (type === "step") {
-        const items = bodies.map((b) => ({ shape: b.shape, name: (b.meta && b.meta.name) || b.id, color: bodyColor(b) }));
+        // STEP holds B-rep bodies only (like Fusion, mesh bodies are not written)
+        const brep = bodies.filter((b) => b.shape);
+        if (!brep.length) throw new Error("STEP files hold solid and surface bodies; convert mesh bodies first or export STL");
+        if (brep.length < bodies.length) app.toast("Mesh bodies are not included in STEP files", "info", 2600);
+        const items = brep.map((b) => ({ shape: b.shape, name: (b.meta && b.meta.name) || b.id, color: bodyColor(b) }));
         blob = app.K.exportSTEPBlob ? app.K.exportSTEPBlob(items) : app.K.R.exportSTEP(items);
         file = `${base}.step`;
       } else if (type === "stl") {

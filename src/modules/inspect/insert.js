@@ -1,6 +1,8 @@
 // INSERT objects that live outside the parametric timeline:
 //   canvases     reference images placed on a plane / planar face (Fusion's "Canvases" folder)
-//   mesh bodies  display-only STL / OBJ meshes ("Mesh Bodies" folder; never used by solid features)
+//   (legacy) doc.meshes: display-only meshes of older documents. Insert Mesh now makes real mesh bodies
+//                (`mesh` timeline features, see mesh.js / model.js); M.migrateDoc converts doc.meshes when a
+//                document is opened, so the mesh half of this store normally stays empty.
 // Both are stored in the document (app.doc.canvases / app.doc.meshes) and changed through
 // app.mutate, so they are undoable and saved / opened with the design. This file holds the store,
 // the canvas rendering (own THREE groups), picking, selection highlight and Delete-key handling.

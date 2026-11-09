@@ -12,7 +12,7 @@
     "serve": "node scripts/serve.mjs --dir=dist --port=5173",
     "serve:release": "node scripts/serve.mjs --dir=release --port=5174",
     "serve:artifact": "node scripts/serve.mjs --dir=release --port=5175 --artifact",
-    "test": "node tests/sketch_test.mjs && node tests/sketch_engine2.mjs && node tests/kernel_smoke.mjs && node tests/kernel2.mjs && node tests/dialogs_model.mjs",
+    "test": "node tests/sketch_test.mjs && node tests/sketch_engine2.mjs && node tests/kernel_smoke.mjs && node tests/kernel2.mjs && node tests/dialogs_model.mjs && node tests/registry_test.mjs",
     "e2e": "node tests/e2e/run-all.mjs",
     "e2e:release": "node tests/e2e/run-all.mjs --release --out=release",
     "verify": "node scripts/verify-release.mjs"

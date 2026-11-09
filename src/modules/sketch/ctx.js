@@ -176,6 +176,7 @@ export function evalExpr(text, kind = "length") {
       return Number.isFinite(v) ? { value: v } : { error: "invalid" };
     }
     const P = params();
+    if (kind === "ratio") kind = "none";
     const v = P ? P.eval(t, kind) : ST.app.E.evaluate(t, () => undefined, kind);
     return Number.isFinite(v) ? { value: v } : { error: "invalid" };
   } catch (e) {

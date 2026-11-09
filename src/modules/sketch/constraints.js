@@ -11,7 +11,7 @@ const kindOf = (sk, r) => {
   if (!cv) return null;
   if (cv.type === "point") return "point";
   if (cv.type === "circle" || cv.type === "arc") return "round";
-  if (cv.type === "spline") return "spline";
+  if (cv.type === "spline" || cv.type === "cvspline" || cv.type === "conic") return "spline";
   if (cv.type === "ellipse" || cv.type === "earc") return "ellipse";
   return "line";
 };
@@ -87,7 +87,7 @@ export const CONSTRAINTS = {
         if (s === o) return err("Select two curves");
         const at = sharedEnd(sk, s, o);
         if (!at || !ST.app.S.curveEnds(sk.curves[o]).includes(at)) return err("Select curves that meet at an end point of the spline");
-        if (has(sk, "tangent", [o, s])) return err(ALREADY);
+        if (has(sk, "tangent", [o, s]) || has(sk, "smooth", [o, s])) return err(ALREADY);
         return { cons: [{ type: "tangent", refs: [o, s] }] };
       }
       if (k.includes("ellipse")) {
@@ -115,6 +115,47 @@ export const CONSTRAINTS = {
       if (k[0] !== k[1] || k[0] === "point" || k[0] === "spline" || k[0] === "ellipse") return err("Select two lines or two arcs/circles");
       if (has(sk, "equal", [cid(p[0]), cid(p[1])])) return err(ALREADY);
       return { cons: [{ type: "equal", refs: [cid(p[0]), cid(p[1])] }] };
+    },
+  },
+  // Curvature (G2): a spline and the curve chained to its end point
+  ConstraintSmooth: {
+    label: "Curvature",
+    prompt: ["Select a spline", "Select the curve chained to the spline"],
+    build(sk, p) {
+      if (p.length < 2) return NEED;
+      const k = p.map((r) => kindOf(sk, r));
+      if (k.includes("point")) return err("Select a spline and a curve");
+      if (!k.includes("spline")) return err("Select a spline and the chained sketch curve");
+      const si = k[0] === "spline" ? 0 : 1;
+      const s = cid(p[si]), o = cid(p[1 - si]);
+      if (s === o) return err("Select two curves");
+      const S = ST.app.S;
+      const at = S.sharedEnd(sk, s, o);
+      if (!at) return err("Select curves that meet at an end point of the spline");
+      if (has(sk, "smooth", [o, s])) return err(ALREADY);
+      // a tangent (G1) constraint on the same join is replaced by the curvature (G2) one
+      const drop = sk.constraints.filter((c) => c.type === "tangent" && c.refs.includes(s) && c.refs.includes(o)).map((c) => c.id);
+      return { cons: [{ type: "smooth", refs: [o, s] }], drop };
+    },
+  },
+  // Polygon: the lines of a regular polygon stay a regular polygon
+  SketchPolygonConstraintCmd: {
+    label: "Polygon",
+    prompt: ["Select a line of the polygon"],
+    build(sk, p) {
+      const S = ST.app.S;
+      if (!p.length) return NEED;
+      if (p.some((r) => kindOf(sk, r) !== "line")) return err("Select the lines of a closed polygon");
+      let ids = p.map(cid);
+      if (ids.length === 1) {
+        const ch = S.chainOf(sk, ids[0], { linesArcs: true });
+        if (!ch.closed) return err("Select the lines of a closed polygon");
+        ids = ch.ids;
+      }
+      const lp = S.polygonLoop(sk, ids);
+      if (lp.error) return err(lp.error);
+      if (sk.constraints.some((c) => c.type === "polygon" && c.refs.length === ids.length && ids.every((x) => c.refs.includes(x)))) return err(ALREADY);
+      return { cons: [{ type: "polygon", refs: ids, loop: lp.loop, turn: lp.turn }] };
     },
   },
   ConstraintParallel: lineLine("parallel", "Parallel"),
@@ -189,20 +230,24 @@ function lineLine(type, label) {
   };
 }
 
-/** Try to add constraints (with solve check). Returns true on success. */
-export function applyConstraints(label, cons) {
+/** Try to add constraints (with solve check). Returns true on success. drop: constraint ids replaced by them. */
+export function applyConstraints(label, cons, drop = []) {
   const A = ST.app;
   const S = A.S;
   const d = activeData();
   if (!d) return false;
   const test = cons.map((c, i) => ({ id: `__t${i}`, ...c }));
   let res;
-  try { res = S.tryConstraints(d.sk, params(), test); } catch (e) { console.error(e); res = { ok: false, reason: "conflict" }; }
+  const base = drop.length ? { ...d.sk, constraints: d.sk.constraints.filter((c) => !drop.includes(c.id)) } : d.sk;
+  try { res = S.tryConstraints(base, params(), test); } catch (e) { console.error(e); res = { ok: false, reason: "conflict" }; }
   if (!res.ok) {
     A.toast(res.reason === "redundant" ? "The constraint is redundant: the geometry is already constrained this way." : "Unable to apply the constraint: it conflicts with existing constraints or dimensions.", "warning", 3200);
     return false;
   }
-  mutateSketch(label, (sk) => { for (const c of cons) { const { type, refs, ...rest } = c; S.addConstraint(sk, type, refs, rest); } });
+  mutateSketch(label, (sk) => {
+    if (drop.length) S.removeConstraints(sk, drop);
+    for (const c of cons) { const { type, refs, ...rest } = c; S.addConstraint(sk, type, refs, rest); }
+  });
   return true;
 }
 
@@ -229,7 +274,7 @@ export class ConstraintTool extends Tool {
     const r = this.def.build(d.sk, this.picks);
     if (r.need) { this.refreshPrompt(); return; }
     if (r.error) { ST.app.toast(r.error, "warning", 2400); this.picks.pop(); ST.app.selection.set(this.picks); this.refreshPrompt(); return; }
-    applyConstraints(this.label, r.cons);
+    applyConstraints(this.label, r.cons, r.drop || []);
     this.picks = [];
     ST.app.selection.clear();
     this.refreshPrompt();
@@ -246,7 +291,7 @@ export function runConstraint(id) {
   const pre = A.selection.items.filter((r) => (r.kind === "sketchPoint" || r.kind === "sketchCurve") && r.sketch === ST.sketchId);
   if (pre.length) {
     const r = def.build(d.sk, pre);
-    if (r.cons) { applyConstraints(def.label, r.cons); A.selection.clear(); return; }
+    if (r.cons) { applyConstraints(def.label, r.cons, r.drop || []); A.selection.clear(); return; }
     if (r.error) { A.toast(r.error, "warning", 2400); A.selection.clear(); }
   }
   const t = new ConstraintTool(id, def);

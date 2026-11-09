@@ -141,6 +141,167 @@ export const CONTEXTUAL_TABS = [
     ],
     "finish": "SketchStop",
     "finishPanel": "StopSketchPanel"
+  },
+  // Contextual environments other modules enter with app.enterEnvironment({id: env, tab ...}): generated from
+  // TabToolbars.xml Tab elements with ContextualFinishId (Fusion UI, sheet metal, ParaMesh). baseTabs comes from the
+  // finish panel's AvailableBaseTabs ("{none}" = []: the persistent tabs are hidden while the environment is active).
+  {
+    "id": "FormTab",
+    "label": "FORM",
+    "mode": "form",
+    "env": "form",
+    "panels": [
+      "TSplinePrimitivePanel",
+      "TSplineModifyPanel",
+      "TSplineSymmetryPanel",
+      "TSplineUtilitiesPanel",
+      "ConstructionPanel",
+      "InspectPanel",
+      "InsertPanel",
+      "PartAssemblePanel",
+      "SelectPanel",
+      "StopTSplineBaseFeaturePanel"
+    ],
+    "finish": "TSplineBaseFeatureStop",
+    "finishPanel": "StopTSplineBaseFeaturePanel",
+    "baseTabs": [],
+    "tabEnv": "TSplineEnvironment",
+    "markingMenu": "TSplineEnvironment"
+  },
+  {
+    "id": "BasefeatureSolidTab",
+    "label": "BASE FEATURE SOLID",
+    "mode": "basefeature",
+    "env": "basefeature",
+    "panels": [
+      "SolidCreatePanel",
+      "SolidModifyPanel",
+      "ConstructionPanel",
+      "InspectPanel",
+      "InsertPanel",
+      "PartAssemblePanel",
+      "SelectPanel",
+      "StopBaseFeaturePanel"
+    ],
+    "finish": "BaseFeatureStop",
+    "finishPanel": "StopBaseFeaturePanel",
+    "baseTabs": []
+  },
+  {
+    "id": "BasefeatureSurfaceTab",
+    "label": "BASE FEATURE SURFACE",
+    "mode": "basefeature",
+    "env": "basefeature",
+    "panels": [
+      "SurfaceCreatePanel",
+      "SurfaceModifyPanel",
+      "ConstructionPanel",
+      "InspectPanel",
+      "InsertPanel",
+      "PartAssemblePanel",
+      "SelectPanel",
+      "StopBaseFeaturePanel"
+    ],
+    "finish": "BaseFeatureStop",
+    "finishPanel": "StopBaseFeaturePanel",
+    "baseTabs": []
+  },
+  {
+    "id": "FlatPatternSolidTab",
+    "label": "FLAT PATTERN SOLID",
+    "mode": "flatpattern",
+    "env": "flatpattern",
+    "panels": [
+      "SolidCreatePanel",
+      "SolidModifyPanel",
+      "ConstructionPanel",
+      "InspectPanel",
+      "InsertPanel",
+      "SelectPanel",
+      "SheetmetalFlatPatternExportPanel",
+      "SheetmetalFlatPatternExitPanel"
+    ],
+    "finish": "FusionSheetMetalExitFlatPatternCmd",
+    "finishPanel": "SheetmetalFlatPatternExitPanel",
+    "baseTabs": [],
+    "markingMenu": "FusionSheetMetalEnvironment"
+  },
+  {
+    "id": "FlatPatternSurfaceTab",
+    "label": "FLAT PATTERN SURFACE",
+    "mode": "flatpattern",
+    "env": "flatpattern",
+    "panels": [
+      "SurfaceCreatePanel",
+      "SurfaceModifyPanel",
+      "ConstructionPanel",
+      "InspectPanel",
+      "InsertPanel",
+      "SelectPanel",
+      "SheetmetalCosmeticBendPanel",
+      "SheetmetalFlatPatternExportPanel",
+      "SheetmetalFlatPatternExitPanel"
+    ],
+    "finish": "FusionSheetMetalExitFlatPatternCmd",
+    "finishPanel": "SheetmetalFlatPatternExitPanel",
+    "baseTabs": [],
+    "markingMenu": "FusionSheetMetalEnvironment"
+  },
+  {
+    "id": "ParaMeshBaseFeatureTab",
+    "label": "DIRECT MESH EDITING",
+    "mode": "meshedit",
+    "env": "meshedit",
+    "panels": [
+      "ParaMeshCreateBaseFeature",
+      "ParaMeshPreparePanel",
+      "ParaMeshBaseModifyPanel",
+      "PartAssemblePanel",
+      "ConstructionPanel",
+      "InspectPanel",
+      "ParaMeshSelectPanel",
+      "ParaMeshExportPanel",
+      "ParaMeshBaseFeatureStopPanel"
+    ],
+    "finish": "ParaMeshBaseFeatureStopCommand",
+    "finishPanel": "ParaMeshBaseFeatureStopPanel",
+    "baseTabs": [],
+    "tabEnv": "ParaMeshEnvironment",
+    "markingMenu": "ParaMeshEnvironment"
+  },
+  {
+    "id": "EditSnapshotTab",
+    "label": "POSITION",
+    "mode": "position",
+    "env": "position",
+    "panels": [
+      "SnapshotSolidModifyPanel",
+      "InspectPanel",
+      "SelectPanel",
+      "FinishSnapshotEditPanel"
+    ],
+    "finish": "SnapshotEditAccept",
+    "finishPanel": "FinishSnapshotEditPanel",
+    "baseTabs": []
+  },
+  {
+    "id": "PCBTab",
+    "label": "PCB",
+    "mode": "pcb",
+    "env": "pcb",
+    "panels": [
+      "PCBCreatePanel",
+      "PCBModifyPanel",
+      "ConstructionPanel",
+      "InspectPanel",
+      "InsertPanel",
+      "PartAssemblePanel",
+      "SelectPanel",
+      "StopPCBPanel"
+    ],
+    "finish": "PCBStop",
+    "finishPanel": "StopPCBPanel",
+    "baseTabs": []
   }
 ];
 
@@ -1214,6 +1375,308 @@ export const PANELS = {
       "SketchAutoConstrainAndFinish"
     ],
     "finish": "SketchStop"
+  },
+  // ---- contextual environment panels (generated, see CONTEXTUAL_TABS)
+  "TSplinePrimitivePanel": {
+    "label": "CREATE",
+    "controls": [
+      "FusionCreateNewComponentCommand",
+      "SketchCreate",
+      "TSplinePrimitiveBoxCommand",
+      "TSplinePrimitivePlaneCommand",
+      "TSplinePrimitiveCylinderCommand",
+      "TSplinePrimitiveQuadBallCommand",
+      "TSplineAppendFaceCommand"
+    ],
+    "dropdown": [
+      "FusionCreateNewComponentCommand",
+      "SketchCreate",
+      "-",
+      "TSplinePrimitiveBoxCommand",
+      "TSplinePrimitivePlaneCommand",
+      "TSplinePrimitiveCylinderCommand",
+      "TSplinePrimitiveSphereCommand",
+      "TSplinePrimitiveTorusCommand",
+      "TSplinePrimitiveQuadBallCommand",
+      "TSplinePrimitivePipe",
+      "-",
+      "TSplineAppendFaceCommand",
+      "-",
+      "TSplineExtrudeCommand",
+      "TSplineRevolveCommand",
+      "TSplineSweepCommand",
+      "TSplineLoft"
+    ]
+  },
+  "TSplineModifyPanel": {
+    "label": "MODIFY",
+    "controls": [
+      "TSplineEditCommand"
+    ],
+    "dropdown": [
+      "TSplineEditCommand",
+      "TSplineEditByCurveCmd",
+      "-",
+      "TSplineInsertEdgeCommand",
+      "TSplineSubsetCmd",
+      "TSplineInsertPointCommand",
+      "-",
+      "TSplineMergeEdgeCmd",
+      "TSplineBridgeSubDCmd",
+      "TSplineFillHoleCmd",
+      "TSplineEraseAndFillCmd",
+      "TSplineWeldCommand",
+      "TSplineUnWeldCommand",
+      "-",
+      "TSplineCreasedEdgeCommand",
+      "TSplineUnCreaseEdgeCmd",
+      "TSplineBevelEdgeCommand",
+      "TSplineSlideEdgeCommand",
+      "-",
+      "TSplineSmoothCmd",
+      "TSplineCylindrifyCmd",
+      "TSplinePullSubDCmd",
+      "TSplineFlattenSubDCmd",
+      "TSplineStraightenCmd",
+      "TSplineMatchCmd",
+      "TSplineInterpolateSubDCmd",
+      "-",
+      "TSplineThickenCommand",
+      "-",
+      {
+        "label": "Freeze",
+        "items": [
+          "TSplineFreezeCmd",
+          "TSplineUnFreezeCmd"
+        ]
+      },
+      "-",
+      "FusionMoveCommand",
+      "AlignCmd",
+      "FusionDeleteCommand",
+      "-",
+      "PhysicalMaterialCommand",
+      "AppearanceCommand",
+      "MaterialCommand"
+    ]
+  },
+  "TSplineSymmetryPanel": {
+    "label": "SYMMETRY",
+    "controls": [
+      "TSplineInternalMirrorSymmetryCmd"
+    ],
+    "dropdown": [
+      "TSplineInternalMirrorSymmetryCmd",
+      "TSplineInternalCircularSymmetryCmd",
+      "-",
+      "TSplineReflectionMirrorSymmetryCmd",
+      "TSplineReflectionCircularSymmetryCmd",
+      "-",
+      "TSplineClearSymmetryCommand",
+      "TSplineIsolateSymmetryCmd"
+    ]
+  },
+  "TSplineUtilitiesPanel": {
+    "label": "UTILITIES",
+    "controls": [
+      "TSplineToggleTessModeCmd"
+    ],
+    "dropdown": [
+      "TSplineToggleTessModeCmd",
+      "-",
+      "TSplineRepairBodyCmd",
+      "TSplineMakeUniformCmd",
+      "-",
+      "TSpline2BRepCommand",
+      "-",
+      "TSplineCapSettingCommand"
+    ]
+  },
+  "StopTSplineBaseFeaturePanel": {
+    "label": "FINISH FORM",
+    "controls": [
+      "TSplineBaseFeatureStop"
+    ],
+    "dropdown": [],
+    "finish": "TSplineBaseFeatureStop"
+  },
+  "StopBaseFeaturePanel": {
+    "label": "FINISH BASE FEATURE",
+    "controls": [
+      "BaseFeatureStop"
+    ],
+    "dropdown": [],
+    "finish": "BaseFeatureStop"
+  },
+  "SheetmetalFlatPatternExportPanel": {
+    "label": "EXPORT",
+    "controls": [
+      "ExportFlatPatternCmd"
+    ],
+    "dropdown": []
+  },
+  "SheetmetalFlatPatternExitPanel": {
+    "label": "FINISH FLAT PATTERN",
+    "controls": [
+      "FusionSheetMetalExitFlatPatternCmd"
+    ],
+    "dropdown": [],
+    "finish": "FusionSheetMetalExitFlatPatternCmd"
+  },
+  "SheetmetalCosmeticBendPanel": {
+    "label": "MODIFY",
+    "controls": [
+      "FusionSheetMetalCosmeticBendCmd"
+    ],
+    "dropdown": []
+  },
+  "ParaMeshCreateBaseFeature": {
+    "label": "CREATE",
+    "controls": [
+      "ParaMeshInsertAlignCommand"
+    ],
+    "dropdown": []
+  },
+  "ParaMeshBaseModifyPanel": {
+    "label": "MODIFY",
+    "controls": [
+      "ParaMeshRemeshCommand",
+      "ParaMeshReduceCommand",
+      "ParaMeshPlaneCutCommand",
+      "ParaMeshHollowCommand",
+      "ParaMeshCombineCommand",
+      "FusionMoveCommand",
+      "ParaMeshScaleCommand",
+      "ParaMeshBaseFeatureCreateCommand"
+    ],
+    "dropdown": [
+      "ParaMeshBaseFeatureCreateCommand",
+      "ParaMeshRemeshCommand",
+      "ParaMeshReduceCommand",
+      "ParaMeshPlaneCutCommand",
+      "ParaMeshHollowCommand",
+      "ParaMeshCombineCommand",
+      "ParaMeshSmoothCommand",
+      "ParaMeshSmoothBoundaryCommand",
+      "ParaMeshReverseNormalsCommand",
+      "ParaMeshCloseCracksCommand",
+      "ParaMeshEraseAndFillCommand",
+      "ParaMeshBridgeCommand",
+      "ParaMeshAlignCommand",
+      "ParaMeshAttractToReferenceCommand",
+      "ParaMeshTextureCommand",
+      "-",
+      "ParaMeshExtractCommand",
+      "-",
+      "FusionMoveCommand",
+      "ParaMeshScaleCommand",
+      "FusionDeleteCommand",
+      "ParaMeshRemoveCommand",
+      "-",
+      "ParaMeshConvertCommand",
+      "ParaMeshToQuadMeshCommand",
+      "-",
+      "VolFieldCreateLatticeCommand",
+      "VolFieldTextureCommand",
+      "VolFieldModifyModelCommand",
+      "-",
+      "PhysicalMaterialCommand",
+      "AppearanceCommand",
+      "-",
+      "ChangeParameterCommand",
+      "FusionComputeAllCommand"
+    ]
+  },
+  "ParaMeshBaseFeatureStopPanel": {
+    "label": "FINISH DIRECT EDITING",
+    "controls": [
+      "ParaMeshBaseFeatureStopCommand"
+    ],
+    "dropdown": [],
+    "finish": "ParaMeshBaseFeatureStopCommand"
+  },
+  "SnapshotSolidModifyPanel": {
+    "label": "MODIFY",
+    "controls": [
+      "FusionMoveCommand",
+      "AlignCmd"
+    ],
+    "dropdown": [
+      "FusionPressPullCommand",
+      "EditFaceCommand",
+      "-",
+      "FusionFilletEdgesCommand",
+      "FusionChamferCommand",
+      "-",
+      "FusionShellBodyCommand",
+      "FusionDraftCommand",
+      "ModifyScale",
+      "FusionCombineCommand",
+      "FusionReplaceFaceCommand",
+      "FusionSplitFaceCommand",
+      "FusionSplitBodyCommand",
+      "FusionPartingLineSplitCmd",
+      "-",
+      "FusionMoveCommand",
+      "AlignCmd",
+      "FusionDeleteCommand",
+      "-",
+      "ChangeParameterCommand",
+      "FusionComputeAllCommand",
+      "FusionComputeUnresolvedCommand",
+      "-",
+      "TSpline2BRepCommand"
+    ]
+  },
+  "FinishSnapshotEditPanel": {
+    "label": "FINISH POSITION",
+    "controls": [
+      "SnapshotEditAccept"
+    ],
+    "dropdown": [
+      "SnapshotEditAccept",
+      "SnapshotEditCancel"
+    ],
+    "finish": "SnapshotEditAccept"
+  },
+  "PCBCreatePanel": {
+    "label": "CREATE",
+    "controls": [
+      "FusionCreateNewComponentCommand",
+      "PCBCreateCmd",
+      "PCBDefineBoardCmd"
+    ],
+    "dropdown": [
+      "FusionCreateNewComponentCommand",
+      "-",
+      "PCBCreateCmd",
+      "PCBDefineBoardCmd"
+    ]
+  },
+  "PCBModifyPanel": {
+    "label": "MODIFY",
+    "controls": [
+      "PCBImprintCmd",
+      "PCBBoardSketchEditCmd",
+      "PCBMoveComponentsCmd",
+      "PCBFlipComponentCmd",
+      "PCBStatusCmd"
+    ],
+    "dropdown": [
+      "PCBImprintCmd",
+      "PCBBoardSketchEditCmd",
+      "PCBMoveComponentsCmd",
+      "PCBFlipComponentCmd",
+      "PCBStatusCmd"
+    ]
+  },
+  "StopPCBPanel": {
+    "label": "FINISH PCB",
+    "controls": [
+      "PCBStop"
+    ],
+    "dropdown": [],
+    "finish": "PCBStop"
   }
 };
 
@@ -1529,4 +1992,450 @@ export const COMMANDS = {
   "selectFreeForm":["Freeform Selection","Selects objects inside a shape you draw.","2"],
   "selectPaint":["Paint Selection","Selects objects you brush over.","3"],
   "selectWindow":["Window Selection","Selects objects inside a rectangle you drag.","1"],
+  // ---- contextual environment commands (names from the install's string tables; descriptions written for this recreation)
+  "TSplinePrimitiveBoxCommand":["Box","Creates a T-Spline box from a sketch plane and its size."],
+  "TSplinePrimitivePlaneCommand":["Plane","Creates a flat T-Spline plane you can push and pull into shape."],
+  "TSplinePrimitiveCylinderCommand":["Cylinder","Creates a T-Spline cylinder."],
+  "TSplinePrimitiveQuadBallCommand":["Quadball","Creates a T-Spline quadball (a sphere made of quad faces, no poles)."],
+  "TSplineAppendFaceCommand":["Face","Adds T-Spline faces one at a time by clicking points or edges."],
+  "TSplinePrimitiveSphereCommand":["Sphere","Creates a T-Spline sphere."],
+  "TSplinePrimitiveTorusCommand":["Torus","Creates a T-Spline torus."],
+  "TSplinePrimitivePipe":["Pipe","Creates a T-Spline pipe along a path."],
+  "TSplineExtrudeCommand":["Extrude","Extrudes sketch curves into a T-Spline body."],
+  "TSplineRevolveCommand":["Revolve","Revolves sketch curves into a T-Spline body."],
+  "TSplineSweepCommand":["Sweep","Sweeps sketch curves along a path into a T-Spline body."],
+  "TSplineLoft":["Loft","Lofts a T-Spline body between sketch curves."],
+  "TSplineEditCommand":["Edit Form","Moves, scales and rotates T-Spline faces, edges and vertices with a manipulator."],
+  "TSplineEditByCurveCmd":["Edit By Curve","Reshapes T-Spline geometry by dragging a curve drawn on it."],
+  "TSplineInsertEdgeCommand":["Insert Edge","Adds an edge loop next to selected T-Spline edges."],
+  "TSplineSubsetCmd":["Subdivide","Splits T-Spline faces into smaller faces."],
+  "TSplineInsertPointCommand":["Insert Point","Adds points on T-Spline edges and connects them with new edges."],
+  "TSplineMergeEdgeCmd":["Merge Edge","Joins the edges of two T-Spline bodies or faces."],
+  "TSplineBridgeSubDCmd":["Bridge","Fills the gap between two T-Spline edge chains with faces."],
+  "TSplineFillHoleCmd":["Fill Hole","Fills a hole in a T-Spline body."],
+  "TSplineEraseAndFillCmd":["Erase And Fill","Removes T-Spline faces and fills the gap with new faces."],
+  "TSplineWeldCommand":["Weld Vertices","Joins T-Spline vertices into one."],
+  "TSplineUnWeldCommand":["UnWeld Edges","Separates welded T-Spline edges."],
+  "TSplineCreasedEdgeCommand":["Crease","Makes selected T-Spline edges sharp."],
+  "TSplineUnCreaseEdgeCmd":["UnCrease","Makes creased T-Spline edges smooth again."],
+  "TSplineBevelEdgeCommand":["Bevel Edge","Replaces T-Spline edges with a band of faces."],
+  "TSplineSlideEdgeCommand":["Slide Edge","Slides T-Spline edges along the surrounding faces."],
+  "TSplineSmoothCmd":["Smooth","Evens out the spacing of T-Spline vertices."],
+  "TSplineCylindrifyCmd":["Cylindrify","Shapes T-Spline geometry towards a cylinder."],
+  "TSplinePullSubDCmd":["Pull","Pulls T-Spline vertices onto a target body."],
+  "TSplineFlattenSubDCmd":["Flatten","Moves T-Spline vertices onto a plane."],
+  "TSplineStraightenCmd":["Straighten","Lines up T-Spline vertices along a straight line."],
+  "TSplineMatchCmd":["Match","Matches a T-Spline edge to a target edge or curve."],
+  "TSplineInterpolateSubDCmd":["Interpolate","Moves T-Spline control points so the surface passes through them."],
+  "TSplineThickenCommand":["Thicken","Gives a T-Spline surface a thickness."],
+  "TSplineFreezeCmd":["Freeze","Locks T-Spline geometry so it cannot change."],
+  "TSplineUnFreezeCmd":["UnFreeze","Unlocks frozen T-Spline geometry."],
+  "TSplineInternalMirrorSymmetryCmd":["Mirror - Internal","Adds mirror symmetry inside one T-Spline body."],
+  "TSplineInternalCircularSymmetryCmd":["Circular - Internal","Adds circular symmetry inside one T-Spline body."],
+  "TSplineReflectionMirrorSymmetryCmd":["Mirror - Duplicate","Mirrors a T-Spline body into a symmetric copy."],
+  "TSplineReflectionCircularSymmetryCmd":["Circular - Duplicate","Copies a T-Spline body around an axis with circular symmetry."],
+  "TSplineClearSymmetryCommand":["Clear Symmetry","Removes symmetry from a T-Spline body."],
+  "TSplineIsolateSymmetryCmd":["Isolate Symmetry","Breaks symmetry on selected faces."],
+  "TSplineToggleTessModeCmd":["Display Mode","Switches T-Spline display between box and smooth."],
+  "TSplineRepairBodyCmd":["Repair Body","Repairs an invalid T-Spline body."],
+  "TSplineMakeUniformCmd":["Make Uniform","Rebuilds T-Spline knots to make the surface uniform."],
+  "TSplineCapSettingCommand":["Enable Better Performance","Switches T-Spline display between better performance and better display quality."],
+  "TSplineBaseFeatureStop":["Finish Form","Finishes the form and returns to the Design workspace."],
+  "BaseFeatureStop":["Finish Base Feature","Finishes the base feature and returns to parametric modelling."],
+  "ExportFlatPatternCmd":["Export Flat Pattern","Exports the flat pattern as DXF."],
+  "FusionSheetMetalExitFlatPatternCmd":["Finish Flat Pattern","Returns from the flat pattern to the folded model."],
+  "FusionSheetMetalCosmeticBendCmd":["Cosmetic Bend","Adds a cosmetic bend line to the flat pattern."],
+  "VolFieldModifyModelCommand":["Modify Model","Changes the volumetric model settings."],
+  "ParaMeshBaseFeatureStopCommand":["Finish Direct Edit","Finishes direct editing of the mesh body."],
+  "SnapshotEditAccept":["Capture Position","Keeps the new component positions as a position capture."],
+  "SnapshotEditCancel":["Revert Position","Discards the position changes."],
+  "PCBDefineBoardCmd":["Define Board","Defines a board outline for a PCB."],
+  "PCBImprintCmd":["Imprint","Imprints component outlines on the board."],
+  "PCBBoardSketchEditCmd":["Edit Board Sketch","Edits the board outline sketch."],
+  "PCBMoveComponentsCmd":["Move Components","Moves components on the board."],
+  "PCBFlipComponentCmd":["Flip Component","Flips a component to the other side of the board."],
+  "PCBStatusCmd":["PCB Status","Shows the status of the PCB."],
+  "PCBStop":["Finish PCB","Finishes the PCB environment."],
+  "DesignConfigurationToolbarCmd":["End Configuration Mode","Leaves configuration mode."],
+  "EIPNonAssociativeToggleCmd":["Non-associative","Edits the component without keeping links to the context."],
+  "EIPAssociativeToggleCmd":["Associative","Keeps links to the assembly context while editing."],
+  "ReferenceObjectsCmd":["Reference Objects","Shows the objects referenced from the context."],
+  "EIPVisibilityControlCmd":["Visibility Control","Controls what stays visible while editing in place."],
+  "EndEditInPlaceCmd":["Stop Edit In Place","Stops editing the component in place."],
+  "FusionEndDConfigBlockFromObjectModeCmd":["Finish","Finishes the configuration block."],
+  "InCanvasRenderCommand":["In-canvas Render","Renders the design in the canvas."],
+  "TextureMappingCommand":["Texture Map Controls","Adjusts how textures are placed on faces."],
+  "A360RenderCommand":["Render","Renders an image of the design."],
+  "RenderingEnvCmd":["Scene Settings","Sets the background, environment and camera for rendering."],
+};
+
+// Toolbar tab -> marking-menu environment (TabToolbars.xml TabEnvironment): Fusion's right-click marking menu
+// follows the active tab (SURFACE, SHEET METAL) and contextual environment (FORM, DIRECT EDIT).
+export const TAB_ENVIRONMENTS = {
+  "SurfaceTab": "FusionSurfaceEnvironment",
+  "FormTab": "TSplineEnvironment",
+  "SheetMetalTab": "FusionSheetMetalEnvironment",
+  "Package3DTab": "Package3DEnvironment",
+  "ParaMeshOuterTab": "FusionSolidEnvironment",
+  "ParaMeshBaseFeatureTab": "ParaMeshEnvironment"
+};
+
+// Radial marking menus (MarkingMenus.xml BaseMenu) of the environments above; {pos, id} or a second tier
+// {pos, label, submenu:[{pos, id}]}. FusionSolidEnvironment / FusionSketchEnvironment live in menus/markingmenu.js.
+export const MARKING_MENUS = {
+  "TSplineEnvironment": [
+    {
+      "pos": "N",
+      "id": "RepeatCommand"
+    },
+    {
+      "pos": "NE",
+      "id": "TSplineEditCommand"
+    },
+    {
+      "pos": "E",
+      "id": "RedoCommand"
+    },
+    {
+      "pos": "SE",
+      "id": "TSplineAppendFaceCommand"
+    },
+    {
+      "pos": "S",
+      "label": "Sketch",
+      "submenu": [
+        {
+          "pos": "N",
+          "id": "SketchStop"
+        },
+        {
+          "pos": "NE",
+          "id": "ShapeRectangleTwoPoint"
+        },
+        {
+          "pos": "E",
+          "id": "DrawSpline"
+        },
+        {
+          "pos": "SE",
+          "id": "ProjectNewCmd"
+        },
+        {
+          "pos": "S",
+          "id": "DrawPolyline"
+        },
+        {
+          "pos": "SW",
+          "id": "Offset"
+        },
+        {
+          "pos": "W",
+          "id": "SketchDimension"
+        },
+        {
+          "pos": "NW",
+          "id": "CircleCenterRadius"
+        }
+      ]
+    },
+    {
+      "pos": "SW",
+      "id": "FusionMoveCommand"
+    },
+    {
+      "pos": "W",
+      "id": "UndoCommand"
+    },
+    {
+      "pos": "NW",
+      "id": "FusionDeleteCommand"
+    }
+  ],
+  "FusionSheetMetalEnvironment": [
+    {
+      "pos": "N",
+      "id": "RepeatCommand"
+    },
+    {
+      "pos": "NE",
+      "id": "FusionPressPullCommand"
+    },
+    {
+      "pos": "E",
+      "id": "RedoCommand"
+    },
+    {
+      "pos": "SE",
+      "id": "FusionSheetMetalFlangeCommand"
+    },
+    {
+      "pos": "S",
+      "label": "Sketch",
+      "submenu": [
+        {
+          "pos": "N",
+          "id": "SketchStop"
+        },
+        {
+          "pos": "NE",
+          "id": "ShapeRectangleTwoPoint"
+        },
+        {
+          "pos": "E",
+          "id": "DrawSpline"
+        },
+        {
+          "pos": "SE",
+          "id": "ProjectNewCmd"
+        },
+        {
+          "pos": "S",
+          "id": "DrawPolyline"
+        },
+        {
+          "pos": "SW",
+          "id": "Offset"
+        },
+        {
+          "pos": "W",
+          "id": "SketchDimension"
+        },
+        {
+          "pos": "NW",
+          "id": "CircleCenterRadius"
+        }
+      ]
+    },
+    {
+      "pos": "SW",
+      "id": "FusionMoveCommand"
+    },
+    {
+      "pos": "W",
+      "id": "UndoCommand"
+    },
+    {
+      "pos": "NW",
+      "id": "FusionDeleteCommand"
+    }
+  ],
+  "FusionRenderEnvironment": [
+    {
+      "pos": "N",
+      "id": "RepeatCommand"
+    },
+    {
+      "pos": "NW",
+      "id": "InCanvasRenderCommand"
+    },
+    {
+      "pos": "W",
+      "id": "UndoCommand"
+    },
+    {
+      "pos": "NE",
+      "id": "AppearanceCommand"
+    },
+    {
+      "pos": "E",
+      "id": "RedoCommand"
+    },
+    {
+      "pos": "SE",
+      "id": "TextureMappingCommand"
+    },
+    {
+      "pos": "SW",
+      "id": "A360RenderCommand"
+    },
+    {
+      "pos": "S",
+      "id": "RenderingEnvCmd"
+    }
+  ],
+  "FusionSurfaceEnvironment": [
+    {
+      "pos": "N",
+      "id": "RepeatCommand"
+    },
+    {
+      "pos": "NE",
+      "id": "FusionPressPullCommand"
+    },
+    {
+      "pos": "E",
+      "id": "RedoCommand"
+    },
+    {
+      "pos": "SE",
+      "id": "FusionSurfacePatchCommand"
+    },
+    {
+      "pos": "S",
+      "label": "Sketch",
+      "submenu": [
+        {
+          "pos": "N",
+          "id": "SketchStop"
+        },
+        {
+          "pos": "NE",
+          "id": "ShapeRectangleTwoPoint"
+        },
+        {
+          "pos": "E",
+          "id": "DrawSpline"
+        },
+        {
+          "pos": "SE",
+          "id": "ProjectNewCmd"
+        },
+        {
+          "pos": "S",
+          "id": "DrawPolyline"
+        },
+        {
+          "pos": "SW",
+          "id": "Offset"
+        },
+        {
+          "pos": "W",
+          "id": "SketchDimension"
+        },
+        {
+          "pos": "NW",
+          "id": "CircleCenterRadius"
+        }
+      ]
+    },
+    {
+      "pos": "SW",
+      "id": "FusionMoveCommand"
+    },
+    {
+      "pos": "W",
+      "id": "UndoCommand"
+    },
+    {
+      "pos": "NW",
+      "id": "FusionDeleteCommand"
+    }
+  ],
+  "MeshEnvironment": [
+    {
+      "pos": "N",
+      "id": "RepeatCommand"
+    },
+    {
+      "pos": "NE",
+      "id": "TSplineEditCommand"
+    },
+    {
+      "pos": "E",
+      "id": "RedoCommand"
+    },
+    {
+      "pos": "SE",
+      "id": "MeshDeleteTrianglesCommand"
+    },
+    {
+      "pos": "S",
+      "label": "Sketch",
+      "submenu": [
+        {
+          "pos": "N",
+          "id": "SketchStop"
+        },
+        {
+          "pos": "NE",
+          "id": "ShapeRectangleTwoPoint"
+        },
+        {
+          "pos": "E",
+          "id": "SketchGeomConstraintCmd"
+        },
+        {
+          "pos": "SE",
+          "id": "Project"
+        },
+        {
+          "pos": "S",
+          "id": "DrawPolyline"
+        },
+        {
+          "pos": "SW",
+          "id": "Offset"
+        },
+        {
+          "pos": "W",
+          "id": "SketchDimension"
+        },
+        {
+          "pos": "NW",
+          "id": "CircleCenterRadius"
+        }
+      ]
+    },
+    {
+      "pos": "SW",
+      "id": "FusionMoveCommand"
+    },
+    {
+      "pos": "W",
+      "id": "UndoCommand"
+    },
+    {
+      "pos": "NW",
+      "id": "FusionDeleteCommand"
+    }
+  ],
+  "ParaMeshEnvironment": [
+    {
+      "pos": "N",
+      "id": "RepeatCommand"
+    },
+    {
+      "pos": "E",
+      "id": "RedoCommand"
+    },
+    {
+      "pos": "SW",
+      "id": "FusionMoveCommand"
+    },
+    {
+      "pos": "W",
+      "id": "UndoCommand"
+    },
+    {
+      "pos": "NW",
+      "id": "FusionDeleteCommand"
+    }
+  ]
+};
+
+// Small floating mode toolbars (TabToolbars.xml <Toolbar>): Configure mode, Edit In Place, configuration blocks.
+// label = the Label id that shows the edited object's name; commands = buttons (the last one ends the mode).
+export const MODE_TOOLBARS = {
+  "ConfigToolbar": {
+    "label": "ConfigObjectName",
+    "commands": [
+      "DesignConfigurationToolbarCmd"
+    ]
+  },
+  "EIPToolbar": {
+    "label": "EIPReason",
+    "commands": [
+      "EIPNonAssociativeToggleCmd",
+      "EIPAssociativeToggleCmd",
+      "ReferenceObjectsCmd",
+      "EIPVisibilityControlCmd",
+      "EndEditInPlaceCmd"
+    ]
+  },
+  "BFOMToolbar": {
+    "label": "BFOMObjectName",
+    "commands": [
+      "FusionEndDConfigBlockFromObjectModeCmd"
+    ]
+  }
 };

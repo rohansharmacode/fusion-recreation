@@ -9,11 +9,17 @@
 //   FusionAddCanvasCommand              canvas.js    (Canvas: reference image on a plane / planar face)
 //   ParaMeshInsertAlignCommand          mesh.js      (Insert Mesh: STL / OBJ as a display-only mesh body)
 //   InterferenceCheckCommand            interference.js (pairwise overlap volumes, drawn red)
+//   Fusion*AnalysisCommand (8 analyses)  analysis-cmds.js (dialogs) + surfanalysis.js (display) + curvature.js (OCCT)
+//   MaterialCommand                     materials.js (Manage Materials: Material Browser, libraries, editor)
 //   (canvases + mesh bodies: store, rendering, picking, Delete key in insert.js)
 //
 // Public API (app.ui.inspect):
-//   analyses()                 -> [{id, type:'section'|'com', name, visible}]  (doc.analyses, Fusion's "Analysis" folder)
-//   setAnalysisVisible(id, v)  edit(id)  remove(id)  rename(id, name)
+//   analyses()                 -> [{id, type, name, visible, kindLabel, icon, command}]  (doc.analyses, Fusion's "Analysis" folder;
+//                                 type: section | com | zebra | draft | curvatureMap | curvatureComb | isocurve | environmentMap |
+//                                 accessibility | minimumRadius — see README.md)
+//   setAnalysisVisible(id, v)  editAnalysis(id)  removeAnalysis(id)  renameAnalysis(id, name)  openAnalysis(type, ctx)
+//   curvature(bodyId)          exact per-vertex curvature from the B-rep (curvature.js)
+//   materialBrowser            Manage Materials (MaterialCommand, materials.js): open(), libraries(), ...
 //   measure(refA, refB?)       -> {a, b, pair} numbers for scripts/tests
 //   massProperties(bodyIds?)   -> {volume, area, mass, density, com, bbox, inertiaCom, inertiaOrigin}
 //   materials / appearances    library tables
@@ -27,6 +33,7 @@
 //   view: {objects(), canvasObject(id), meshObject(id), groups}  bom() -> {rows, total}  bomCSV() -> text
 // Events: 'insert' {} after the canvas / mesh scene objects were rebuilt.
 import "./style.css";
+import "./analysis.css";
 import { installAppearances, APPEARANCES, MATERIALS, APPEARANCE_CATEGORIES, MATERIAL_CATEGORIES } from "./library.js";
 import { registerMeasure } from "./measure.js";
 import { describe, measurePair, massProps, visibleBodyIds } from "./geom.js";
@@ -39,6 +46,8 @@ import { openCanvas } from "./canvas.js";
 import { openInsertMesh } from "./mesh.js";
 import { openBOM, bomData, bomCSV } from "./bom.js";
 import { openInterference } from "./interference.js";
+import { openAnalysis, ANALYSIS_COMMANDS, optimalMinimumRadius } from "./analysis-cmds.js";
+import { registerMaterials } from "./materials.js";
 
 export function init(app) {
   installAppearances(app);
@@ -55,9 +64,21 @@ export function init(app) {
     editAnalysis(id) {
       const a = store.get(id);
       if (!a) return null;
+      if (ANALYSIS_COMMANDS[a.type]) {
+        app.emit("command-start", { id: ANALYSIS_COMMANDS[a.type].id });
+        return openAnalysis(app, store, a.type, { editId: id });
+      }
       app.emit("command-start", { id: a.type === "section" ? "FusionHalfSectionViewCommand" : "FusionCenterOfMassCommand" });
       return a.type === "section" ? openSection(app, store, { editId: id }) : openCom(app, store, { editId: id });
     },
+    /** Surface analyses: open one (type: zebra|draft|curvatureMap|curvatureComb|isocurve|environmentMap|accessibility|minimumRadius). */
+    openAnalysis: (type, ctx = {}) => openAnalysis(app, store, type, ctx),
+    /** Exact curvature of a body from the B-rep surfaces: {k1, k2, K, H (per display vertex), minConcave, maxAbs, gaussMax}. */
+    curvature: (bodyId) => (store.display ? store.display.curvatureOf(bodyId) : null),
+    optimalMinimumRadius: (ids) => optimalMinimumRadius(app, store.display, ids),
+    /** Overlay objects of the visible surface analyses (for tests). */
+    analysisObjects: () => (store.display ? store.display.objects() : []),
+    refreshAnalyses: () => store.refresh(),
     get clipping() { return store.clipping; },
     measure(a, b) {
       const da = a ? describe(app, a) : null, db = b ? describe(app, b) : null;
@@ -74,6 +95,10 @@ export function init(app) {
   registerAppearance(app);
   registerProperties(app);
   registerInsert(app);
+  for (const [type, c] of Object.entries(ANALYSIS_COMMANDS)) {
+    app.commands.register({ id: c.id, label: c.title, tooltip: c.tooltip, icon: c.id, kind: "tool", run: (a, ctx = {}) => openAnalysis(a, store, type, ctx) });
+  }
+  api.materialBrowser = registerMaterials(app);
 }
 
 function registerInsert(app) {

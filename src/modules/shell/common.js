@@ -1,5 +1,6 @@
 // Shared helpers for the shell module (application bar, toolbar, menus, tooltips).
 import { COMMANDS } from "./spec.js";
+import { WORKSPACE_COMMANDS } from "./workspaces-spec.js";
 import * as Icons from "../icons/icons.js";
 
 /** Labels for application-level commands that live in the app bar menus (owned by other modules). */
@@ -113,7 +114,7 @@ export const displayShortcut = (s) => String(s || "").replace(/\bDelete\b/, "Del
  */
 export function cmdInfo(app, id) {
   const d = app.commands.get(id);
-  const s = COMMANDS[id] || APP_COMMANDS[id];
+  const s = COMMANDS[id] || APP_COMMANDS[id] || WORKSPACE_COMMANDS[id];
   const label = (s && s[0]) || (d && d.label) || id;
   const real = d && !d.stub;
   const desc = (real && d.tooltip) || (s && s[1]) || (d && d.tooltip) || "";

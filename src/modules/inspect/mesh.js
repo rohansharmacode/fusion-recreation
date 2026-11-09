@@ -1,18 +1,22 @@
-// INSERT MESH (ParaMeshInsertAlignCommand): reads an STL (binary or ASCII) or OBJ file chosen with
-// <input type=file> and inserts it as a display-only mesh body ("Mesh Bodies" folder). Rows follow
-// Fusion's dialog: Select from my computer..., Unit Type (one file unit = mm / cm / m / in / ft),
-// Flip Up Direction, Center, Move To Ground, then the transform (X / Y / Z Distance, X / Y / Z Angle,
-// Scale) with an on-canvas triad (axis arrows + rotation rings) at the mesh centre.
-import { f32ToB64, meshWorldInfo, meshPivot, UNIT_MM, IV as V } from "./insert.js";
+// INSERT MESH (ParaMeshInsertAlignCommand): reads an STL (binary or ASCII), OBJ or 3MF file chosen with
+// <input type=file> and inserts it as a MESH BODY: a `mesh` timeline feature (Fusion's mesh base feature,
+// "Mesh1" in the timeline) whose triangles live in doc.meshData; the body (named after the file) is listed in the
+// browser's Bodies folder with the mesh icon, picks as meshFace refs, moves / deletes / hides / exports like other
+// bodies. Rows follow Fusion's dialog: Select from my computer..., Unit Type (one file unit = cm / mm / m / in / ft),
+// Flip Up Direction, Center, Move To Ground, Reset, then X / Y / Z Distance, X / Y / Z Angle and Scale with an
+// on-canvas triad (axis arrows + rotation rings) at the mesh centre. Edit Feature reopens this dialog.
+import { prepareFeature } from "../../app/core.js";
+import * as MD from "../../meshdata.js";
+import { UNIT_MM, IV as V } from "./insert.js";
 
 const AXIS_COL = [0xd8372c, 0x45a72c, 0x2d6fd6];
 const AXES = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
 const T_FIELDS = ["tx", "ty", "tz"], R_FIELDS = ["rx", "ry", "rz"];
-const UNITS = [["mm", "Millimeter"], ["cm", "Centimeter"], ["m", "Meter"], ["in", "Inch"], ["ft", "Foot"]];
+// Fusion's Unit Type list (help: "Centimeter, Millimeter, Meter, Inch, or Foot")
+const UNITS = [["cm", "Centimeter"], ["mm", "Millimeter"], ["m", "Meter"], ["in", "Inch"], ["ft", "Foot"]];
 const UNIT_TIPS = { mm: "millimeter", cm: "centimeter", m: "meter", in: "inch", ft: "foot" };
 const MAX_BYTES = 80 * 1024 * 1024;
 
-// ------------------------------------------------------------------ parsers
 /** Triangle soup (Float32Array, 9 floats per triangle) from an STL ArrayBuffer (binary or ASCII). */
 export function parseSTL(buf) {
   const u8 = new Uint8Array(buf);
@@ -61,6 +65,56 @@ export function parseOBJ(text) {
   return Float32Array.from(out);
 }
 
+/** Triangle soup from a 3MF package (ZIP with 3D/*.model XML: <vertex x y z/> + <triangle v1 v2 v3/>). */
+export async function parse3MF(buf) {
+  const u8 = new Uint8Array(buf);
+  const dv = new DataView(buf);
+  // end of central directory
+  let eocd = -1;
+  for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error("The 3MF file is not a valid package");
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  const models = [];
+  for (let k = 0; k < count && p + 46 <= u8.length; k++) {
+    if (dv.getUint32(p, true) !== 0x02014b50) break;
+    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true);
+    const nlen = dv.getUint16(p + 28, true), xlen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true);
+    const local = dv.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nlen));
+    p += 46 + nlen + xlen + clen;
+    if (!/\.model$/i.test(name)) continue;
+    const ln = dv.getUint16(local + 26, true), lx = dv.getUint16(local + 28, true);
+    const data = u8.subarray(local + 30 + ln + lx, local + 30 + ln + lx + csize);
+    let raw;
+    if (method === 0) raw = data;
+    else if (method === 8) {
+      if (typeof DecompressionStream !== "function") throw new Error("This browser cannot read compressed 3MF files");
+      const ds = new DecompressionStream("deflate-raw");
+      raw = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(ds)).arrayBuffer());
+    } else throw new Error("Unsupported 3MF compression");
+    models.push(new TextDecoder().decode(raw));
+  }
+  if (!models.length) throw new Error("The 3MF file contains no 3D model");
+  const out = [];
+  for (const xml of models) {
+    for (const mesh of xml.split(/<mesh[\s>]/).slice(1)) {
+      const vs = [];
+      const vr = /<vertex\b([^>]*)\/?>/g;
+      let m;
+      const attr = (s, a) => { const r = new RegExp(`\\b${a}\\s*=\\s*"([^"]*)"`).exec(s); return r ? Number(r[1]) : NaN; };
+      while ((m = vr.exec(mesh))) vs.push([attr(m[1], "x"), attr(m[1], "y"), attr(m[1], "z")]);
+      const tr = /<triangle\b([^>]*)\/?>/g;
+      while ((m = tr.exec(mesh))) {
+        const a = vs[attr(m[1], "v1")], b = vs[attr(m[1], "v2")], c = vs[attr(m[1], "v3")];
+        if (a && b && c) out.push(...a, ...b, ...c);
+      }
+    }
+  }
+  if (!out.length) throw new Error("The 3MF file contains no triangles");
+  return Float32Array.from(out);
+}
+
 function bboxOf(pos) {
   const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
   for (let i = 0; i < pos.length; i += 3) {
@@ -69,30 +123,51 @@ function bboxOf(pos) {
   return { min, max };
 }
 
-/** Read a mesh File: {name, file, format, positions, data (base64), tris, bbox}. */
+/**
+ * Read a mesh File: {name, file, format, soup (Float32 triangle soup, file units), positions + indices (welded),
+ * tris, bbox, size}.
+ */
 export async function readMeshFile(file) {
   const name = String(file.name || "Mesh");
   const ext = (/\.([a-z0-9]+)$/i.exec(name) || [])[1];
   const fmt = (ext || "").toLowerCase();
-  if (fmt === "3mf") throw new Error("3MF files are not supported in this recreation (use STL or OBJ)");
-  if (fmt !== "stl" && fmt !== "obj") throw new Error(`Cannot insert ${name}: choose an STL or OBJ file`);
+  if (fmt !== "stl" && fmt !== "obj" && fmt !== "3mf") throw new Error(`Cannot insert ${name}: choose an STL, OBJ or 3MF file`);
   if (file.size > MAX_BYTES) throw new Error(`${name} is too large for this recreation (${(file.size / 1048576).toFixed(0)} MB)`);
   const buf = await file.arrayBuffer();
-  const positions = fmt === "stl" ? parseSTL(buf) : parseOBJ(new TextDecoder().decode(new Uint8Array(buf)));
-  for (let i = 0; i < positions.length; i++) if (!Number.isFinite(positions[i])) throw new Error(`Cannot insert ${name}: it contains invalid coordinates`);
-  return { name: name.replace(/\.[^.]+$/, "") || "Mesh", file: name, format: fmt, positions, data: f32ToB64(positions), tris: positions.length / 9, bbox: bboxOf(positions), size: file.size };
+  const soup = fmt === "stl" ? parseSTL(buf) : fmt === "3mf" ? await parse3MF(buf) : parseOBJ(new TextDecoder().decode(new Uint8Array(buf)));
+  for (let i = 0; i < soup.length; i++) if (!Number.isFinite(soup[i])) throw new Error(`Cannot insert ${name}: it contains invalid coordinates`);
+  const welded = MD.weld(soup);
+  if (!welded.indices.length) throw new Error(`Cannot insert ${name}: it has no valid triangles`);
+  return {
+    name: name.replace(/\.[^.]+$/, "") || "Mesh", file: name, format: fmt, soup, positions: welded.positions, indices: welded.indices,
+    tris: welded.indices.length / 3, bbox: bboxOf(soup), size: file.size,
+  };
 }
 
 // ------------------------------------------------------------------ dialog
+/**
+ * Insert Mesh / Edit Feature of a `mesh` feature. The mesh body is a real timeline feature (Fusion's mesh base
+ * feature): the dialog previews it through the evaluator (staged triangle data, M.stageMeshData) and OK stores
+ * the triangles in doc.meshData and inserts the feature (body named after the file).
+ */
 export function openInsertMesh(app, store, view, opts = {}) {
   if (!app.ui.dialog) return null;
+  const M = app.M;
   if (app.mode === "sketch") {
     const stop = app.commands.get("SketchStop");
     if (stop && !stop.stub) app.commands.run("SketchStop"); else app.setMode("model");
   }
-  let mesh = null; // parsed file
+  const editId = opts.editId && app.feature(opts.editId) && app.feature(opts.editId).type === "mesh" ? opts.editId : null;
+  const f0 = editId ? app.feature(editId) : null;
+  let mesh = null; // parsed file {name, file, format, positions, indices, tris, bbox}
+  let staged = null; // tmp: id of the parsed file's data
   let loadError = null;
   let dlgRef = null;
+  if (f0) {
+    // editing: the stored data stands in for the file until another one is chosen
+    const md = M.meshDataOf(app.doc, f0.data);
+    mesh = md ? { name: (app.doc.bodies[f0.newBody] || {}).name || f0.name, file: f0.file || f0.name, format: f0.format, positions: md.positions, indices: md.indices, tris: f0.tris || (md.indices ? md.indices.length / 3 : md.positions.length / 9), bbox: f0.bbox, stored: f0.data } : null;
+  }
   const fileInput = document.createElement("input");
   fileInput.type = "file";
   fileInput.accept = ".stl,.obj,.3mf";
@@ -104,7 +179,9 @@ export function openInsertMesh(app, store, view, opts = {}) {
     if (!f || !dlgRef || dlgRef.closed) return;
     readMeshFile(f).then((r) => {
       if (dlgRef.closed) return;
+      if (staged) M.unstageMeshData(staged);
       mesh = r;
+      staged = M.stageMeshData({ positions: r.positions, indices: r.indices });
       loadError = null;
       if (r.tris > 200000) app.toast(`${r.file} has ${r.tris.toLocaleString()} triangles: display may be slow`, "warning", 4000);
       dlgRef.refresh();
@@ -118,29 +195,47 @@ export function openInsertMesh(app, store, view, opts = {}) {
   });
   const pickFile = () => { try { fileInput.click(); } catch (e) { console.error(e); } };
   const has = () => !!mesh;
-  const units0 = UNIT_MM[app.doc.units] ? app.doc.units : "mm";
+  const units0 = f0 ? f0.units || "mm" : UNIT_MM[app.doc.units] ? app.doc.units : "mm";
+  const num = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
 
-  /** Current def from the dialog values (positions attached for the preview). */
+  /** Placement + data of the dialog values as a `mesh` feature (null until a file is loaded). */
   const defOf = (v, d) => {
     if (!mesh) return null;
     const n = (k, dflt = 0) => { const x = d.num(k); return Number.isFinite(x) ? x : dflt; };
-    return {
-      name: mesh.name, file: mesh.file, format: mesh.format, units: v.units, flipUp: !!v.flipUp,
+    const out = {
+      type: "mesh", file: mesh.file, format: mesh.format, units: v.units, flipUp: !!v.flipUp,
       tx: n("tx"), ty: n("ty"), tz: n("tz"), rx: n("rx"), ry: n("ry"), rz: n("rz"), scale: n("scale", 1),
-      data: mesh.data, tris: mesh.tris, bbox: mesh.bbox, _positions: mesh.positions,
+      tris: mesh.tris, bbox: mesh.bbox, data: staged || mesh.stored,
     };
+    if (f0) { out.newBody = f0.newBody; out.name = f0.name; }
+    return out;
   };
   const setT = (d, t) => { T_FIELDS.forEach((k, i) => d.set(k, d.fmt(+t[i].toFixed(6), "length"), { user: true, noPreview: true })); d.previewNow(); };
+  const worldZ = (def) => {
+    // lowest world z of the placed vertices
+    const Mx = M.meshInsertMatrix(def);
+    const p = mesh.positions;
+    let z = Infinity;
+    for (let i = 0; i < p.length; i += 3) { const w = M.meshOps.apply(Mx, [p[i], p[i + 1], p[i + 2]]); if (w[2] < z) z = w[2]; }
+    return z;
+  };
+
+  const values = f0 ? {
+    units: f0.units || "mm", flipUp: !!f0.flipUp, scale: String(num(f0.scale, 1)),
+    tx: `${num(f0.tx).toFixed(2)} mm`, ty: `${num(f0.ty).toFixed(2)} mm`, tz: `${num(f0.tz).toFixed(2)} mm`,
+    rx: `${num(f0.rx).toFixed(1)} deg`, ry: `${num(f0.ry).toFixed(1)} deg`, rz: `${num(f0.rz).toFixed(1)} deg`,
+  } : undefined;
 
   const dlg = app.ui.dialog.open({
     id: "ParaMeshInsertAlignCommand",
     title: "Insert Mesh",
     icon: "ParaMeshInsertAlignCommand",
+    editId,
     featureLabel: "Insert Mesh",
-    help: "Inserts an existing STL or OBJ file as a mesh body. For STL or OBJ files, select the unit type that matches the units of the design that generated the file.",
-    preview: false,
+    help: "Inserts an STL, OBJ or 3MF file as a mesh body. Choose the unit type the file was made in; one file unit becomes one of those units.",
     activate: false,
     ctrlWidth: 150,
+    values,
     rows: [
       {
         id: "file", type: "text", label: "Mesh Body", tooltip: "Select from my computer...",
@@ -176,12 +271,16 @@ export function openInsertMesh(app, store, view, opts = {}) {
           box.append(
             mk("center", "Center", "Centers the mesh body on the origin of the active component.", (dd) => {
               const def = defOf(dd.values, dd);
-              setT(dd, meshPivot(def).map((x) => -x));
+              setT(dd, M.meshOps.apply(M.meshInsertMatrix({ ...def, tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0 }), [(def.bbox.min[0] + def.bbox.max[0]) / 2, (def.bbox.min[1] + def.bbox.max[1]) / 2, (def.bbox.min[2] + def.bbox.max[2]) / 2]).map((x) => -x));
             }),
             mk("ground", "Move To Ground", "Positions the bottom of the mesh body to rest on the ground plane of the active component.", (dd) => {
               const def = defOf(dd.values, dd);
-              const info = meshWorldInfo(def, mesh.positions);
-              setT(dd, [def.tx, def.ty, def.tz - info.zmin]);
+              setT(dd, [def.tx, def.ty, def.tz - worldZ(def)]);
+            }),
+            mk("reset", "Reset", "Restores the default position of the mesh body.", (dd) => {
+              for (const k of R_FIELDS) dd.set(k, "0.0 deg", { user: true, noPreview: true });
+              dd.set("scale", "1", { user: true, noPreview: true });
+              setT(dd, [0, 0, 0]);
             }),
           );
           return box;
@@ -201,18 +300,18 @@ export function openInsertMesh(app, store, view, opts = {}) {
       d.el.classList.add("insp-dlg", "insp-mesh-dlg");
       d.el.appendChild(fileInput);
     },
-    prompt: () => (mesh ? "" : "Select an STL or OBJ file to insert"),
+    prompt: () => (mesh ? "" : "Select an STL, OBJ or 3MF file to insert"),
     build: (v, d) => defOf(v, d),
     afterPreview(d) {
-      view.setPreviewMesh(d.feature);
       if (loadError) d.message(loadError, "error");
-      else if (mesh) d.message(`${mesh.tris.toLocaleString()} triangles`, "info");
+      else if (mesh) d.message(`${Number(mesh.tris).toLocaleString()} triangles`, "info");
     },
     status: (d) => (mesh && d.feature ? mesh.name : ""),
     manipulators(d) {
       const def = d.feature;
-      if (!def) return [];
-      const c = meshWorldInfo(def, null).center;
+      if (!def || !def.bbox) return [];
+      const b = def.bbox;
+      const c = M.meshOps.apply(M.meshInsertMatrix(def), [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2]);
       const out = [];
       T_FIELDS.forEach((k, i) => {
         const m = d.valueManip(k, { origin: c, dir: AXES[i], fixedDir: true });
@@ -231,10 +330,33 @@ export function openInsertMesh(app, store, view, opts = {}) {
       return out;
     },
     commit(def) {
-      const { _positions, ...rest } = def;
-      return store.add("mesh", rest, "Insert Mesh");
+      const name = mesh.name;
+      const fresh = staged ? M.stagedMeshData(staged) : null;
+      if (editId) {
+        return app.mutate("Edit Insert Mesh", (doc) => {
+          const f = doc.features.find((x) => x.id === editId);
+          if (!f) throw new Error("The mesh feature no longer exists");
+          const patch = { ...def };
+          if (fresh) patch.data = M.storeMeshData(doc, fresh); else patch.data = f.data;
+          Object.assign(f, patch);
+          if (fresh && doc.bodies[f.newBody]) doc.bodies[f.newBody].name = name;
+          return f;
+        });
+      }
+      return app.mutate("Insert Mesh", (doc) => {
+        const nf = { ...def, data: M.storeMeshData(doc, fresh || { positions: mesh.positions, indices: mesh.indices }) };
+        nf.newBody = M.nextBody(doc, { name, kind: "mesh" });
+        prepareFeature(doc, nf);
+        doc.features.splice(doc.marker, 0, nf);
+        doc.marker += 1;
+        return nf;
+      });
     },
-    onClose() { view.setPreviewMesh(null); },
+    onClose() {
+      if (staged) M.unstageMeshData(staged);
+      staged = null;
+      if (view && view.setPreviewMesh) view.setPreviewMesh(null);
+    },
   });
   return dlg;
 }

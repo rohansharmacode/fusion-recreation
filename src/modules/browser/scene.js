@@ -12,8 +12,9 @@ export function featureBodies(app, f) {
   const r = (app.result && app.result.results && app.result.results[f.id]) || {};
   if (r.rolled || r.suppressed || f.suppressed) return [];
   if (f.type === "sketch" || f.type === "cplane") return [];
-  const alive = app.result && app.result.state && app.result.state.bodies;
-  if (!alive) return [];
+  const st = app.result && app.result.state;
+  if (!st || !st.bodies) return [];
+  const alive = { has: (id) => st.bodies.has(id) || !!(st.meshBodies && st.meshBodies.has(id)) };
   const cands = [...(r.affected || []), f.newBody, ...(f.newBodies || [])];
   if (!cands.some((id) => id && alive.has(id))) {
     cands.push(...(f.edges || []).map((e) => e && e.body), ...(f.faces || []).map((x) => x && x.body), ...(Array.isArray(f.bodies) ? f.bodies : []), f.target);
@@ -75,7 +76,7 @@ export function findInWindow(app, refs) {
   const addPt = (p) => { for (let i = 0; i < 3; i++) { min[i] = Math.min(min[i], p[i]); max[i] = Math.max(max[i], p[i]); } };
   const addBody = (id) => {
     const b = app.body(id);
-    const bb = b && K.bboxOf && K.bboxOf(b.shape);
+    const bb = b ? K.bboxOf && K.bboxOf(b.shape) : app.result && app.M.bodyBBox ? app.M.bodyBBox(app.result.state, id) : null;
     if (bb) { addPt(bb.min); addPt(bb.max); }
   };
   const addPlane = (pl, size = 20) => {

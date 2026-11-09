@@ -6,7 +6,27 @@
 // Every assignment is one undoable app.mutate step. Face appearances are stored in
 // doc.bodies[id].faceAppearances {faceIndex: appearanceId} and drawn by FaceAppearanceLayer.
 import * as THREE from "three";
-import { APPEARANCES, APPEARANCE_CATEGORIES, MATERIALS, MATERIAL_CATEGORIES, appearanceInfo, swatchCss, materialOf, DEFAULT_APPEARANCE } from "./library.js";
+import { APPEARANCES, APPEARANCE_CATEGORIES, MATERIALS, MATERIAL_CATEGORIES, appearanceInfo, swatchCss, materialOf, DEFAULT_APPEARANCE, materialById, customMaterial, customAppearance } from "./library.js";
+
+/** Copy a custom (user library) appearance / material into the design so it renders and weighs the same anywhere. */
+function carryCustom(doc, kind, id) {
+  if (kind === "appearance") {
+    const a = !APPEARANCES[id] && customAppearance(id);
+    if (a) doc.customAppearances = { ...(doc.customAppearances || {}), [id]: JSON.parse(JSON.stringify(a)) };
+    return;
+  }
+  const m = !MATERIALS[id] && customMaterial(id);
+  if (m) {
+    doc.customMaterials = { ...(doc.customMaterials || {}), [id]: JSON.parse(JSON.stringify(m)) };
+    if (m.appearance) carryCustom(doc, "appearance", m.appearance);
+  }
+}
+/** User libraries (Favorites first) from the Material Browser store: [{id, name, items(kind)}] */
+function userLibraries(app) {
+  const st = app.ui && app.ui.inspect && app.ui.inspect.materialBrowser && app.ui.inspect.materialBrowser.store;
+  if (!st) return [];
+  try { return st.libraries().map((l) => ({ id: l.id, name: l.favorites ? "Favorites" : l.name, favorites: !!l.favorites, items: (kind) => st.items(kind, l.id) })); } catch { return []; }
+}
 import { ICONS, esc, div, fwGlyph } from "./ui.js";
 
 // ------------------------------------------------------------------ assignments
@@ -15,6 +35,7 @@ export function applyAppearance(app, refs, apId) {
   if (!list.length || !apId) return false;
   const name = appearanceInfo(app, apId).name;
   app.mutate(`Appearance: ${name}`, (doc) => {
+    carryCustom(doc, "appearance", apId);
     for (const r of list) {
       const meta = doc.bodies[r.body];
       if (!meta) continue;
@@ -30,10 +51,11 @@ export function applyAppearance(app, refs, apId) {
 }
 
 export function applyMaterial(app, refs, matId) {
-  const mat = MATERIALS[matId];
+  const mat = materialById(matId);
   const ids = [...new Set((refs || []).filter((r) => r && r.kind === "body" && app.doc.bodies[r.body]).map((r) => r.body))];
   if (!mat || !ids.length) return false;
   app.mutate(`Physical Material: ${mat.name}`, (doc) => {
+    carryCustom(doc, "physical", matId);
     for (const id of ids) {
       const meta = doc.bodies[id];
       if (!meta) continue;
@@ -169,9 +191,14 @@ function swatchPanel(dlg, cfg, state) {
   function renderTree() {
     const q = (search.querySelector("input").value || "").trim().toLowerCase();
     tree.innerHTML = "";
-    const fav = node("Favorites", "favorites", !state.open.favorites);
-    fav.kids.appendChild(div("insp-empty", "No favorites"));
-    if (!q) tree.appendChild(fav.n);
+    // Favorites + user libraries (Manage Materials)
+    const libs = cfg.userLibraries ? cfg.userLibraries() : [];
+    const favLib = libs.find((l) => l.favorites);
+    const favItems = favLib ? favLib.items(cfg.libKind).filter((it) => !q || it.name.toLowerCase().includes(q)) : [];
+    const fav = node("Favorites", "favorites", !(q || state.open.favorites), favItems.length || undefined);
+    if (favItems.length) { const tiles = div(cfg.view === "list" ? "insp-list" : "insp-tiles"); for (const it of favItems) tiles.appendChild(tile(it, cfg)); fav.kids.appendChild(tiles); }
+    else fav.kids.appendChild(div("insp-empty", "No favorites"));
+    if (!q || favItems.length) tree.appendChild(fav.n);
     const libRoot = node(cfg.libraryName, "lib", state.open.lib === false);
     tree.appendChild(libRoot.n);
     for (const cat of cfg.categories) {
@@ -182,6 +209,17 @@ function swatchPanel(dlg, cfg, state) {
       for (const it of items) tiles.appendChild(tile(it, cfg));
       c.kids.appendChild(tiles);
       libRoot.kids.appendChild(c.n);
+    }
+    for (const l of libs) {
+      if (l.favorites) continue;
+      const items = l.items(cfg.libKind).filter((it) => !q || it.name.toLowerCase().includes(q));
+      if (q && !items.length) continue;
+      const u = node(l.name, `user:${l.id}`, !(q || state.open[`user:${l.id}`]), items.length);
+      const tiles = div(cfg.view === "list" ? "insp-list" : "insp-tiles");
+      for (const it of items) tiles.appendChild(tile(it, cfg));
+      if (!items.length) u.kids.appendChild(div("insp-empty", "Empty library"));
+      else u.kids.appendChild(tiles);
+      tree.appendChild(u.n);
     }
     markActive();
   }
@@ -304,6 +342,8 @@ export function openAppearance(app, ctx = {}) {
   const byId = (id) => ({ ...appearanceInfo(app, id), id });
   const cfg = {
     kind: "appearance",
+    libKind: "appearance",
+    userLibraries: () => userLibraries(app),
     libraryName: "Fusion Appearance Library",
     categories: APPEARANCE_CATEGORIES,
     items: (cat) => Object.values(APPEARANCES).filter((a) => a.category === cat),
@@ -403,9 +443,11 @@ export function openMaterial(app, ctx = {}) {
   const pre = (ctx.preselect || app.selection.items || []).filter((r) => r.kind === "body");
   const state = { active: null, open: {}, dragging: null };
   let panel = null;
-  const byId = (id) => MATERIALS[id] || MATERIALS.steel;
+  const byId = (id) => materialById(id) || MATERIALS.steel;
   const cfg = {
     kind: "material",
+    libKind: "physical",
+    userLibraries: () => userLibraries(app),
     view: "list",
     libraryName: "Fusion Material Library",
     categories: MATERIAL_CATEGORIES,

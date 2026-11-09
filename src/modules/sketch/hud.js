@@ -11,6 +11,7 @@ function fmt(kind, v) {
   if (!Number.isFinite(v)) return "";
   if (kind === "angle") return fmtAng(v);
   if (kind === "count") return String(Math.round(v));
+  if (kind === "ratio") return v.toFixed(2);
   return ST.app.E.formatValue(v, "length", 3);
 }
 void fmtLen;
@@ -84,7 +85,7 @@ export function hudShow(fields, { onEnter, onChange } = {}) {
 function validate(field) {
   if (!field.dirty) { field.input.classList.remove("err"); return; }
   const r = evalExpr(field.input.value, field.kind);
-  const bad = !!r.error || (field.kind !== "angle" && r.value <= 0) || (field.kind === "count" && (r.value < 3 || r.value > 64));
+  const bad = !!r.error || (field.kind !== "angle" && r.value <= 0) || (field.kind === "count" && (r.value < 3 || r.value > 64)) || (field.kind === "ratio" && r.value >= 1);
   field.input.classList.toggle("err", bad);
 }
 
@@ -145,6 +146,7 @@ export function hudValues() {
     let ok = f.dirty && !r.error && Number.isFinite(r.value);
     if (ok && f.kind === "length" && r.value <= 1e-9) ok = false;
     if (ok && f.kind === "count" && (r.value < 3 || r.value > 64)) ok = false;
+    if (ok && f.kind === "ratio" && !(r.value > 0 && r.value < 1)) ok = false;
     out[f.id] = { dirty: f.dirty, text: f.input.value.trim(), value: ok ? r.value : f.value, ok, expr: ok ? normalizeExpr(f.input.value, f.kind) : null };
   }
   return out;
@@ -153,7 +155,7 @@ export function hudValues() {
 /** Plain numbers get the document unit appended ("25" -> "25 mm"). */
 export function normalizeExpr(text, kind = "length") {
   const t = String(text).trim();
-  if (/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(t)) return kind === "angle" ? `${t} deg` : kind === "count" ? t : `${t} mm`;
+  if (/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(t)) return kind === "angle" ? `${t} deg` : kind === "count" || kind === "ratio" ? t : `${t} mm`;
   return t;
 }
 

@@ -1,0 +1,63 @@
+/* annotate module (PMI): dialog tabs, text box, placement buttons, general notes on the canvas */
+
+/* tab bar of the PMI dialogs (Leader line | Diameter | ... | Text) */
+.pmi-tabs { display: flex; gap: 0; border-bottom: 1px solid #e4e4e4; margin: 0 0 6px; padding: 0 2px; overflow: hidden; }
+.pmi-tab {
+  flex: 0 1 auto; min-width: 0; height: 26px; padding: 0 9px; border: 0; background: transparent; color: #4a4a4a;
+  font: inherit; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.pmi-tab:hover { color: #111; background: #f4f8fb; }
+.pmi-tab.on { color: #111; border-bottom-color: #3a8de4; font-weight: 600; }
+
+/* label + control lines inside custom rows */
+.pmi-lrow { display: grid; grid-template-columns: var(--dlg-label-w) var(--dlg-ctl-w); align-items: center; min-height: 29px; }
+.pmi-lrow .dlg-ctl { display: flex; align-items: center; }
+
+/* Change annotation plane: ‹ n / m › */
+.pmi-plane { display: inline-flex; align-items: center; gap: 4px; }
+.pmi-plane-lab { min-width: 38px; text-align: center; color: #333; font-size: 12px; }
+.pmi-ibtn {
+  display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 22px; padding: 0;
+  border: 1px solid transparent; border-radius: 2px; background: transparent; color: #3c3c3c; cursor: pointer;
+}
+.pmi-ibtn:hover { border-color: #b9dcf3; background: #f4fbff; }
+.pmi-ibtn.on { border-color: #84cff4; background: #eaf8fe; }
+.pmi-ibtn:disabled { opacity: 0.35; cursor: default; border-color: transparent; background: transparent; }
+
+/* Text box */
+.pmi-textbox { display: flex; flex-direction: column; gap: 4px; padding: 3px 0 4px; }
+.pmi-ta {
+  width: 100%; box-sizing: border-box; min-height: 54px; resize: vertical; padding: 4px 5px;
+  border: 1px solid #dcdcdc; border-radius: 1px; font: 12.5px/1.35 Arial, "Helvetica Neue", Helvetica, sans-serif; color: #111; background: #fff;
+}
+.pmi-ta:focus { outline: none; border-color: #3a8de4; }
+.pmi-ttools { display: flex; align-items: center; gap: 8px; }
+.pmi-tgroup { display: inline-flex; gap: 1px; }
+.pmi-tsp { flex: 1; }
+
+/* popup menus with image icons (GD&T symbols, Insert symbol) */
+.pmi-menu .pmi-menu-ico, .pmi-symdd .pmi-menu-ico { display: inline-flex; width: 22px; height: 18px; align-items: center; justify-content: center; flex: none; }
+.pmi-menu .pmi-menu-ico img, .pmi-symdd .pmi-menu-ico img { max-width: 22px; max-height: 18px; }
+.pmi-symdd { cursor: pointer; }
+
+/* feature control frame preview */
+.pmi-fcf-preview { display: flex; align-items: center; justify-content: flex-start; min-height: 30px; padding: 4px 2px 6px; overflow: hidden; }
+.pmi-fcf-preview img { display: block; max-width: 100%; height: auto; }
+.pmi-fcf-empty { color: #8a8a8a; font-size: 12px; }
+
+/* General Notes: screen-fixed blocks in the corners of the canvas */
+.pmi-gnotes { position: absolute; inset: 0; pointer-events: none; }
+.pmi-gn-col { position: absolute; display: flex; flex-direction: column; gap: 10px; max-width: 42%; }
+.pmi-gn-ul { left: 312px; top: 14px; }
+.pmi-gn-ur { right: 178px; top: 14px; align-items: flex-end; }
+.pmi-gn-ll { left: 18px; bottom: 64px; }
+.pmi-gn-lr { right: 18px; bottom: 64px; align-items: flex-end; }
+.pmi-gnote {
+  pointer-events: auto; cursor: default; color: #161616; font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
+  line-height: 1.35; white-space: pre-wrap; padding: 2px 4px; border: 1px solid transparent; user-select: none;
+}
+.pmi-gnote.preview { pointer-events: none; }
+.pmi-gnote.hov { color: #3f9ff2; }
+.pmi-gnote.sel { color: #0b6fd6; border-color: rgba(11, 111, 214, 0.35); }
+.pmi-gnote.orphan { color: #e8862e; }

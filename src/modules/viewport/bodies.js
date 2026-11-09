@@ -1,6 +1,7 @@
 // Body display: per-shape mesh cache (K.meshBody + derived edge polylines / vertices / face
 // types), THREE objects per body, visual styles, and preview shapes.
 import * as THREE from "three";
+import * as MDX from "../../meshdata.js";
 
 export const VISUAL_STYLES = {
   ViewShadedCommand: { label: "Shaded", faces: true, edges: false, hidden: false, depthOnly: false },
@@ -142,6 +143,47 @@ export class MeshCache {
     return { md, geo, edgeGeo, edges, vertices, faceTypes, faceStarts, size, proj: null, projVersion: -1 };
   }
 
+  /**
+   * Display data of a triangle-mesh body (mesh / T-spline kinds), cached per mesh object. Same shape as a
+   * B-rep entry (md.vertices / triangles / lines, edges, geo, edgeGeo) plus isMesh, so window selection,
+   * bounds and hidden-line styles work unchanged; picking and highlighting branch on isMesh.
+   * edgesMode: 'groups' (open boundary + face-group borders, default) | 'sharp' (also creases > 30 deg) | 'none' | 'all'.
+   */
+  meshEntry(mesh, edgesMode = "groups") {
+    let byMode = this.map.get(mesh);
+    if (!byMode || !byMode.meshModes) { byMode = { meshModes: true }; this.map.set(mesh, byMode); }
+    if (byMode[edgesMode]) return byMode[edgesMode];
+    const MD = MDX;
+    const pos = mesh.positions instanceof Float32Array ? mesh.positions : Float32Array.from(mesh.positions || []);
+    const nTri = mesh.indices ? mesh.indices.length / 3 : pos.length / 9;
+    const tris = mesh.indices ? (mesh.indices instanceof Uint32Array ? mesh.indices : Uint32Array.from(mesh.indices)) : Uint32Array.from({ length: nTri * 3 }, (_, i) => i);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    if (mesh.normals && mesh.normals.length === pos.length) geo.setAttribute("normal", new THREE.BufferAttribute(mesh.normals instanceof Float32Array ? mesh.normals : Float32Array.from(mesh.normals), 3));
+    geo.setIndex(new THREE.BufferAttribute(tris, 1));
+    if (!geo.getAttribute("normal")) geo.computeVertexNormals();
+    geo.computeBoundingSphere();
+    geo.computeBoundingBox();
+    // display edges
+    let pairs = [];
+    const idxMesh = { positions: pos, indices: tris, groups: mesh.groups };
+    if (edgesMode === "all") { for (let t = 0; t < nTri; t++) { const a = tris[3 * t], b = tris[3 * t + 1], c = tris[3 * t + 2]; pairs.push(a, b, b, c, c, a); } }
+    else if (edgesMode !== "none" && MD) { try { pairs = MD.featureEdges(idxMesh, edgesMode === "sharp" || !mesh.groups ? 30 : 0); } catch { pairs = []; } }
+    const lines = new Float32Array(pairs.length * 3);
+    for (let i = 0; i < pairs.length; i++) { const v = pairs[i]; lines[3 * i] = pos[3 * v]; lines[3 * i + 1] = pos[3 * v + 1]; lines[3 * i + 2] = pos[3 * v + 2]; }
+    const edgeGeo = new THREE.BufferGeometry();
+    edgeGeo.setAttribute("position", new THREE.BufferAttribute(lines, 3));
+    const nSeg = pairs.length;
+    const md = { vertices: pos, normals: geo.getAttribute("normal").array, triangles: tris, faceGroups: [{ start: 0, count: tris.length, face: -1 }], lines, edgeGroups: nSeg ? [{ start: 0, count: nSeg, edge: 0 }] : [] };
+    const edges = nSeg ? [{ index: 0, start: 0, count: nSeg, seg: lines, seam: false, group: 0 }] : [];
+    let size = 100;
+    const bb = geo.boundingBox;
+    if (bb && !bb.isEmpty()) size = Math.max(1, Math.min(bb.min.distanceTo(bb.max) * 0.5, 5000));
+    const e = { md, geo, edgeGeo, edges, vertices: [], faceTypes: [], faceStarts: [0], size, proj: null, projVersion: -1, isMesh: true, mesh, groups: mesh.groups || null, triCount: nTri };
+    byMode[edgesMode] = e;
+    return e;
+  }
+
   /** face group index for a triangle index (binary search on start) */
   faceOfTriangle(entry, tri) {
     const k = tri * 3;
@@ -169,15 +211,21 @@ export class BodyLayer {
     this.hiddenMat = new THREE.LineDashedMaterial({ color: 0x3a3a3a, transparent: true, opacity: 0.45, dashSize: 1, gapSize: 1, depthFunc: THREE.GreaterDepth, depthWrite: false });
     this.xrayEdgeMat = new THREE.LineBasicMaterial({ color: 0x1a1a1a, depthTest: false, transparent: true, opacity: 0.9 });
     this.depthMat = new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+    // back side of surface bodies (Fusion shows the side away from the surface normal in gold)
+    this.surfaceBackMat = new THREE.MeshStandardMaterial({ color: 0xd9a531, metalness: 0.1, roughness: 0.55, side: THREE.BackSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
     this.bounds = { center: new THREE.Vector3(), radius: 0, box: new THREE.Box3() };
     this.visibleOverride = true; // Object Visibility > Bodies
   }
 
-  material(meta, colorOverride) {
+  /**
+   * Body material for an appearance. variant: '' (solid, double-sided), 'front' (surface bodies: the front side,
+   * their back side is drawn gold like Fusion), 'facets' (mesh bodies: flat-shaded triangles).
+   */
+  material(meta, colorOverride, variant = "") {
     const app = this.vp.app;
     let ap = (app.appearances && app.appearances[meta.appearance]) || { color: "#b9bdc2", metalness: 0.35, roughness: 0.45 };
     if (colorOverride) ap = { color: colorOverride, metalness: 0, roughness: 0.6 };
-    const key = `${ap.color}|${ap.metalness}|${ap.roughness}|${ap.opacity ?? 1}`;
+    const key = `${ap.color}|${ap.metalness}|${ap.roughness}|${ap.opacity ?? 1}|${variant}`;
     let m = this.materials.get(key);
     if (!m) {
       m = new THREE.MeshStandardMaterial({
@@ -187,7 +235,8 @@ export class BodyLayer {
         roughness: Math.max(0.25, (ap.roughness ?? 0.5) * 0.78),
         envMap: this.vp.envMap || null,
         envMapIntensity: 0.8,
-        side: THREE.DoubleSide,
+        side: variant === "front" ? THREE.FrontSide : THREE.DoubleSide,
+        flatShading: variant === "facets",
         polygonOffset: true,
         polygonOffsetFactor: 1,
         polygonOffsetUnits: 1,
@@ -222,9 +271,22 @@ export class BodyLayer {
       const ids = [...this.objects.keys()];
       cc = this.colorCycle[Math.max(0, ids.indexOf(o.id)) % this.colorCycle.length];
     }
-    o.mesh.material = st.faces ? this.material(meta, cc) : this.depthMat;
+    const variant = o.kind === "surface" ? "front" : o.entry.isMesh ? "facets" : "";
+    o.mesh.material = st.faces ? this.material(meta, cc, variant) : this.depthMat;
     o.mesh.visible = st.faces || st.depthOnly;
-    o.edges.visible = st.edges;
+    // surface bodies: the back side (away from the normal) is gold, like Fusion
+    if (o.kind === "surface") {
+      if (!o.back) {
+        o.back = new THREE.Mesh(o.entry.geo, this.surfaceBackMat);
+        o.back.userData = { body: o.id, entry: o.entry, noPick: true };
+        o.back.renderOrder = 0;
+        o.group.add(o.back);
+      }
+      o.back.visible = !!st.faces;
+    } else if (o.back) { o.group.remove(o.back); o.back = null; }
+    // mesh bodies show their facets in every style (Fusion draws the triangle shading flat); their edges
+    // are the open boundary / face-group borders and follow the visual style like B-rep edges
+    o.edges.visible = st.edges || (o.entry.isMesh && !st.faces);
     o.edges.material = st.xray ? this.xrayEdgeMat : this.edgeMat;
     if (st.hidden && !o.hidden) {
       o.hidden = new THREE.LineSegments(o.entry.edgeGeo, this.hiddenMat);
@@ -236,36 +298,53 @@ export class BodyLayer {
     if (o.hidden) o.hidden.visible = st.hidden;
   }
 
-  /** Rebuild the body group from app.bodies() reusing cached geometry. */
+  /**
+   * Rebuild the body group from app.allBodies() reusing cached geometry: B-rep bodies (solid / surface) through
+   * the shape cache, mesh-like bodies (mesh / tspline / registered kinds) through meshEntry(); a kind's
+   * render(body, app) hook adds its own objects (T-spline cage ...) to the body group.
+   */
   rebuild() {
     const app = this.vp.app;
     const group = this.vp.groups.bodies;
     const keep = new Set();
     const box = new THREE.Box3();
-    for (const b of app.bodies()) {
-      if (!b.shape || b.meta.visible === false) continue;
-      let entry;
-      try { entry = this.vp.cache.entry(b.shape); } catch (e) { console.warn("mesh failed", e); continue; }
+    const list = typeof app.allBodies === "function" ? app.allBodies() : app.bodies();
+    for (const b of list) {
+      if (!b.meta || b.meta.visible === false) continue;
+      const kind = b.kind || "solid";
+      const hooks = (app.bodyKinds && app.bodyKinds[kind]) || {};
+      const src = b.shape || b.mesh || null;
+      let entry = null;
+      try {
+        if (b.shape) entry = this.vp.cache.entry(b.shape);
+        else if (b.mesh) entry = this.vp.cache.meshEntry(b.mesh, hooks.edges || "groups");
+      } catch (e) { console.warn("mesh failed", e); continue; }
+      if (!entry && typeof hooks.render !== "function") continue;
       keep.add(b.id);
       let o = this.objects.get(b.id);
-      if (!o || o.shape !== b.shape) {
+      if (!o || o.src !== src || o.srcEntry !== (b.entry || null) || o.kind !== kind) {
         if (o) { group.remove(o.group); }
         const g = new THREE.Group();
         g.name = `body:${b.id}`;
-        g.userData = { body: b.id };
-        const mesh = new THREE.Mesh(entry.geo, this.material(b.meta));
-        mesh.userData = { body: b.id, entry };
+        g.userData = { body: b.id, kind };
+        const ent = entry || this.vp.cache.meshEntry({ positions: new Float32Array(0), indices: new Uint32Array(0) }, "none");
+        const mesh = new THREE.Mesh(ent.geo, this.material(b.meta));
+        mesh.userData = { body: b.id, entry: ent, kind };
         mesh.renderOrder = 0;
-        const edges = new THREE.LineSegments(entry.edgeGeo, this.edgeMat);
+        const edges = new THREE.LineSegments(ent.edgeGeo, this.edgeMat);
         edges.userData = { body: b.id, noPick: true };
         edges.renderOrder = 1;
         g.add(mesh, edges);
-        o = { id: b.id, shape: b.shape, entry, group: g, mesh, edges, hidden: null };
+        o = { id: b.id, kind, shape: b.shape || null, src, srcEntry: b.entry || null, entry: ent, group: g, mesh, edges, hidden: null, back: null };
+        if (typeof hooks.render === "function") {
+          try { const extra = hooks.render(b.entry || b, app); if (extra) { extra.userData = { ...(extra.userData || {}), body: b.id, noPick: true }; g.add(extra); o.extra = extra; } } catch (e) { console.error(`[viewport] ${kind} render hook failed`, e); }
+        }
         this.objects.set(b.id, o);
         group.add(g);
       }
       this._applyStyle(o);
-      if (entry.geo.boundingBox) box.union(entry.geo.boundingBox);
+      if (o.entry.geo.boundingBox && !o.entry.geo.boundingBox.isEmpty()) box.union(o.entry.geo.boundingBox);
+      if (o.extra) { try { const eb = new THREE.Box3().setFromObject(o.extra); if (!eb.isEmpty()) box.union(eb); } catch { /* ignore */ } }
     }
     for (const [id, o] of this.objects) {
       if (!keep.has(id)) { group.remove(o.group); this.objects.delete(id); }
@@ -300,9 +379,10 @@ export class PreviewLayer {
       c.traverse((o) => { if (o.material && o.userData.ownMat) o.material.dispose(); });
     }
     for (const it of items || []) {
-      if (!it || !it.shape) continue;
+      if (!it || (!it.shape && !it.mesh)) continue;
       let entry;
-      try { entry = this.vp.cache.entry(it.shape); } catch (e) { console.warn("preview mesh failed", e); continue; }
+      // {shape} (OCCT) or {mesh: {positions, indices?}} (mesh tools preview triangle data the same way)
+      try { entry = it.shape ? this.vp.cache.entry(it.shape) : this.vp.cache.meshEntry(it.mesh, it.edges || "groups"); } catch (e) { console.warn("preview mesh failed", e); continue; }
       const color = it.color === "cut" ? "#ff2a1a" : it.color === "new" ? "#3d8bff" : it.color || "#3d8bff";
       const opacity = it.opacity ?? (it.color === "cut" ? 0.3 : 0.35);
       const m = new THREE.Mesh(entry.geo, new THREE.MeshStandardMaterial({ color, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide, roughness: 0.6, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }));

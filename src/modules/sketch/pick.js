@@ -46,6 +46,13 @@ export function profileRef(sketchId, r) {
   return { kind: "profile", sketch: sketchId, key: r.key, c };
 }
 
+/** World point of a 3D sketch point [u, v, w] (w along the plane normal). */
+export function toWorld3(pl, p) {
+  const w = toWorld(pl, p[0], p[1]);
+  const h = p[2] || 0;
+  return [w[0] + pl.n[0] * h, w[1] + pl.n[1] * h, w[2] + pl.n[2] * h];
+}
+
 export function sketchPick(x, y, ray, opts = {}) {
   const out = [];
   const A = ST.app;
@@ -75,19 +82,24 @@ export function sketchPick(x, y, ray, opts = {}) {
     if (want("sketchCurve")) {
       for (const [cid, cv] of Object.entries(sk.curves)) {
         if (!curveVisible(cv, active)) continue;
-        const poly = S.curvePolyline(sk, cid, 72);
+        const polys = cv.type === "text" || cv.type === "c3d" ? S.curvePolylines(S, sk, cid, 72) : [S.curvePolyline(sk, cid, 72)];
+        const poly = polys[0] || [];
+        const W = cv.type === "c3d" ? (p) => vp().toScreen(toWorld3(pl, p)) : (p) => proj(p[0], p[1]);
         let best = Infinity;
-        let prev = null;
-        for (const p of poly) {
-          const s = proj(p[0], p[1]);
-          if (prev) best = Math.min(best, segDist2D([x, y], prev, s));
-          prev = s;
+        for (const pll of polys) {
+          let prev = null;
+          for (const p of pll) {
+            const s = W(p);
+            if (prev) best = Math.min(best, segDist2D([x, y], prev, s));
+            prev = s;
+          }
         }
         if (best > CURVE_TOL) continue;
+        if (!poly.length) continue;
         const ref = { kind: "sketchCurve", sketch: f.id, curve: cid };
         if (!accept(ref)) continue;
         const np = hp ? S.nearestOnCurve(sk, cid, hp.uv) : null;
-        out.push({ ref, point: np ? toWorld(pl, np.p[0], np.p[1]) : hp ? hp.world : toWorld(pl, poly[0][0], poly[0][1]), depth, screenDist: best, type: "curve" });
+        out.push({ ref, point: np ? toWorld(pl, np.p[0], np.p[1]) : cv.type === "c3d" ? toWorld3(pl, poly[0]) : hp ? hp.world : toWorld(pl, poly[0][0], poly[0][1]), depth, screenDist: best, type: "curve" });
       }
     }
     if (active && want("sketchDim") && ST.opts.showDims) {

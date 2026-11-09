@@ -8,7 +8,7 @@
 //   resize, ToggleBrowser (Ctrl+Alt+B).
 import "./style.css";
 import { refKey } from "../../app/core.js";
-import { el, esc, store, glyph, showMenu, hideTip, showTip, inlineEdit, runCmd, friendlyError, notAvailable } from "./ui.js";
+import { el, esc, store, glyph, showMenu, hideTip, showTip, inlineEdit, runCmd, friendlyError, notAvailable, syncFeatureIcons, featureGlyph } from "./ui.js";
 import {
   featureBodies, findInWindow, isIsolated, isolateBodies, unisolate, isSelectable, toggleSelectable,
   installSelectability, installOpacity, setOpacity, acceptsRef, installStatus, installFeatureHighlight,
@@ -141,7 +141,9 @@ export function init(app) {
   const toggleSel = (ref) => { if (accepts(ref)) app.selection.toggle(ref); };
   const bodyIdsAlive = () => committed.bodies.filter((id) => app.doc.bodies[id]);
   const sketchFeatures = () => app.doc.features.filter((f) => f.type === "sketch" && exists(f));
-  const planeFeatures = () => app.doc.features.filter((f) => f.type === "cplane" && exists(f));
+  const regFolder = (f) => { const d = app.M.featureDef && app.M.featureDef(f.type); return d && !d.builtin && d.browser ? d.browser.folder || null : null; };
+  const planeFeatures = () => app.doc.features.filter((f) => (f.type === "cplane" || regFolder(f) === "construction") && exists(f));
+  const folderFeatures = (folder) => app.doc.features.filter((f) => regFolder(f) === folder && exists(f));
   const originItemVisible = (name) => !(app.doc.origin && app.doc.origin.items && app.doc.origin.items[name] === false);
   const folderFlag = (key) => !!(app.doc.folders && app.doc.folders[key] && app.doc.folders[key].hidden);
   // A folder's eye reflects its contents: open while any child is shown, closed when every child
@@ -265,9 +267,9 @@ export function init(app) {
         menu: () => [{ label: "Show/Hide", cmd: "VisibilityToggleCmd", act: "toggle-visibility", icon: "m-eye", hint: "V", action: toggleAll }],
         children: ans.map((a) => {
           const vis = a.visible !== false;
-          const kind = a.type === "section" ? "Section Analysis" : "Center of Mass";
+          const kind = a.kindLabel || (a.type === "section" ? "Section Analysis" : "Center of Mass"); // kindLabel/icon: inspect hook (surface analyses)
           return {
-            key: `analysis:${a.id}`, label: a.name, icon: glyph(a.type === "section" ? "br-section" : "br-com"), eye: vis, renamable: true,
+            key: `analysis:${a.id}`, label: a.name, icon: a.icon || glyph(a.type === "section" ? "br-section" : "br-com"), eye: vis, renamable: true,
             tip: `<b>${esc(a.name)}</b><div class="br-tip-sub">${kind}</div>`,
             onEye: () => setVis(a, !vis),
             onDbl: () => { try { ins.editAnalysis(a.id); } catch (e) { console.error(e); } },
@@ -368,16 +370,19 @@ export function init(app) {
       const toggle = () => toggleFolder("construction", vis, { features: pls.map((f) => f.id) });
       kids.push({
         key: "construction:root", label: "Construction", icon: glyph("br-folder"), eye: vis,
-        selectAll: pls.map((f) => ({ kind: "cplane", id: f.id })),
+        selectAll: pls.map((f) => (f.type === "cplane" ? { kind: "cplane", id: f.id } : { kind: "feature", id: f.id })),
         onEye: toggle,
         menu: () => [
           { label: "Show/Hide", cmd: "VisibilityToggleCmd", act: "toggle-visibility", icon: "m-eye", hint: "V", action: toggle },
           "-",
-          { label: "Find in Window", cmd: "FindInWindow", act: "find-window", action: () => findInWindow(app, pls.map((f) => ({ kind: "cplane", id: f.id }))) },
+          { label: "Find in Window", cmd: "FindInWindow", act: "find-window", action: () => findInWindow(app, pls.map((f) => (f.type === "cplane" ? { kind: "cplane", id: f.id } : { kind: "feature", id: f.id }))) },
         ],
-        children: pls.map((f) => planeNode(f)),
+        children: pls.map((f) => (f.type === "cplane" ? planeNode(f) : featureNode(f))),
       });
     }
+
+    // folders contributed by modules (app.ui.browser.registerFolder) and registered feature folders
+    insertModuleFolders(kids);
 
     // root component
     const everything = [...bodyIds.map((id) => app.doc.bodies[id].visible !== false), ...sks.map(isVisibleFeature), ...pls.map(isVisibleFeature)];
@@ -472,13 +477,28 @@ export function init(app) {
     }));
   }
 
+  /** Browser icon + subtitle of a body by kind (solid, surface, mesh, T-spline, sheet metal, registered kinds). */
+  function bodyLook(id, meta) {
+    const kind = app.bodyKind ? app.bodyKind(id) || meta.kind || "solid" : meta.kind || "solid";
+    const hooks = (app.bodyKinds && app.bodyKinds[kind]) || {};
+    if (meta.sheetMetal && kind === "solid") return { kind, icon: glyph("br-sheetmetal"), sub: "Sheet Metal Body" };
+    const icons = { solid: "br-body", surface: "br-surface", mesh: "br-mesh", tspline: "br-tspline" };
+    let sub = hooks.label || (kind === "solid" ? "Body" : `${kind} Body`);
+    if (kind === "mesh") {
+      try { const b = app.anyBody(id); const n = b && b.mesh ? app.M.meshOps.triCount(b.mesh) : 0; if (n) sub = `Mesh Body | ${n.toLocaleString()} triangles`; } catch { /* ignore */ }
+    }
+    return { kind, icon: hooks.icon || glyph(icons[kind] || "br-body"), sub };
+  }
+
   function bodyNode(id) {
     const meta = app.doc.bodies[id];
     const vis = meta.visible !== false;
     const ref = { kind: "body", body: id };
     const isolated = isIsolated(app);
+    const look = bodyLook(id, meta);
     return {
-      key: `body:${id}`, label: meta.name, icon: glyph("br-body"), eye: vis, ref, renamable: true,
+      key: `body:${id}`, label: meta.name, icon: look.icon, eye: vis, ref, renamable: true, bodyKind: look.kind,
+      tip: look.kind !== "solid" || meta.sheetMetal ? `<b>${esc(meta.name)}</b><div class="br-tip-sub">${esc(look.sub)}</div>` : null,
       unselectable: !isSelectable(app, id),
       onEye: () => setBodiesVisible(app, bodyTargetsForEye(id), !vis),
       onDbl: () => startRename(`body:${id}`),
@@ -490,7 +510,7 @@ export function init(app) {
         "-",
         { label: "Create Selection Set", act: "selection-set", icon: "m-selset", action: () => notAvailable(app, "Create Selection Set") },
         "-",
-        { label: "Configure", cmd: "ConfigureEntityCmd", icon: "m-configure", action: () => notAvailable(app, "Configure") },
+        { label: "Configure", cmd: "ConfigureEntityCmd", icon: "m-configure", action: () => runOrSay("ConfigureEntityCmd", "Configure", { ref: { kind: "body", body: id } }) },
         "-",
         { label: "Physical Material", cmd: "PhysicalMaterialCommand", icon: "m-material", action: () => runOnBody(id, "PhysicalMaterialCommand", "Physical Material") },
         { label: "Appearance", cmd: "AppearanceCommand", hint: "A", icon: "m-appearance", action: () => runOnBody(id, "AppearanceCommand", "Appearance") },
@@ -561,6 +581,70 @@ export function init(app) {
         { label: "Find in Timeline", cmd: "FusionFindInTimeline", act: "find-timeline", action: () => findInTimeline(f.id) },
       ],
     };
+  }
+
+  /** Node of a registered feature type listed in a folder (construction axes / points, module features ...). */
+  function featureNode(f) {
+    const r = results()[f.id] || {};
+    const ref = { kind: "feature", id: f.id };
+    const vis = isVisibleFeature(f);
+    const def = app.M.featureDef ? app.M.featureDef(f.type) : null;
+    let custom = {};
+    if (def && def.browser && typeof def.browser.node === "function") { try { custom = def.browser.node(app, f) || {}; } catch (e) { console.error(e); } }
+    return {
+      key: `feature:${f.id}`, label: f.name, icon: featureGlyph(f.type), eye: vis, ref, renamable: true,
+      badge: r.ok === false ? glyph("error", 14) : r.warning ? glyph("warning", 14) : "",
+      tip: r.ok === false ? `<b>${esc(f.name)}</b><div class="br-tip-err">${esc(friendlyError(r.error || "Error"))}</div>` : null,
+      onEye: () => setFeatureVisible(app, featureEyeTargets(f.id, f.type), !vis),
+      onDbl: () => editFeat(f.id),
+      rename: (name) => renameFeature(app, f.id, name),
+      menu: () => [
+        { label: "Edit Feature", act: "edit-feature", icon: "m-editfeature", disabled: !app.hasFeatureEditor(f.type), action: () => editFeat(f.id) },
+        "-",
+        { label: "Delete", act: "delete", hint: "Del", icon: "m-delete", action: () => deleteFeatures(app, featureTargets(f.id)) },
+        { label: "Rename", cmd: "RenameBrowserCmd", act: "rename", action: () => startRename(`feature:${f.id}`) },
+        "-",
+        { label: "Show/Hide", cmd: "VisibilityToggleCmd", act: "toggle-visibility", hint: "V", icon: "m-eye", action: () => setFeatureVisible(app, featureEyeTargets(f.id, f.type), !vis) },
+        "-",
+        { label: "Find in Window", cmd: "FindInWindow", act: "find-window", action: () => findInWindow(app, [ref]) },
+        { label: "Find in Timeline", cmd: "FusionFindInTimeline", act: "find-timeline", action: () => findInTimeline(f.id) },
+      ],
+      ...custom,
+    };
+  }
+
+  // Module folders: app.ui.browser.registerFolder({key, label, after?|before?, build(app) -> node|null}) and folders
+  // named by registered feature types (def.browser.folder other than "construction").
+  const moduleFolders = [];
+  const FOLDER_LABELS = { joints: "Joints", jointorigins: "Joint Origins", annotations: "PMI", decals: "Decals", configurations: "Configurations" };
+  function insertModuleFolders(kids) {
+    const keyIndex = (k) => kids.findIndex((n) => n && n.key === k);
+    const place = (node, spec) => {
+      if (!node) return;
+      let i = -1;
+      if (spec.before) i = keyIndex(spec.before);
+      if (i < 0 && spec.after) { const j = keyIndex(spec.after); if (j >= 0) i = j + 1; }
+      if (i < 0 || i > kids.length) kids.push(node); else kids.splice(i, 0, node);
+    };
+    for (const spec of moduleFolders) {
+      let node = null;
+      try { node = spec.build(app); } catch (e) { console.error(`[browser] folder ${spec.key}`, e); }
+      if (node) place({ key: `${spec.key}:root`, label: spec.label, icon: glyph("br-folder"), noEye: node.eye === undefined, ...node }, spec);
+    }
+    const folders = new Set();
+    for (const f of app.doc.features) { const fo = regFolder(f); if (fo && fo !== "construction") folders.add(fo); }
+    for (const fo of folders) {
+      if (moduleFolders.some((m) => m.key === fo)) continue;
+      const list = folderFeatures(fo);
+      if (!list.length) continue;
+      const vis = folderEye(fo, list.map(isVisibleFeature));
+      place({
+        key: `${fo}:root`, label: FOLDER_LABELS[fo] || fo.replace(/^./, (c) => c.toUpperCase()), icon: glyph("br-folder"), eye: vis,
+        selectAll: list.map((f) => ({ kind: "feature", id: f.id })),
+        onEye: () => toggleFolder(fo, vis, { features: list.map((f) => f.id) }),
+        children: list.map((f) => featureNode(f)),
+      }, { before: "sketches:root", after: "bodies:root" });
+    }
   }
 
   function planeNode(f) {
@@ -895,10 +979,13 @@ export function init(app) {
   app.on("dialog", () => updateStates());
   app.on("ready", () => { hookViewport(); fitHeight(); scheduleRender(); });
   app.on("file", () => scheduleRender()); // save / open: root "Name vN" label
+  syncFeatureIcons(app);
+  app.on("feature-types", () => { syncFeatureIcons(app); scheduleRender(); });
+  app.on("body-kinds", () => scheduleRender());
 
   function orderedBodies() {
     if (!app.result || app.previewing) return committed.bodies;
-    const alive = new Set(app.result.state.bodies.keys());
+    const alive = new Set(app.M.allBodyIds ? app.M.allBodyIds(app.result.state) : app.result.state.bodies.keys());
     const order = Object.keys(app.doc.bodies);
     const out = order.filter((id) => alive.has(id));
     for (const id of alive) if (!out.includes(id)) out.push(id);
@@ -978,13 +1065,14 @@ export function init(app) {
       let key = typeof target === "string" ? target : null;
       if (!key) {
         const r = target;
-        if (r.kind === "body" || r.kind === "face" || r.kind === "edge" || r.kind === "vertex") key = `body:${r.body}`;
+        if (r.kind === "body" || r.kind === "face" || r.kind === "edge" || r.kind === "vertex" || r.kind === "meshFace") key = `body:${r.body}`;
         else if (r.kind === "cplane") key = `cplane:${r.id}`;
         else if (r.kind === "feature" || r.kind === "profile" || r.kind === "sketchCurve" || r.kind === "sketchPoint") {
           const fid = r.kind === "feature" ? r.id : r.sketch;
           const f = app.feature(fid);
           if (f && f.type === "sketch") key = `sketch:${fid}`;
           else if (f && f.type === "cplane") key = `cplane:${fid}`;
+          else if (f && regFolder(f)) key = `feature:${fid}`;
           else if (f) {
             // a modelling feature: show the body it produced
             const b = featureBodies(app, f).find((id) => committed.bodies.includes(id));
@@ -1000,6 +1088,21 @@ export function init(app) {
     },
     rename(key) { startRename(key); },
     get element() { return panel; },
+    /**
+     * Add a folder to the root component: {key, label, after?: rowKey ("bodies:root"), before?: rowKey,
+     * build(app) -> node | null}. node = {eye?, onEye?, menu?() -> items, children: [{key, label, icon, ref?, eye?,
+     * onEye?, onDbl?, menu?, renamable?, rename?(name), tip?, badge?}]}; null hides the folder. Returns remove().
+     */
+    registerFolder(spec) {
+      if (!spec || !spec.key || typeof spec.build !== "function") throw new Error("registerFolder needs {key, build}");
+      const i = moduleFolders.findIndex((m) => m.key === spec.key);
+      if (i >= 0) moduleFolders.splice(i, 1);
+      moduleFolders.push({ label: spec.key, ...spec });
+      scheduleRender();
+      return () => { const j = moduleFolders.findIndex((m) => m.key === spec.key); if (j >= 0) moduleFolders.splice(j, 1); scheduleRender(); };
+    },
+    /** Re-render soon (modules call this when their folder content changed). */
+    invalidate() { scheduleRender(); },
   };
   app.ui.browser = api;
   void creatorFeature;

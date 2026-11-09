@@ -194,7 +194,8 @@ export const DEFAULT_APPEARANCE = "steel-satin";
 
 /** Physical material record for a body meta (unknown ids fall back to Steel). */
 export function materialOf(meta) {
-  return MATERIALS[(meta && meta.material) || DEFAULT_MATERIAL] || MATERIALS[DEFAULT_MATERIAL];
+  const id = (meta && meta.material) || DEFAULT_MATERIAL;
+  return MATERIALS[id] || CUSTOM_MATERIALS[id] || MATERIALS[DEFAULT_MATERIAL];
 }
 
 /** Merge the library into app.appearances without overwriting entries other modules defined. */
@@ -209,7 +210,7 @@ export function installAppearances(app) {
 
 /** Display info for any appearance id (library or app.appearances). */
 export function appearanceInfo(app, id) {
-  const a = (app.appearances && app.appearances[id]) || APPEARANCES[id];
+  const a = (app.appearances && app.appearances[id]) || APPEARANCES[id] || CUSTOM_APPEARANCES[id];
   if (!a) return { id, name: id || "Unknown", color: "#b9bdc2", metalness: 0.3, roughness: 0.5 };
   return { id, ...APPEARANCES[id], ...a };
 }
@@ -233,4 +234,58 @@ export function hexToRgb(h) {
   const n = parseInt(s, 16);
   if (!Number.isFinite(n)) return [185, 189, 194];
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+// ------------------------------------------------------------------ custom materials (Manage Materials)
+// User libraries / Favorites (materials.js, browser storage) and the copies a design carries in
+// doc.customMaterials / doc.customAppearances register here so every lookup (mass properties, BOM,
+// Properties, body rendering) sees them. Custom ids look like "u:<library>:<n>".
+const CUSTOM_MATERIALS = {};
+const CUSTOM_APPEARANCES = {};
+
+/** Replace the custom tables: mats {id: material}, aps {id: appearance}. Appearances go into app.appearances too. */
+export function setCustomMaterials(app, mats = {}, aps = {}) {
+  for (const k of Object.keys(CUSTOM_MATERIALS)) delete CUSTOM_MATERIALS[k];
+  for (const k of Object.keys(CUSTOM_APPEARANCES)) delete CUSTOM_APPEARANCES[k];
+  Object.assign(CUSTOM_MATERIALS, mats);
+  Object.assign(CUSTOM_APPEARANCES, aps);
+  if (app) {
+    app.appearances = app.appearances || {};
+    for (const [id, a] of Object.entries(aps)) {
+      app.appearances[id] = { name: a.name, color: a.color, metalness: a.metalness ?? 0, roughness: a.roughness ?? 0.5, ...(a.opacity != null && a.opacity < 1 ? { opacity: a.opacity } : {}) };
+    }
+  }
+}
+export function customMaterial(id) { return CUSTOM_MATERIALS[id] || null; }
+export function customAppearance(id) { return CUSTOM_APPEARANCES[id] || null; }
+/** Physical material by id: library, then custom (null if unknown). */
+export function materialById(id) { return MATERIALS[id] || CUSTOM_MATERIALS[id] || null; }
+/** Appearance by id: library, then custom. */
+export function appearanceById(id) { return APPEARANCES[id] || CUSTOM_APPEARANCES[id] || null; }
+
+/**
+ * Engineering properties shown on the Material Browser's Physical tab (typical published values; units:
+ * Young's modulus GPa, strengths MPa, conductivity W/(m*K), specific heat J/(kg*C), expansion um/(m*C)).
+ * Keyed by material id; categories without an entry fall back to the category default.
+ */
+const PHYS_TABLE = {
+  steel: [200, 0.3, 207, 345, 56, 480, 12], "steel-carbon": [200, 0.29, 350, 420, 51.9, 486, 12], "steel-mild": [220, 0.275, 207, 345, 54, 477, 12],
+  "stainless-steel": [193, 0.3, 250, 540, 16.2, 500, 17.3], "aluminum-6061": [68.9, 0.33, 275, 310, 167, 896, 23.6], titanium: [116, 0.32, 140, 220, 21.9, 522, 8.6],
+  copper: [110, 0.37, 33.3, 210, 391, 385, 16.5], "brass-soft-yellow": [109.6, 0.331, 103.4, 330, 116, 375, 18.4], gold: [79, 0.42, 205, 220, 310, 129, 14.2],
+  "abs-plastic": [2.24, 0.38, 20, 29.6, 0.16, 1410, 85], "nylon-6-6": [2.74, 0.39, 51.7, 74.6, 0.24, 1600, 80], "polycarbonate-clear": [2.39, 0.37, 62, 66, 0.2, 1200, 70],
+  "polypropylene": [1.5, 0.42, 30, 32, 0.17, 1920, 100], glass: [70, 0.22, 33, 33, 1.38, 840, 9], "iron-cast": [120, 0.28, 155, 200, 46, 460, 11],
+  lead: [16, 0.44, 12, 18, 35.3, 128, 29], silver: [83, 0.37, 55, 170, 429, 235, 19.6], "wood-oak": [12.5, 0.35, 47, 90, 0.17, 2000, 5],
+};
+const PHYS_CATEGORY = { Metal: [200, 0.3, 250, 400, 50, 480, 12], Plastic: [2.4, 0.38, 40, 50, 0.2, 1500, 80], Wood: [11, 0.35, 40, 80, 0.15, 1900, 5], Rubber: [0.05, 0.49, 15, 15, 0.16, 2000, 200], Glass: [70, 0.22, 33, 33, 1.38, 840, 9], Ceramic: [300, 0.27, 600, 700, 30, 700, 3.3], Other: [30, 0.3, 30, 40, 1, 1000, 10] };
+export const PHYS_FIELDS = [
+  ["youngs", "Young's Modulus", "GPa"], ["poisson", "Poisson's Ratio", ""], ["yield", "Yield Strength", "MPa"], ["tensile", "Tensile Strength", "MPa"],
+  ["conductivity", "Thermal Conductivity", "W / (m C)"], ["specificHeat", "Specific Heat", "J / (kg C)"], ["expansion", "Thermal Expansion Coefficient", "um / (m C)"],
+];
+/** Full property record of a physical material (library defaults filled in). */
+export function physicalProps(m) {
+  if (!m) return null;
+  const base = PHYS_TABLE[m.id] || PHYS_TABLE[m.baseId] || PHYS_CATEGORY[m.category] || PHYS_CATEGORY.Other;
+  const out = { density: m.density };
+  PHYS_FIELDS.forEach(([k], i) => { out[k] = m.props && m.props[k] != null ? m.props[k] : base[i]; });
+  return out;
 }

@@ -22,4 +22,9 @@ export const GLYPH_SVG = {
   collinear: svg('<path d="M1.5 12L5.5 8.5M8.5 5.5L12.5 2"/><circle cx="7" cy="7" r="1" fill="currentColor"/>'),
   symmetric: svg('<path d="M7 1.5v11" stroke-dasharray="1.6 1.4" stroke-width="1"/><path d="M5 4L2.2 7 5 10M9 4l2.8 3L9 10"/>'),
   fix: svg('<rect x="3.2" y="6.4" width="7.6" height="5.6" rx="1"/><path d="M4.9 6.4V4.9a2.1 2.1 0 0 1 4.2 0v1.5"/>'),
+  // round-7 constraints (original drawings)
+  smooth: svg('<path d="M1.5 11.5h4.5c3 0 4-2 5-4.5S12 2.5 12.5 2.5"/><circle cx="6" cy="11.5" r="1.3" fill="currentColor" stroke="none"/>'),
+  polygon: svg('<path d="M7 2l4.6 3.2-1.7 5.6H4.1L2.4 5.2z"/>'),
+  rpattern: svg('<rect x="1.8" y="1.8" width="3.6" height="3.6" rx="0.6"/><rect x="8.6" y="1.8" width="3.6" height="3.6" rx="0.6"/><rect x="1.8" y="8.6" width="3.6" height="3.6" rx="0.6"/><rect x="8.6" y="8.6" width="3.6" height="3.6" rx="0.6"/>'),
+  cpattern: svg('<circle cx="7" cy="7" r="4.6" stroke-dasharray="1.4 1.4" stroke-width="1"/><circle cx="7" cy="2.4" r="1.4" fill="currentColor" stroke="none"/><circle cx="11" cy="9.3" r="1.4" fill="currentColor" stroke="none"/><circle cx="3" cy="9.3" r="1.4" fill="currentColor" stroke="none"/>'),
 };

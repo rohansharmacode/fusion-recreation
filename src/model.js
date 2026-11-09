@@ -2,8 +2,10 @@
 import { ParamTable } from "./expr.js";
 import * as S from "./sketch/sketch.js";
 import * as K from "./kernel.js";
+import * as MD from "./meshdata.js";
 
 const { R, V } = K;
+export { MD as meshOps };
 
 export const FIELDS = {
   sketch: {},
@@ -32,6 +34,7 @@ export const FIELDS = {
   pipe: { distance: "none", sectionSize: "length", thickness: "length" },
   scale: { factor: "none", sx: "none", sy: "none", sz: "none" },
   thread: { length: "length", offset: "length" },
+  mesh: {},
 };
 
 export const TYPE_LABEL = {
@@ -39,9 +42,9 @@ export const TYPE_LABEL = {
   shell: "Shell", hole: "Hole", box: "Box", cylinder: "Cylinder", sphere: "Sphere", torus: "Torus",
   cplane: "Plane", rpattern: "Rectangular Pattern", cpattern: "Circular Pattern", move: "Move",
   mirror: "Mirror", combine: "Combine", loft: "Loft", sweep: "Sweep", delete: "Delete", draft: "Draft",
-  split: "Split Body", coil: "Coil", pipe: "Pipe", scale: "Scale", thread: "Thread",
+  split: "Split Body", coil: "Coil", pipe: "Pipe", scale: "Scale", thread: "Thread", mesh: "Mesh",
 };
-const NAME_STEM = { ...TYPE_LABEL, cplane: "Offset Plane", rpattern: "Rectangular Pattern", cpattern: "Circular Pattern" };
+export const NAME_STEM = { ...TYPE_LABEL, cplane: "Offset Plane", rpattern: "Rectangular Pattern", cpattern: "Circular Pattern" };
 
 export function newDoc(name = "Untitled") {
   return {
@@ -102,7 +105,8 @@ export function buildParams(doc) {
   return pt;
 }
 
-function fval(params, f, key) {
+/** Value of an expression-valued feature field (model parameter when assigned, else the expression). */
+export function fval(params, f, key) {
   const kind = (FIELDS[f.type] || {})[key] || "length";
   const name = f.p && f.p[key];
   if (name && params.has(name)) return params.value(name);
@@ -110,8 +114,24 @@ function fval(params, f, key) {
 }
 
 // ---------- state ----------
-function cloneState(st) {
-  return { bodies: new Map(st.bodies), sketches: new Map(st.sketches), planes: new Map(st.planes) };
+// Evaluation state (one per timeline step; features get a shallow copy and replace entries):
+//   bodies      Map id -> {id, shape, from, kind?, sheetMetal?}   B-rep bodies (OCCT shapes): solids and
+//               surfaces (open shells / faces). kind is optional: shapeKind(shape) derives it.
+//   meshBodies  Map id -> {id, kind:'mesh'|'tspline'|..., mesh:{positions, indices?, normals?, groups?}, data?, from}
+//               bodies that are not OCCT shapes (triangle meshes, T-spline forms with their evaluated mesh)
+//   sketches    Map id -> {id, plane, sk, regions, status}      planes  Map id -> {id, plane, name}
+// Modules may add their own Map-valued keys (st.axes, st.points ...): cloneState copies every Map.
+export function emptyState() {
+  return { bodies: new Map(), sketches: new Map(), planes: new Map(), meshBodies: new Map() };
+}
+export function cloneState(st) {
+  const n = {};
+  for (const [k, v] of Object.entries(st)) {
+    if (k === "_tool") continue;
+    n[k] = v instanceof Map ? new Map(v) : v;
+  }
+  if (!n.meshBodies) n.meshBodies = new Map();
+  return n;
 }
 
 // ---------- robust geometric references ----------
@@ -128,7 +148,7 @@ const EDGE_LEGACY_MAX = 5; // mm: point refs without a signature accept the near
 const moved = (a, b, tol = 1e-7) => !Array.isArray(a) || !Array.isArray(b) || V.len(V.sub(a, b)) > tol;
 
 /** Index of the edge of `shape` an edge ref points at (or -1); refreshes ref.sig / ref.p. */
-function locateEdge(shape, ref) {
+export function locateEdge(shape, ref) {
   let idx = -1, dist = Infinity;
   if (ref.sig) {
     const m = K.matchEdge(shape, ref.sig, ref.p);
@@ -151,7 +171,7 @@ function locateEdge(shape, ref) {
  * anyOrientation: sketch-plane refs store the normal of the side the sketch was made on, which
  * may be the inward one; it keeps that side.
  */
-function locateFace(shape, ref, anyOrientation = false) {
+export function locateFace(shape, ref, anyOrientation = false) {
   let idx = -1;
   if (ref.sig) {
     const m = K.matchFace(shape, ref.sig, ref.p);
@@ -182,14 +202,14 @@ function locateFace(shape, ref, anyOrientation = false) {
 }
 
 /** Faces of a body for a list of face refs (unresolvable refs are skipped). Caller deletes them. */
-function locateFaces(shape, refs) {
+export function locateFaces(shape, refs) {
   const idx = [];
   for (const r of refs) { const i = locateFace(shape, r); if (i >= 0 && !idx.includes(i)) idx.push(i); }
   return K.facesAt(shape, idx);
 }
 
 /** Rotate vector v by the rotation that takes unit a onto unit b. */
-function rotateTo(v, a, b) {
+export function rotateTo(v, a, b) {
   const axis = V.cross(a, b);
   const s = V.len(axis), c = V.dot(a, b);
   if (s < 1e-12) return c > 0 ? v : V.mul(v, -1);
@@ -204,7 +224,7 @@ const samePlane = (a, b) => !!a && !!b && !moved(a.o, b.o, 1e-9) && !moved(a.x, 
  * the body (signature first) and the stored plane `base` is moved/rotated onto it, keeping its x axis
  * and sketch side. Returns base itself when nothing moved, a new plane otherwise, null if the face is lost.
  */
-function followFacePlane(st, ref, base) {
+export function followFacePlane(st, ref, base) {
   const pl0 = base || ref.plane;
   const b = ref && st.bodies.get(ref.body);
   if (!b || !pl0 || !pl0.n) return null;
@@ -223,7 +243,7 @@ function followFacePlane(st, ref, base) {
   return samePlane(np, pl0) ? pl0 : np;
 }
 
-function resolvePlane(ref, st) {
+export function resolvePlane(ref, st) {
   if (!ref) return null;
   if (ref.kind === "origin") return K.ORIGIN_PLANES[ref.name];
   if (ref.kind === "cplane") {
@@ -242,7 +262,7 @@ function resolvePlane(ref, st) {
   return null;
 }
 
-function resolveRegion(st, prof) {
+export function resolveRegion(st, prof) {
   const s = st.sketches.get(prof.sketch);
   if (!s) throw new Error("Profile sketch is missing or after the marker");
   const regs = s.regions.regions;
@@ -255,7 +275,7 @@ function resolveRegion(st, prof) {
   return { region: r, sketch: s };
 }
 
-function pointInRegion(p, r) {
+export function pointInRegion(p, r) {
   const pip = (q, poly) => {
     let inside = false;
     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -267,7 +287,7 @@ function pointInRegion(p, r) {
   return pip(p, r.outer.poly) && !r.holes.some((h) => pip(p, h.poly));
 }
 
-function profileGroups(st, profiles) {
+export function profileGroups(st, profiles) {
   // group regions by sketch (each sketch has its own plane)
   const groups = new Map();
   for (const pr of profiles) {
@@ -279,7 +299,7 @@ function profileGroups(st, profiles) {
 }
 
 /** {face, info} of a face ref (info = kernel topology summary of the face). Caller deletes face. */
-function resolveFace(st, ref) {
+export function resolveFace(st, ref) {
   const b = st.bodies.get(ref.body);
   if (!b) throw new Error("Referenced body is missing");
   const idx = locateFace(b.shape, ref);
@@ -288,7 +308,7 @@ function resolveFace(st, ref) {
   return { face, info: K.topoOf(b.shape).faces[idx] };
 }
 
-function modelSize(st) {
+export function modelSize(st) {
   let mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
   for (const b of st.bodies.values()) {
     const bb = K.bboxOf(b.shape);
@@ -299,16 +319,20 @@ function modelSize(st) {
   return Math.max(50, V.len(V.sub(mx, mn)) * 2 + V.len(mn) + V.len(mx));
 }
 
-function touches(a, b) {
+export function touches(a, b) {
   if (!K.boxesOverlap(K.bboxOf(a), K.bboxOf(b), 1e-3)) return false;
   try { return K.shapeDistance(a, b) < 1e-4; } catch { return false; }
 }
 
-/** Apply a boolean operation of a tool body into the state. */
-function applyOp(st, f, tool, doc, defaultNew) {
+/**
+ * Apply a boolean operation of a tool body into the state. Participants: f.bodies when given, else every
+ * visible solid body (surface bodies only take part when listed explicitly, like Fusion's solid features).
+ */
+export function applyOp(st, f, tool, doc, defaultNew) {
   const op = f.operation || "new";
-  const participants = (f.bodies && f.bodies.length ? f.bodies : [...st.bodies.keys()].filter((id) => doc.bodies[id]?.visible !== false))
-    .filter((id) => st.bodies.has(id));
+  const explicit = !!(f.bodies && f.bodies.length);
+  const participants = (explicit ? f.bodies : [...st.bodies.keys()].filter((id) => doc.bodies[id]?.visible !== false))
+    .filter((id) => st.bodies.has(id) && (explicit || isSolidBody(st, id)));
   if (op === "new" || op === "newComponent") {
     const id = f.newBody || defaultNew;
     st.bodies.set(id, { id, shape: tool, from: f.id });
@@ -343,7 +367,7 @@ function applyOp(st, f, tool, doc, defaultNew) {
   return out;
 }
 
-function axisFromRef(st, ref) {
+export function axisFromRef(st, ref) {
   // returns {o, d}
   if (!ref) throw new Error("Select an axis");
   if (ref.kind === "origin") return { o: [0, 0, 0], d: K.ORIGIN_AXES[ref.name] };
@@ -378,7 +402,7 @@ function axisFromRef(st, ref) {
   throw new Error("Unsupported axis");
 }
 
-function circumcenter(a, b, c) {
+export function circumcenter(a, b, c) {
   const ab = V.sub(b, a), ac = V.sub(c, a);
   const n = V.cross(ab, ac);
   const d = 2 * V.dot(n, n) || 1e-12;
@@ -387,15 +411,155 @@ function circumcenter(a, b, c) {
   return V.add(a, V.mul(V.add(t1, t2), 1 / d));
 }
 
-function bodiesBBoxCenter(st, ids) {
+export function bodiesBBoxCenter(st, ids) {
   let mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
   for (const id of ids) {
-    const bb = st.bodies.get(id) && K.bboxOf(st.bodies.get(id).shape);
+    const bb = bodyBBox(st, id);
     if (!bb) continue;
     for (let i = 0; i < 3; i++) { mn[i] = Math.min(mn[i], bb.min[i]); mx[i] = Math.max(mx[i], bb.max[i]); }
   }
   if (!Number.isFinite(mn[0])) return [0, 0, 0];
   return V.mul(V.add(mn, mx), 0.5);
+}
+
+// ---------- body kinds ----------
+// Every body has a kind: 'solid' (default) | 'surface' (open OCCT shell / faces) | 'mesh' (triangle mesh,
+// st.meshBodies) | 'tspline' (form module data + evaluated mesh, st.meshBodies) | a kind a module registered.
+// Sheet-metal bodies are solids whose state entry (and doc.bodies meta) carries sheetMetal.
+const KIND_CACHE = new WeakMap();
+/** 'solid' when the shape holds a solid, 'surface' for faces / shells (cached per shape). */
+export function shapeKind(shape) {
+  if (!shape || typeof shape !== "object") return null;
+  let k = KIND_CACHE.get(shape);
+  if (k) return k;
+  try {
+    if (shape instanceof R.Solid || (R.CompSolid && shape instanceof R.CompSolid)) k = "solid";
+    else if (shape instanceof R.Shell || shape instanceof R.Face) k = "surface";
+    else {
+      const solids = K.solidsOf(shape);
+      k = solids.length ? "solid" : K.isEmptyShape(shape) ? "solid" : "surface";
+      K.del(solids.filter((s) => s !== shape));
+    }
+  } catch { k = "solid"; }
+  KIND_CACHE.set(shape, k);
+  return k;
+}
+/** Kind of body `id` in a state ('solid' | 'surface' | 'mesh' | 'tspline' | ...), null when absent. */
+export function bodyKind(st, id) {
+  const b = st && st.bodies && st.bodies.get(id);
+  if (b) return b.kind || shapeKind(b.shape) || "solid";
+  const m = st && st.meshBodies && st.meshBodies.get(id);
+  if (m) return m.kind || "mesh";
+  return null;
+}
+export const isSolidBody = (st, id) => bodyKind(st, id) === "solid";
+export const isBrepBody = (st, id) => !!(st && st.bodies && st.bodies.has(id));
+/** All body ids of a state (B-rep first, then mesh-like bodies). */
+export function allBodyIds(st) {
+  return [...(st.bodies ? st.bodies.keys() : []), ...(st.meshBodies ? st.meshBodies.keys() : [])];
+}
+/** World bounding box {min, max} of any body (B-rep or mesh), or null. */
+export function bodyBBox(st, id) {
+  const b = st.bodies && st.bodies.get(id);
+  if (b) return K.bboxOf(b.shape);
+  const m = st.meshBodies && st.meshBodies.get(id);
+  if (m && m.bbox) return typeof m.bbox === "function" ? m.bbox() : m.bbox;
+  return m && m.mesh ? MD.bbox(m.mesh) : null;
+}
+
+// ---------- stored mesh data (Insert Mesh, mesh base features) ----------
+// doc.meshData = { [id]: {positions: base64 Float32, indices?: base64 Uint32, groups?: base64 Uint32, tris} }
+// Kept out of the feature objects so the evaluator's per-feature signature stays small.
+const MESH_DATA_CACHE = new Map(); // fingerprint -> decoded {positions, indices, groups}
+/** Store triangle data in the document; returns its id. mesh = {positions, indices?, groups?}. */
+export function storeMeshData(doc, mesh) {
+  doc.meshData = doc.meshData && typeof doc.meshData === "object" ? doc.meshData : {};
+  doc.counters = doc.counters || {};
+  doc.counters.meshData = (doc.counters.meshData || 0) + 1;
+  const id = `md${doc.counters.meshData}`;
+  const rec = { positions: typeof mesh.positions === "string" ? mesh.positions : MD.toB64(Float32Array.from(mesh.positions)) };
+  if (mesh.indices) rec.indices = typeof mesh.indices === "string" ? mesh.indices : MD.toB64(Uint32Array.from(mesh.indices));
+  if (mesh.groups) rec.groups = typeof mesh.groups === "string" ? mesh.groups : MD.toB64(Uint32Array.from(mesh.groups));
+  rec.tris = mesh.tris || (mesh.indices && typeof mesh.indices !== "string" ? mesh.indices.length / 3 : 0) || 0;
+  doc.meshData[id] = rec;
+  return id;
+}
+// Staged (not yet stored) mesh data for live previews: "tmp:<n>" ids resolve here, so a dialog can preview a
+// feature without writing the triangles into the document; commit with storeMeshData(doc, data).
+const STAGED = new Map();
+let stagedN = 0;
+export function stageMeshData(mesh) {
+  const id = `tmp:${++stagedN}`;
+  STAGED.set(id, { positions: Float32Array.from(mesh.positions), indices: mesh.indices ? Uint32Array.from(mesh.indices) : null, groups: mesh.groups ? Uint32Array.from(mesh.groups) : null });
+  return id;
+}
+export const stagedMeshData = (id) => STAGED.get(id) || null;
+export function unstageMeshData(id) { STAGED.delete(id); }
+
+/** Decoded mesh data {positions, indices|null, groups|null} for doc.meshData[id] (cached), or null. */
+export function meshDataOf(doc, id) {
+  if (typeof id === "string" && id.startsWith("tmp:")) return STAGED.get(id) || null;
+  const rec = doc && doc.meshData && doc.meshData[id];
+  if (!rec || typeof rec.positions !== "string") return null;
+  const fp = (s) => (s ? `${s.length}:${s.slice(0, 48)}:${s.slice(-48)}` : "-");
+  const key = `${fp(rec.positions)}|${fp(rec.indices)}|${fp(rec.groups)}`;
+  let m = MESH_DATA_CACHE.get(key);
+  if (!m) {
+    m = { positions: MD.f32FromB64(rec.positions), indices: rec.indices ? MD.u32FromB64(rec.indices) : null, groups: rec.groups ? MD.u32FromB64(rec.groups) : null };
+    if (MESH_DATA_CACHE.size > 32) MESH_DATA_CACHE.delete(MESH_DATA_CACHE.keys().next().value);
+    MESH_DATA_CACHE.set(key, m);
+  }
+  return m;
+}
+export const MESH_UNIT_MM = { mm: 1, cm: 10, m: 1000, in: 25.4, ft: 304.8 };
+const num0 = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
+/**
+ * File -> world matrix of an Insert Mesh placement {units, flipUp, scale, rx, ry, rz, tx, ty, tz, bbox (file units)}:
+ * T(t) T(c) R T(-c) L, where L = unit scale (and Y-up -> Z-up flip), c = scaled centre of the file box, R = XYZ Euler.
+ */
+export function meshInsertMatrix(m) {
+  const k = (MESH_UNIT_MM[m.units] || 1) * num0(m.scale, 1);
+  const L = m.flipUp ? [k, 0, 0, 0, 0, 0, -k, 0, 0, k, 0, 0] : MD.scaling([k, k, k]);
+  const b = m.bbox || { min: [0, 0, 0], max: [0, 0, 0] };
+  const c = MD.apply(L, [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2]);
+  let M = MD.mul(MD.translation([-c[0], -c[1], -c[2]]), L);
+  M = MD.mul(MD.eulerXYZ(num0(m.rx), num0(m.ry), num0(m.rz)), M);
+  M = MD.mul(MD.translation([num0(m.tx) + c[0], num0(m.ty) + c[1], num0(m.tz) + c[2]]), M);
+  return M;
+}
+
+/**
+ * Bring an older document up to date (idempotent; returns true when something changed):
+ *  - doc.meshes (display-only Insert Mesh store before mesh bodies were real bodies) become `mesh`
+ *    timeline features at the start of the timeline with their data in doc.meshData.
+ */
+export function migrateDoc(doc) {
+  if (!doc || typeof doc !== "object") return false;
+  let changed = false;
+  if (Array.isArray(doc.meshes) && doc.meshes.length) {
+    doc.features = Array.isArray(doc.features) ? doc.features : [];
+    doc.counters = doc.counters || {};
+    doc.bodies = doc.bodies || {};
+    const add = [];
+    for (const m of doc.meshes) {
+      if (!m || typeof m.data !== "string") continue;
+      const data = storeMeshData(doc, { positions: m.data, tris: m.tris });
+      doc.counters.feature = (doc.counters.feature || 0) + 1;
+      const f = {
+        id: `f${doc.counters.feature}`, type: "mesh", name: nextName(doc, "mesh"), data,
+        file: m.file, format: m.format, units: m.units || "mm", flipUp: !!m.flipUp,
+        tx: num0(m.tx), ty: num0(m.ty), tz: num0(m.tz), rx: num0(m.rx), ry: num0(m.ry), rz: num0(m.rz), scale: num0(m.scale, 1),
+        tris: m.tris, bbox: m.bbox,
+      };
+      f.newBody = nextBody(doc, { name: m.name || "Mesh", visible: m.visible !== false, kind: "mesh" });
+      add.push(f);
+    }
+    doc.features.unshift(...add);
+    doc.marker = (Number(doc.marker) || 0) + add.length;
+    delete doc.meshes;
+    changed = true;
+  }
+  return changed;
 }
 
 // ---------- feature implementations ----------
@@ -712,6 +876,21 @@ const APPLY = {
     const r = ["rx", "ry", "rz"].map((k) => (f[k] !== undefined ? fval(P, f, k) : 0));
     const pivot = bodiesBBoxCenter(st, f.bodies || []);
     (f.bodies || []).forEach((id, i) => {
+      const mb = st.meshBodies && st.meshBodies.get(id);
+      if (mb && mb.mesh) {
+        // mesh bodies move like B-rep bodies: rotations about the selection centre, then the translation
+        let Mx = MD.IDENTITY;
+        if (r[0]) Mx = MD.mul(MD.axisRotation(r[0], pivot, [1, 0, 0]), Mx);
+        if (r[1]) Mx = MD.mul(MD.axisRotation(r[1], pivot, [0, 1, 0]), Mx);
+        if (r[2]) Mx = MD.mul(MD.axisRotation(r[2], pivot, [0, 0, 1]), Mx);
+        Mx = MD.mul(MD.translation(t), Mx);
+        const moved = { ...mb, mesh: MD.transformBy(mb.mesh, Mx), from: f.id };
+        if (f.copy) {
+          const nid = (f.newBodies || [])[i] || `${f.id}_${i}`;
+          st.meshBodies.set(nid, { ...moved, id: nid });
+        } else st.meshBodies.set(id, moved);
+        return;
+      }
       const b = st.bodies.get(id);
       if (!b) return;
       let s = b.shape;
@@ -728,7 +907,21 @@ const APPLY = {
   },
 
   delete(st, f) {
-    for (const id of f.bodies || []) st.bodies.delete(id);
+    for (const id of f.bodies || []) { st.bodies.delete(id); if (st.meshBodies) st.meshBodies.delete(id); }
+  },
+
+  // Insert Mesh (Fusion's "Mesh Base Feature"): a mesh body from stored triangle data (doc.meshData),
+  // placed by the Insert Mesh transform (file units, Flip Up Direction, X/Y/Z angles about the file box
+  // centre, uniform scale, X/Y/Z distance).
+  mesh(st, f, P, doc) {
+    const md = meshDataOf(doc, f.data);
+    if (!md) throw new Error("The mesh data of this feature is missing");
+    const id = f.newBody;
+    if (!id) throw new Error("The mesh body is missing");
+    const M = meshInsertMatrix(f);
+    const mesh = MD.transformBy({ positions: md.positions, indices: md.indices, groups: md.groups || undefined }, M);
+    st.meshBodies.set(id, { id, kind: "mesh", mesh, from: f.id });
+    return { affected: [id], triangles: MD.triCount(mesh) };
   },
 
   cplane(st, f, P) {
@@ -915,8 +1108,105 @@ const APPLY = {
   },
 };
 
+// ---------- feature-type registry ----------
+// Feature modules add timeline feature types without editing this file:
+//   registerFeature("rib", {
+//     label: "Rib",                      // timeline / browser / undo label ("Create Rib")
+//     stem: "Rib",                       // auto-naming stem: Rib1, Rib2 ... (default: label)
+//     fields: { thickness: "length", depth: "length" },   // expression-valued fields -> model parameters d1, d2 ...
+//     apply(st, f, P, doc) { ... },      // evaluator: same contract as the built-in APPLY entries (see below)
+//     makesBodies: (f) => f.operation === "new",   // true / count / fn: core gives f.newBody (true) or f.newBodies (n)
+//     deps: (f) => ({ sketches: [f.profile.sketch], bodies: [], features: [], cplanes: [], geo: [] }),
+//     touches: (f) => [bodyIds the feature modifies],   // optional, for timeline dependency checks
+//     editor: (app, featureId) => openRibDialog(app, featureId),   // Edit Feature (double-click in the timeline)
+//     icon: "FusionRibCommand",          // command id whose icon the timeline / browser show
+//     browser: { folder: "construction" },  // optional: list the feature itself in a browser folder
+//   });
+// apply(st, f, P, doc): st = a fresh copy of the state (replace map entries, never mutate shapes in place);
+// P = ParamTable (use fval(P, f, key)); return undefined or {affected?: bodyIds, warning?, ...} (copied into
+// app.result.results[f.id]); throw an Error with a user-facing message to fail the feature. Set st._tool to a
+// tool shape to have it shown as the result's `tool` (live preview of cuts).
+const BUILTIN_TYPES = new Set(Object.keys(APPLY));
+const REGISTRY = new Map(); // type -> def
+const REG_LISTENERS = new Set();
+const BUILTIN_BODY_MAKERS = new Set(["extrude", "revolve", "loft", "sweep", "box", "cylinder", "sphere", "torus", "coil", "pipe", "mesh"]);
+
+export function registerFeature(type, def) {
+  if (!type || typeof type !== "string") throw new Error("registerFeature: type must be a string");
+  if (!def || typeof def.apply !== "function") throw new Error(`registerFeature(${type}): def.apply(st, f, P, doc) is required`);
+  if (BUILTIN_TYPES.has(type) && !def.replace) throw new Error(`registerFeature(${type}): '${type}' is a built-in feature type (pass replace:true to override it)`);
+  const d = { ...def, type, label: def.label || type, stem: def.stem || def.label || type, fields: { ...(def.fields || {}) } };
+  REGISTRY.set(type, d);
+  FIELDS[type] = d.fields;
+  TYPE_LABEL[type] = d.label;
+  NAME_STEM[type] = d.stem;
+  APPLY[type] = d.apply;
+  for (const fn of REG_LISTENERS) { try { fn(type, d); } catch (e) { console.error(e); } }
+  return d;
+}
+/** Registered definition of a feature type; built-in types get {type, label, stem, fields, builtin:true}. */
+export function featureDef(type) {
+  if (REGISTRY.has(type)) return REGISTRY.get(type);
+  if (BUILTIN_TYPES.has(type)) return { type, label: TYPE_LABEL[type] || type, stem: NAME_STEM[type] || type, fields: FIELDS[type] || {}, builtin: true, apply: APPLY[type] };
+  return null;
+}
+export const featureTypes = () => [...new Set([...BUILTIN_TYPES, ...REGISTRY.keys()])];
+export const registeredFeatures = () => [...REGISTRY.values()];
+export const isFeatureType = (type) => BUILTIN_TYPES.has(type) || REGISTRY.has(type);
+/** Called with (type, def) for every later registration; returns an unsubscribe function. */
+export function onFeatureRegistered(fn) { REG_LISTENERS.add(fn); return () => REG_LISTENERS.delete(fn); }
+
+/**
+ * Result body ids of a new / edited feature: built-in body makers (new/join), registered types with
+ * makesBodies (true -> f.newBody, a number n -> f.newBodies of length n). Mirror / Move-copy are done by core.
+ */
+export function assignBodies(doc, f) {
+  const op = f.operation || "new";
+  const def = REGISTRY.get(f.type);
+  if (def && def.makesBodies) {
+    let n = def.makesBodies;
+    if (typeof n === "function") { try { n = n(f); } catch { n = false; } }
+    if (n === true) { if (!f.newBody) f.newBody = nextBody(doc); }
+    else if (typeof n === "number" && n > 0) {
+      const cur = Array.isArray(f.newBodies) ? f.newBodies : [];
+      if (cur.length < n) f.newBodies = Array.from({ length: n }, (_, i) => cur[i] || nextBody(doc));
+    }
+    return f;
+  }
+  if (BUILTIN_BODY_MAKERS.has(f.type) && ["new", "join", "newComponent"].includes(op) && !f.newBody) f.newBody = nextBody(doc);
+  return f;
+}
+
+/** Named evaluator helpers for feature modules (also exported individually). */
+export const helpers = {
+  fval, cloneState, emptyState, locateEdge, locateFace, locateFaces, resolveFace, resolvePlane, followFacePlane,
+  resolveRegion, pointInRegion, profileGroups, applyOp, axisFromRef, bodiesBBoxCenter, modelSize, touches,
+  fuseTemp, edgeFeature, quietFinder, rotatePoint, rotateTo, circumcenter, holeOnFace, scaleCenter, splitTool,
+  pipePath, chainPath, trimPath, orderEdges, patternFeatures, friendly, shapeKind, bodyKind, isSolidBody,
+  isBrepBody, allBodyIds, bodyBBox, storeMeshData, meshDataOf, stageMeshData, unstageMeshData, meshInsertMatrix, edgesForRefs, groupByBody,
+};
+
+/** Refs grouped by body: Map bodyId -> [ref]. */
+export function groupByBody(refs) {
+  const m = new Map();
+  for (const r of refs || []) { if (!r || !r.body) continue; if (!m.has(r.body)) m.set(r.body, []); m.get(r.body).push(r); }
+  return m;
+}
+/**
+ * Edge objects of `shape` for edge refs (signature / nearest point; refs are refreshed like Fillet's), optionally
+ * extended along tangent chains. The caller deletes the returned edges (K.del). Throws when none resolve.
+ */
+export function edgesForRefs(shape, refs, { tangentChain = false } = {}) {
+  const idx = [];
+  for (const er of refs || []) { const i = locateEdge(shape, er); if (i >= 0 && !idx.includes(i)) idx.push(i); }
+  if (!idx.length) throw new Error("Selected edges are missing");
+  let edges = K.edgesAt(shape, idx);
+  if (tangentChain) edges = K.tangentChain(shape, edges);
+  return edges;
+}
+
 /** Splitting tool shapes of a split feature: {shapes, owned (to delete), n (plane normal or null)}. */
-function splitTool(st, f, ids) {
+export function splitTool(st, f, ids) {
   if (f.tools && f.tools.length) {
     const shapes = f.tools.map((id) => st.bodies.get(id)).filter(Boolean).map((b) => b.shape);
     if (!shapes.length) throw new Error("missing split tool");
@@ -949,7 +1239,7 @@ function splitTool(st, f, ids) {
 }
 
 /** Centre of a scale feature: origin, a sketch point or a stored point (vertex). */
-function scaleCenter(st, pt) {
+export function scaleCenter(st, pt) {
   if (!pt || pt.kind === "origin") return [0, 0, 0];
   if (pt.kind === "sketchPoint") {
     const s = st.sketches.get(pt.sketch);
@@ -965,7 +1255,7 @@ function scaleCenter(st, pt) {
  * Path of a pipe as oriented segments (head to tail): sketch lines / arcs / circles of f.path and
  * body edges of f.edges. {segs, up (sketch plane normal), owned (edge wrappers to delete)}.
  */
-function pipePath(st, f) {
+export function pipePath(st, f) {
   const raw = [];
   const owned = [];
   let up = null;
@@ -1017,7 +1307,7 @@ function segReverse(g) {
   return { ...g, rev: !g.rev, t0: V.mul(g.t1 || g.t0, -1), t1: V.mul(g.t0, -1) };
 }
 /** Order path segments head to tail (starting at a free end of an open chain). */
-function chainPath(raw) {
+export function chainPath(raw) {
   const close = (p, q) => V.len(V.sub(p, q)) < 1e-4;
   const left = raw.slice();
   const touches = (p, g0) => left.some((g) => g !== g0 && (close(p, segStart(g)) || close(p, segEnd(g))));
@@ -1038,7 +1328,7 @@ function chainPath(raw) {
   return out;
 }
 /** First `frac` (0..1] of a path's length (lines and arcs are cut exactly, other edges kept whole). */
-function trimPath(segs, frac) {
+export function trimPath(segs, frac) {
   if (frac >= 1 - 1e-9) return segs;
   const total = segs.reduce((s, g) => s + segLen(g), 0);
   let want = total * frac;
@@ -1056,7 +1346,7 @@ function trimPath(segs, frac) {
 }
 
 /** Fuse freshly made tool shapes into one; the inputs and intermediate results are released. */
-function fuseTemp(parts) {
+export function fuseTemp(parts) {
   let s = null;
   for (const p of parts) {
     if (!s) { s = p; continue; }
@@ -1074,7 +1364,7 @@ function fuseTemp(parts) {
  * Older documents without f.faceRef get one inferred from the face the first centre lies on.
  * Updated centres/normal are written back into the feature (derived data).
  */
-function holeOnFace(st, f) {
+export function holeOnFace(st, f) {
   let pts = (f.points || []).filter((c) => Array.isArray(c));
   let nrm = Array.isArray(f.normal) ? V.norm(f.normal) : [0, 0, 1];
   if (!pts.length) return { points: pts, normal: nrm };
@@ -1102,7 +1392,7 @@ function holeOnFace(st, f) {
   return { points: pts, normal: nrm };
 }
 
-function orderEdges(edges) {
+export function orderEdges(edges) {
   if (edges.length < 2) return edges;
   const out = [edges[0]];
   const rest = edges.slice(1);
@@ -1121,13 +1411,13 @@ function orderEdges(edges) {
 
 // replicad's edge/face finders console.error "failed to compute a normal" for degenerate edges
 // (e.g. the apex of a drill-point cone) while scanning a body; harmless, so keep it out of the console.
-function quietFinder(fn) {
+export function quietFinder(fn) {
   const ce = console.error;
   console.error = (...a) => { if (typeof a[0] === "string" && a[0].startsWith("failed to compute a normal")) return; ce.apply(console, a); };
   try { return fn(); } finally { console.error = ce; }
 }
 
-function edgeFeature(st, f, P, kind) {
+export function edgeFeature(st, f, P, kind) {
   const r = fval(P, f, kind === "fillet" ? "radius" : "distance");
   if (r <= 0) throw new Error("Value must be positive");
   const byBody = new Map();
@@ -1158,7 +1448,7 @@ function edgeFeature(st, f, P, kind) {
 
 // ---------- feature patterns (rpattern / cpattern with patternType 'features') ----------
 /** p rotated by angleDeg about the axis through o along d (right-handed, like K.rotated). */
-function rotatePoint(p, angleDeg, o, d) {
+export function rotatePoint(p, angleDeg, o, d) {
   const k = V.norm(d), v = V.sub(p, o), t = (angleDeg * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t);
   return V.add(o, V.add(V.add(V.mul(v, c), V.mul(V.cross(k, v), s)), V.mul(k, V.dot(k, v) * (1 - c))));
 }
@@ -1169,7 +1459,7 @@ function rotatePoint(p, angleDeg, o, d) {
  * the state and cut / join a moved copy of it; fillet / chamfer re-apply on the moved edge points.
  * Instances that reach no geometry are skipped with a warning (an error when none computes).
  */
-function patternFeatures(st, f, P, doc, xs) {
+export function patternFeatures(st, f, P, doc, xs) {
   const ids = f.features || [];
   if (!ids.length) throw new Error("Select features to pattern");
   let failed = 0, total = 0, k = 0;
@@ -1230,7 +1520,7 @@ export class Evaluator {
   }
   run(doc, opts = {}) {
     const P = buildParams(doc);
-    let st = { bodies: new Map(), sketches: new Map(), planes: new Map() };
+    let st = emptyState();
     const results = {};
     const upto = opts.upto ?? doc.marker;
     let broken = false;
@@ -1265,8 +1555,14 @@ export class Evaluator {
       const ns = cloneState(st);
       let result;
       try {
-        const r = APPLY[f.type] ? APPLY[f.type](ns, f, P, doc) : null;
+        if (!APPLY[f.type]) throw new Error(`${TYPE_LABEL[f.type] || f.type} features are not available in this build`);
+        const r = APPLY[f.type](ns, f, P, doc);
         result = { ok: true, ...(r || {}) };
+        // derived body flags (sheet metal) survive features that rebuild the entry without them
+        for (const [id, b] of ns.bodies) {
+          const old = st.bodies.get(id);
+          if (old && old !== b && old.sheetMetal && b.sheetMetal === undefined) ns.bodies.set(id, { ...b, sheetMetal: old.sheetMetal });
+        }
         st = ns;
       } catch (e) {
         result = { ok: false, error: friendly(e) };
@@ -1302,7 +1598,7 @@ function paramSig(P, f) {
   return vals.join(",");
 }
 
-function friendly(e) {
+export function friendly(e) {
   const m = String(e && e.message ? e.message : e);
   if (/table index|unreachable|memory access|RuntimeError/i.test(m)) return "The geometry kernel could not compute this feature";
   if (/^\d+$/.test(m)) return "The geometry kernel could not compute this feature";

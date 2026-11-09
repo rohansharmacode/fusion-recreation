@@ -7,15 +7,17 @@
 //   live, failed/warning/suppressed/rolled-back states.
 import "./style.css";
 import { refKey } from "../../app/core.js";
-import { el, esc, store, glyph, featureGlyph, showMenu, hideMenu, showTip, hideTip, inlineEdit, runCmd, friendlyError, notAvailable } from "../browser/ui.js";
+import { el, esc, store, glyph, featureGlyph, showMenu, hideMenu, showTip, hideTip, inlineEdit, runCmd, friendlyError, notAvailable, syncFeatureIcons } from "../browser/ui.js";
 import { findInWindow, installFeatureHighlight, installStatus, setContextHighlight } from "../browser/scene.js";
-import { canMove, explicitDeps, bodyCreators, profileSketches, creatorFeature, refsOf, creatorOf, bodiesTouched } from "./deps.js";
+import { canMove, explicitDeps, bodyCreators, profileSketches, creatorFeature, refsOf, creatorOf, bodiesTouched, setFeatureDefLookup } from "./deps.js";
 import { setSuppressed, rollTo, deleteFeatures, deleteAfterMarker, renameFeature } from "./actions.js";
 
 const KEY_SWATCH = "fusionrec.timeline.swatches";
 const PLAY_STEP_MS = 420;
 
 export function init(app) {
+  // registered feature types: their deps(f) / touches(f) feed the reorder / delete dependency checks
+  setFeatureDefLookup((t) => { const d = app.M.featureDef ? app.M.featureDef(t) : null; return d && !d.builtin ? d : null; });
   const host = app.dom.timeline;
   if (!host) return;
 
@@ -56,7 +58,7 @@ export function init(app) {
 
   const results = () => (app.result && app.result.results) || {};
   const features = () => app.doc.features;
-  const label = (t) => (app.M.TYPE_LABEL && app.M.TYPE_LABEL[t]) || t;
+  const label = (t) => (app.featureLabel ? app.featureLabel(t) : (app.M.TYPE_LABEL && app.M.TYPE_LABEL[t]) || t);
 
   function busyReason() {
     if (app.mode === "sketch") return "Finish the sketch before changing the timeline";
@@ -282,7 +284,8 @@ export function init(app) {
     if (r.rolled || r.suppressed || f.suppressed) return null;
     if (f.type === "sketch") return { kind: "feature", id: f.id };
     if (f.type === "cplane") return { kind: "cplane", id: f.id };
-    const alive = app.result && app.result.state.bodies;
+    const st0 = app.result && app.result.state;
+    const alive = st0 ? { has: (id) => st0.bodies.has(id) || !!(st0.meshBodies && st0.meshBodies.has(id)) } : null;
     const cands = [...(r.affected || []), f.newBody, ...(f.newBodies || []), ...(f.edges || []).map((e) => e && e.body), ...(f.faces || []).map((x) => x && x.body), ...(f.bodies || []), f.target];
     const b = cands.find((id) => id && alive && alive.has(id));
     return b ? { kind: "body", body: b } : { kind: "feature", id: f.id };
@@ -662,7 +665,7 @@ export function init(app) {
         ? { label: "Edit Sketch", cmd: "SketchActivate", act: "edit", icon: "m-editprofile", disabled: multi, action: () => editFeature(id) }
         : { label: "Edit Feature", cmd: "FusionEditFeatureCommand", act: "edit", icon: "m-editfeature", disabled: multi || busy, action: () => editFeature(id) },
       hasProfile ? { label: "Edit Profile Sketch", cmd: "ProfileSketchActivate", act: "edit-profile", icon: "m-editprofile", disabled: multi || busy, action: () => editProfileSketch(id) } : null,
-      { label: "Configure", cmd: "ConfigureFeatureCmd", act: "configure", icon: "m-configure", action: () => notAvailable(app, "Configure") },
+      { label: "Configure", cmd: "ConfigureFeatureCmd", act: "configure", icon: "m-configure", disabled: multi, action: () => runCmd(app, "ConfigureFeatureCmd", { id }, () => notAvailable(app, "Configure"), "Configure") },
       "-",
       { label: "Delete", cmd: "FusionDeleteCommand", act: "delete", hint: "Del", icon: "m-delete", disabled: busy, action: () => deleteFeatures(app, ids) },
       { label: "Rename", cmd: "FusionRenameTimelineEntryCommand", act: "rename", disabled: multi, action: () => startRename(id) },
@@ -735,6 +738,7 @@ export function init(app) {
   });
   app.on("history", () => scheduleRender());
   app.on("mode", () => scheduleRender());
+  app.on("feature-types", () => { syncFeatureIcons(app); scheduleRender(); });
   app.on("selection", () => updateStates());
   app.on("hover", () => updateStates());
   app.on("command-start", (d) => { if (play) stopPlay(true); if (d && d.id && !String(d.id).startsWith("edit:")) editingId = null; });

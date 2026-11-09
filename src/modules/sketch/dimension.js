@@ -1,6 +1,6 @@
 // Sketch Dimension tool (D), in-place dimension editing, dragging dimension text,
 // and selection/hover wiring of dimension labels and constraint glyphs.
-import { ST, vp, activeData, mutateSketch, params, cursorOnPlane, projector, mmPerPx, refKey, onLocal, evalExpr, fmtLen, fmtAng } from "./ctx.js";
+import { ST, vp, activeData, mutateSketch, params, cursorOnPlane, projector, mmPerPx, refKey, onLocal, emitLocal, evalExpr, fmtLen, fmtAng } from "./ctx.js";
 import { Tool, addDim } from "./tools.js";
 import { setDimPreview, dimGeom, dimElement, updateOverlay } from "./render.js";
 import { normalizeExpr } from "./hud.js";
@@ -359,6 +359,8 @@ function wireDim(el, c) {
 function wireGlyph(el, c) {
   const A = ST.app;
   const ref = () => ({ kind: "sketchConstraint", sketch: ST.sketchId, cid: c.id });
+  // double-click a pattern glyph: Edit Pattern (sketch/patterns.js listens)
+  el.addEventListener("dblclick", (ev) => { ev.preventDefault(); ev.stopPropagation(); emitLocal("glyph-dbl", { c }); });
   el.addEventListener("pointerenter", () => { if (!ST.tool) A.selection.setHover(ref()); });
   el.addEventListener("pointerleave", () => { if (A.selection.hover && A.selection.hover.cid === c.id) A.selection.setHover(null); });
   el.addEventListener("pointerdown", (ev) => {

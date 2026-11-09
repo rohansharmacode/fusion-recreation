@@ -26,7 +26,24 @@ export function createToolbox(app, opts = {}) {
   function listable(d) { return d && !d.hidden && !d.alias && d.id !== "ShowToolbox" && !String(d.id).startsWith("_"); }
   /** Commands of the current environment (sketch tools only inside a sketch, like Fusion's toolbar). */
   // (mesh-environment commands are not offered in the Design environment's search, as in Fusion)
-  function inEnv(d) { return app.mode === "sketch" ? true : d.when !== "sketch" && !/^ParaMesh/.test(d.id); }
+  // Outside the Design workspace only that workspace's commands (and app-wide ui/view ones) are offered; in a
+  // contextual environment (Form, Base Feature ...) its own commands (when:<mode>) and the general ones.
+  function inEnv(d) {
+    const ws = app.workspace || "FusionSolidEnvironment";
+    if (d.workspace && d.workspace !== ws) return false;
+    if (ws !== "FusionSolidEnvironment" && !d.workspace && (d.kind === "feature" || d.kind === "tool")) return false;
+    if (app.mode === "sketch") return true;
+    if (app.mode !== "model") return !d.when || d.when === app.mode || (app.inMode ? app.inMode(d.when) : false);
+    return d.when !== "sketch" && (!d.when || d.when === "model") && !/^ParaMesh/.test(d.id);
+  }
+  function envTitle() {
+    const ws = app.workspace || "FusionSolidEnvironment";
+    if (ws !== "FusionSolidEnvironment") { const w = (app.workspaceList ? app.workspaceList() : []).find((x) => x.id === ws); return w ? w.label : "Design"; }
+    if (app.mode === "sketch") return "Sketch";
+    const env = app.environment;
+    if (env && env.label) return String(env.title || env.label).toLowerCase().replace(/w/g, (c) => c.toUpperCase());
+    return "Design";
+  }
 
   // Shortcut icons: the environment's list, without commands that cannot run right now (Fusion hides them).
   function gridIds() {
@@ -156,8 +173,8 @@ export function createToolbox(app, opts = {}) {
   function open(x, y) {
     close();
     const input = el("input", { type: "text", class: "tbx-input", placeholder: "Search", spellcheck: "false", autocomplete: "off", "aria-label": "Search commands" });
-    const title = `${app.mode === "sketch" ? "Sketch" : "Design"} Shortcuts`;
-    const root = el("div", { class: "tbx-root", role: "dialog", "aria-label": title, dataset: { env: app.mode === "sketch" ? "sketch" : "model" } },
+    const title = `${envTitle()} Shortcuts`;
+    const root = el("div", { class: "tbx-root", role: "dialog", "aria-label": title, dataset: { env: shortcuts && shortcuts.env ? shortcuts.env() : app.mode === "sketch" ? "sketch" : "model" } },
       el("div", { class: "tbx-title", text: title }),
       el("div", { class: "tbx-grid" }),
       el("div", { class: "tbx-search" }, input, el("div", { class: "tbx-results", style: { display: "none" } })));

@@ -182,7 +182,7 @@ export function init(app) {
   });
   regIfFree({
     id: "FusionEditFeatureCommand", label: "Edit Feature", kind: "ui",
-    enabled: () => { const f = selFeature(); return !!f && !!app.featureEditors[f.type]; },
+    enabled: () => { const f = selFeature(); return !!f && (app.hasFeatureEditor ? app.hasFeatureEditor(f.type) : !!app.featureEditors[f.type]); },
     run: () => { const f = selFeature(); if (f) app.editFeature(f.id); },
   });
   const selFeatures = () => app.selection.items.filter((r) => r.kind === "feature" || r.kind === "cplane").map((r) => app.feature(r.id)).filter(Boolean);

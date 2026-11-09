@@ -1,8 +1,16 @@
 // Toolbar: workspace switcher, tab row (persistent + contextual tabs), panels with 32 px command
 // buttons and a panel label that opens the panel dropdown. Layout comes from spec.js (derived from
 // Fusion's TabToolbars.xml). Every button runs app.commands.run(id).
-import { TABS, CONTEXTUAL_TABS, PANELS, COMMANDS } from "./spec.js";
+//  - Contextual environments (app.enterEnvironment / the sketch): their tab(s) are appended (or replace the
+//    persistent tabs when the environment's baseTabs is []) and selected; the FINISH <NAME> panel shows the
+//    green check button, and is also offered on the persistent tabs the environment keeps.
+//  - Workspaces (app.setWorkspace): the switcher lists app.workspaceList(); a non-Design workspace shows its own
+//    tabs (registered def.tabs or the generated WORKSPACE_SPECS) and panels.
+import { TABS, CONTEXTUAL_TABS, PANELS, COMMANDS, MODE_TOOLBARS } from "./spec.js";
+import { WORKSPACE_SPECS, WORKSPACE_PANELS } from "./workspaces-spec.js";
 import { el, cmdIcon, glyph, cmdInfo, frameThrottle, store } from "./common.js";
+
+const DESIGN = "FusionSolidEnvironment";
 
 export const WORKSPACES = [
   { id: "FusionSolidEnvironment", label: "Design", desc: "Create and edit parametric solid, surface, mesh and sheet metal designs." },
@@ -47,28 +55,94 @@ export function buildToolbar(app, svc) {
   host.append(root);
 
   // ---------------------------------------------------------------- workspace switcher
-  tooltip.attach(ws, () => ({ title: "Change Workspace", desc: "Switches to another workspace. Only Design is available in this recreation.", more: false }), { placement: "below", size: "small" });
+  tooltip.attach(ws, () => ({ title: "Change Workspace", desc: "Switches to another workspace.", more: false }), { placement: "below", size: "small" });
+  const wsList = () => (typeof app.workspaceList === "function" ? app.workspaceList() : WORKSPACES.map((w) => ({ ...w, registered: w.id === DESIGN })));
+  const switchTo = (id, ctx) => {
+    if (typeof app.setWorkspace !== "function") { app.toast("Other workspaces aren't available in this unofficial recreation", "info"); return; }
+    try { app.setWorkspace(id, ctx); } catch (e) { app.toast(e.message || String(e), "error"); }
+  };
   ws.addEventListener("click", () => {
     if (menu.isOpenFor(ws)) { menu.closeAll(); return; }
     ws.classList.add("tb-open");
-    const items = WORKSPACES.map((w) => ({
-      key: w.id,
-      label: w.label,
-      checked: w.id === "FusionSolidEnvironment",
-      check: true,
-      checkStyle: "tick",
-      items: w.items ? w.items.map((s) => ({ label: s, onClick: () => notAvailable(`${w.label} (${s})`) })) : undefined,
-      tooltip: () => ({ title: `${w.label} Workspace`, desc: w.desc, more: false }),
-      onClick: w.id === "FusionSolidEnvironment" ? () => {} : () => notAvailable(w.label),
-    }));
+    const cur = app.workspace || DESIGN;
+    const items = wsList().map((w) => {
+      const meta = WORKSPACES.find((x) => x.id === w.id) || {};
+      const sub = meta.items;
+      return {
+        key: w.id,
+        label: w.label,
+        checked: w.id === cur,
+        check: true,
+        checkStyle: "tick",
+        items: sub ? sub.map((label) => ({ label, onClick: () => switchTo(w.id, { from: label }) })) : undefined,
+        tooltip: () => ({ title: `${w.label} Workspace`, desc: meta.desc || (w.def && w.def.desc) || "", note: w.registered ? "" : "Placeholder in this recreation: its toolbar is shown, the tools are not built yet.", more: false }),
+        onClick: () => switchTo(w.id),
+      };
+    });
     menu.open(items, ws, { owner: ws, minWidth: Math.max(160, ws.offsetWidth), className: "tb-ws-menu", onClose: () => ws.classList.remove("tb-open") });
   });
-  const notAvailable = (what) => app.toast(`The ${what} workspace isn't available in this unofficial recreation`, "info");
+  function syncWorkspaceLabel() {
+    const cur = app.workspace || DESIGN;
+    const w = wsList().find((x) => x.id === cur);
+    ws.setAttribute("data-ws", cur);
+    ws.querySelector(".tb-ws-label").textContent = String((w && w.label) || "Design").toUpperCase();
+  }
 
   // ---------------------------------------------------------------- tabs
-  const isCtx = (id) => CONTEXTUAL_TABS.some((c) => c.id === id);
-  const activeCtx = () => CONTEXTUAL_TABS.filter((c) => c.mode === app.mode);
-  const tabList = () => [...TABS.map((t) => ({ ...t, ctx: false })), ...activeCtx().map((c) => ({ ...c, ctx: true }))];
+  // ---- layout sources: Design (spec.js) or the active workspace; contextual environment tabs on top
+  const wsLayout = () => {
+    const cur = app.workspace || DESIGN;
+    if (cur === DESIGN) return null;
+    const def = app.workspaceDef ? app.workspaceDef(cur) : null;
+    const gen = WORKSPACE_SPECS.find((w) => w.id === cur) || null;
+    return {
+      id: cur,
+      tabs: (def && Array.isArray(def.tabs) && def.tabs.length ? def.tabs : gen ? gen.tabs : []).map((t) => ({ ...t, label: String(t.label || t.id).toUpperCase() })),
+      ctxTabs: (def && def.contextualTabs) || (gen ? gen.contextualTabs : []),
+      panels: { ...(gen ? WORKSPACE_PANELS[gen.id] || {} : {}), ...((def && def.panels) || {}) },
+      registered: !!def,
+    };
+  };
+  const envOf = () => { try { return app.environment || null; } catch { return null; } };
+  /** Panel definition: environment-supplied, workspace, or the Design spec. */
+  function PANEL(pid) {
+    const env = envOf();
+    if (env && env.panels && env.panels[pid]) return env.panels[pid];
+    const w = wsLayout();
+    if (w && w.panels[pid]) return w.panels[pid];
+    return PANELS[pid] || null;
+  }
+  /** Contextual tabs of the active environment: env.tab (spec id(s) or {id,label,panels}), else spec tabs of its env/mode. */
+  function activeCtx() {
+    const env = envOf();
+    if (!env) return [];
+    const w = wsLayout();
+    const lookup = (t) => (typeof t === "string" ? CONTEXTUAL_TABS.find((c) => c.id === t) || (w && w.ctxTabs.find((c) => c.id === t)) || null : t);
+    let tabs;
+    if (env.tab) tabs = (Array.isArray(env.tab) ? env.tab : [env.tab]).map(lookup).filter(Boolean);
+    else tabs = CONTEXTUAL_TABS.filter((c) => (c.env && c.env === env.id) || c.mode === env.mode);
+    return tabs.map((t, i) => {
+      const finish = env.finishCommand || t.finish;
+      let finishPanel = t.finishPanel;
+      if (!finishPanel && finish) finishPanel = (t.panels || []).find((pid) => { const P = PANEL(pid); return P && P.finish; });
+      return { ...t, label: String((i === 0 && env.tabLabel) || t.label || env.label || t.id).toUpperCase(), finish, finishPanel, ctx: true };
+    });
+  }
+  /** Persistent tabs the active environment keeps (null = all; [] = none, Fusion's AvailableBaseTabs="{none}"). */
+  function baseTabsFilter() {
+    const env = envOf();
+    if (!env) return null;
+    if (env.baseTabs !== undefined) return env.baseTabs;
+    const c = activeCtx()[0];
+    return c && c.baseTabs !== undefined ? c.baseTabs : null;
+  }
+  const persistentTabs = () => { const w = wsLayout(); return w ? w.tabs : TABS; };
+  const isCtx = (id) => activeCtx().some((c) => c.id === id) || CONTEXTUAL_TABS.some((c) => c.id === id);
+  const tabList = () => {
+    const base = baseTabsFilter();
+    const keep = persistentTabs().filter((t) => !base || base.includes(t.id));
+    return [...keep.map((t) => ({ ...t, ctx: false })), ...activeCtx()];
+  };
   const tabDef = (id) => tabList().find((t) => t.id === id);
 
   function renderTabs() {
@@ -105,7 +179,7 @@ export function buildToolbar(app, svc) {
     return out;
   }
   function controlsFor(pid) {
-    const P = PANELS[pid];
+    const P = PANEL(pid);
     const c = state.custom[pid];
     let ids = P.controls.slice();
     if (c) {
@@ -117,7 +191,7 @@ export function buildToolbar(app, svc) {
   }
   function saveCustom() { store.set(PIN_KEY, state.custom); }
   function setPinned(pid, id, pinned) {
-    const P = PANELS[pid];
+    const P = PANEL(pid);
     const c = state.custom[pid] || (state.custom[pid] = { add: [], remove: [] });
     if (pinned) {
       c.remove = c.remove.filter((x) => x !== id);
@@ -163,8 +237,9 @@ export function buildToolbar(app, svc) {
   function buttonEl(id, pid) {
     const i = cmdInfo(app, id);
     const b = el("button", "tb-btn", { type: "button", "data-cmd": id, "aria-label": i.label });
-    // Finish Sketch is Fusion's big green disc with a white tick (drawn by the shell, see common.js)
-    b.innerHTML = id === "SketchStop" ? glyph("sh-finish") : cmdIcon(id, 32);
+    // Finish Sketch / Form / Base Feature ...: Fusion's big green disc with a white tick (drawn by the shell, see common.js)
+    const PP = PANEL(pid);
+    b.innerHTML = id === "SketchStop" || (PP && PP.finish === id) ? glyph("sh-finish") : cmdIcon(id, 32);
     b.addEventListener("click", (ev) => {
       ev.preventDefault();
       tooltip.hide();
@@ -244,7 +319,7 @@ export function buildToolbar(app, svc) {
   }
 
   function openDropdown(pid, labelEl, panelEl) {
-    const P = PANELS[pid];
+    const P = PANEL(pid);
     tooltip.hide();
     state.openPanel = pid;
     labelEl.classList.add("tb-open");
@@ -264,12 +339,14 @@ export function buildToolbar(app, svc) {
   }
 
   function panelEl(pid) {
-    const P = PANELS[pid];
+    const P = PANEL(pid);
     const wrap = el("div", `tb-panel${P.finish ? " tb-panel-finish" : ""}`, { "data-panel-id": pid });
     const btns = el("div", "tb-btns");
     for (const id of controlsFor(pid)) btns.append(buttonEl(id, pid));
+    const env = envOf();
+    const caption = P.finish && env && env.finishLabel && P.finish === env.finishCommand ? String(env.finishLabel).toUpperCase() : P.label;
     const label = el("button", "tb-plabel", { type: "button", "data-panel": pid, "aria-haspopup": "menu" },
-      el("span", "tb-plabel-text", { text: P.label }), el("span", "tb-caret", { html: glyph("sh-caret") }));
+      el("span", "tb-plabel-text", { text: caption }), el("span", "tb-caret", { html: glyph("sh-caret") }));
     label.addEventListener("click", () => {
       if (menu.isOpenFor(label)) { menu.closeAll(); return; }
       openDropdown(pid, label, wrap);
@@ -294,17 +371,18 @@ export function buildToolbar(app, svc) {
     if (ev.defaultPrevented) return; // a button or caption already showed its own menu
     ev.preventDefault();
     const p = ev.target.closest && ev.target.closest(".tb-panel[data-panel-id]");
-    const pid = p && PANELS[p.getAttribute("data-panel-id")] ? p.getAttribute("data-panel-id") : null;
+    const pid = p && PANEL(p.getAttribute("data-panel-id")) ? p.getAttribute("data-panel-id") : null;
     const items = [{ key: "reset-all", label: "Reset Entire Toolbar", disabled: !Object.keys(state.custom).length, onClick: resetAll }];
     if (pid) items.unshift({ key: "reset-group", label: "Reset Toolbar Group", disabled: !isCustomized(pid), onClick: () => resetGroup(pid) });
     menu.open(items, { x: ev.clientX, y: ev.clientY }, { className: "tb-ctx-menu" });
   });
 
   function panelsForTab() {
-    const t = tabDef(state.tab) || tabDef("SolidTab");
-    const list = t.panels.slice();
+    const t = tabDef(state.tab) || tabList()[0];
+    if (!t) return [];
+    const list = (t.panels || []).slice();
     if (!t.ctx) for (const c of activeCtx()) if (c.finishPanel && !list.includes(c.finishPanel)) list.push(c.finishPanel);
-    return list.filter((p) => PANELS[p]);
+    return list.filter((p) => PANEL(p));
   }
 
   // Panels collapsed into the overflow ("MORE") panel when the window is too narrow, in this order.
@@ -321,12 +399,12 @@ export function buildToolbar(app, svc) {
       if (menu.isOpenFor(label)) { menu.closeAll(); return; }
       tooltip.hide();
       label.classList.add("tb-open");
-      const items = hidden.map((pid) => ({ key: pid, label: PANELS[pid].label, icon: cmdIcon(controlsFor(pid)[0], 16), items: menuItems(PANELS[pid].dropdown, pid) }));
+      const items = hidden.map((pid) => ({ key: pid, label: PANEL(pid).label, icon: cmdIcon(controlsFor(pid)[0], 16), items: menuItems(PANEL(pid).dropdown, pid) }));
       menu.open(items, label.getBoundingClientRect(), { owner: label, className: "tb-dropdown", gap: 0, onClose: () => label.classList.remove("tb-open") });
     };
     btn.addEventListener("click", open);
     label.addEventListener("click", open);
-    tooltip.attach(btn, () => ({ title: "More tools", desc: `Panels that don't fit: ${hidden.map((p) => PANELS[p].label).join(", ")}.`, more: false }), { placement: "below", size: "small" });
+    tooltip.attach(btn, () => ({ title: "More tools", desc: `Panels that don't fit: ${hidden.map((p) => PANEL(p).label).join(", ")}.`, more: false }), { placement: "below", size: "small" });
     wrap.append(el("div", "tb-btns", null, btn), label);
     return wrap;
   }
@@ -335,12 +413,12 @@ export function buildToolbar(app, svc) {
     panelsRow.innerHTML = "";
     const list = panelsForTab().filter((p) => !state.hidden.has(p));
     const hidden = panelsForTab().filter((p) => state.hidden.has(p));
-    const seq = list.filter((p) => !PANELS[p].finish);
+    const seq = list.filter((p) => !PANEL(p).finish);
     if (hidden.length) seq.push("__more");
-    seq.push(...list.filter((p) => PANELS[p].finish));
+    seq.push(...list.filter((p) => PANEL(p).finish));
     // dividers between panels; Fusion draws none in front of the contextual FINISH panel
     seq.forEach((pid, i) => {
-      if (i > 0 && !(pid !== "__more" && PANELS[pid].finish)) panelsRow.append(el("div", "tb-div"));
+      if (i > 0 && !(pid !== "__more" && PANEL(pid).finish)) panelsRow.append(el("div", "tb-div"));
       panelsRow.append(pid === "__more" ? overflowPanelEl(hidden) : panelEl(pid));
     });
   }
@@ -352,7 +430,11 @@ export function buildToolbar(app, svc) {
   }
 
   function render() {
-    if (!tabDef(state.tab)) state.tab = state.lastBase && tabDef(state.lastBase) ? state.lastBase : "SolidTab";
+    if (!tabDef(state.tab)) {
+      const first = tabList()[0];
+      state.tab = state.lastBase && tabDef(state.lastBase) ? state.lastBase : tabDef("SolidTab") ? "SolidTab" : first ? first.id : "SolidTab";
+    }
+    syncWorkspaceLabel();
     renderTabs();
     renderPanels();
   }
@@ -381,7 +463,7 @@ export function buildToolbar(app, svc) {
     if (overflowing()) {
       const all = panelsForTab();
       const candidates = [...HIDE_ORDER.filter((p) => all.includes(p)), ...all.slice(1).reverse().filter((p) => !HIDE_ORDER.includes(p))]
-        .filter((p) => !PANELS[p].finish);
+        .filter((p) => !PANEL(p).finish);
       for (const p of candidates) {
         if (!overflowing()) break;
         state.hidden.add(p);
@@ -431,16 +513,56 @@ export function buildToolbar(app, svc) {
   for (const ev of ["commands", "selection", "doc", "history", "dialog", "input", "command-start"]) app.on(ev, scheduleRefresh);
   app.on("model", (d) => { if (!d || !d.preview) scheduleRefresh(); });
 
-  app.on("mode", ({ mode }) => {
-    const ctx = CONTEXTUAL_TABS.find((c) => c.mode === mode);
-    if (ctx) {
-      if (!isCtx(state.tab)) state.lastBase = state.tab;
-      state.tab = ctx.id;
-    } else if (isCtx(state.tab)) {
-      state.tab = state.lastBase || "SolidTab";
+  // entering an environment selects its (first) contextual tab; leaving it returns to the tab used before
+  const onEnvChange = () => {
+    const ctxTabs = activeCtx();
+    if (ctxTabs.length) {
+      if (!ctxTabs.some((c) => c.id === state.tab)) {
+        if (!isCtx(state.tab)) state.lastBase = state.tab;
+        state.tab = ctxTabs[0].id;
+      }
+    } else if (isCtx(state.tab) || !tabDef(state.tab)) {
+      state.tab = state.lastBase && tabDef(state.lastBase) ? state.lastBase : (tabList()[0] || { id: "SolidTab" }).id;
     }
     render();
+    renderModeBar();
+  };
+  app.on("mode", onEnvChange);
+  app.on("environment", onEnvChange);
+  app.on("workspace", ({ id, prev, refresh } = {}) => {
+    menu.closeAll();
+    if (!refresh || id !== prev) {
+      const first = tabList()[0];
+      state.tab = first ? first.id : "SolidTab";
+      state.lastBase = state.tab;
+    }
+    render();
+    renderModeBar();
   });
+  app.on("workspaces", () => syncWorkspaceLabel());
+
+  // ---------------------------------------------------------------- mode toolbar (Configure / Edit In Place ...)
+  // An environment with modeToolbar ({commands} or a MODE_TOOLBARS id) shows Fusion's small floating bar at the
+  // top of the canvas: the edited object's name (env.modeLabel) and the buttons (the last one ends the mode).
+  let modeBar = null;
+  function renderModeBar() {
+    if (modeBar) { modeBar.remove(); modeBar = null; }
+    const env = envOf();
+    const spec = env && env.modeToolbar ? (typeof env.modeToolbar === "string" ? MODE_TOOLBARS[env.modeToolbar] || null : env.modeToolbar) : null;
+    const hostEl = app.dom.workspace || app.dom.canvasHost;
+    if (!spec || !hostEl) return;
+    modeBar = el("div", "tb-modebar", { "data-modebar": env.id });
+    let name = "";
+    try { name = typeof env.modeLabel === "function" ? env.modeLabel(app) : env.modeLabel || env.label || ""; } catch { name = ""; }
+    if (name) modeBar.append(el("span", "tb-modebar-label", { text: name }));
+    for (const id of spec.commands || []) {
+      const i = cmdInfo(app, id);
+      const b = el("button", "tb-modebar-btn", { type: "button", "data-cmd": id, text: i.label });
+      b.addEventListener("click", () => app.commands.run(id, { source: "modebar" }));
+      modeBar.append(b);
+    }
+    hostEl.append(modeBar);
+  }
 
   let lastWidth = -1;
   const refit = frameThrottle(() => {
@@ -452,7 +574,7 @@ export function buildToolbar(app, svc) {
   if (typeof ResizeObserver === "function") new ResizeObserver(refit).observe(host);
   window.addEventListener("resize", refit);
 
-  if (app.mode === "sketch") { const c = CONTEXTUAL_TABS.find((x) => x.mode === "sketch"); if (c) state.tab = c.id; }
+  if (activeCtx().length) state.tab = activeCtx()[0].id;
   render();
 
   function setVisible(v) {
@@ -485,7 +607,11 @@ export function buildToolbar(app, svc) {
     setVisible,
     resetCustomization: resetAll,
     selectionFilters: { ...state.filters },
-    spec: { TABS, CONTEXTUAL_TABS, PANELS, COMMANDS, WORKSPACES },
+    spec: { TABS, CONTEXTUAL_TABS, PANELS, COMMANDS, WORKSPACES, WORKSPACE_SPECS, WORKSPACE_PANELS, MODE_TOOLBARS },
+    /** Panel definition as the toolbar resolves it (environment / workspace / Design spec). */
+    panel: (pid) => PANEL(pid),
+    /** Tabs currently in the tab row ([{id, label, ctx}]). */
+    tabInfo: () => tabList().map((t) => ({ id: t.id, label: t.label, ctx: !!t.ctx })),
     info: (id) => cmdInfo(app, id),
   };
 }

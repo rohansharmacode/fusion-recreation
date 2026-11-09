@@ -32,7 +32,8 @@ or deploy to `gh-pages` until the full QA suite passes, and ask the user before 
 - foundation part 1 (feature registry, body kinds, contextual environments, workspaces): DONE, not yet reviewed.
   Its report (`build:foundation-1` in `docs/wave1-reports.json`) is the contract summary to pass to wave 2a as `args.f1`;
   details are in ARCHITECTURE.md. Run its Haiku review in the integration step.
-- sketch (remaining sketch tools), manage (utilities, scripts API, select tools, design advice, navigator): PARTIAL, interrupted.
+- manage (utilities, scripts API, select tools, design advice, navigator): DONE, not yet reviewed (report `build:manage`).
+- sketch (remaining sketch tools): PARTIAL, interrupted.
 - foundation part 2 (components): PARTIAL, interrupted shortly after it started.
 - Cloud prep: `tests/e2e/harness.mjs` falls back to Chromium off Windows (or with `QA_BROWSER=chromium`), and
   `docs/fusion-evidence.json` holds command names, short dialog labels and toolbar layouts extracted from the
@@ -47,8 +48,8 @@ or deploy to `gh-pages` until the full QA suite passes, and ask the user before 
    Fusion-install and screenshot evidence lines in its `ctx` text with: "Evidence: docs/fusion-evidence.json (names,
    labels, layouts) and src/modules/shell/spec.js". Keep the token-economy and em dash rules in the prompts.
    - `wave1.js`: drop the inspect and annotate builders and foundation part 1 (done). Run foundation part 2
-     (components, resume from partial edits; pass it the part 1 report), sketch (resume), manage (resume), a Haiku review
-     per area (also one for foundation part 1), then the integration verify, which must also check the configure, inspect
+     (components, resume from partial edits; pass it the part 1 report), sketch (resume), a Haiku review
+     per area (also for foundation part 1 and manage), then the integration verify, which must also check the configure, inspect
      and annotate review findings in `docs/wave1-reports.json`.
    - `wave2a.js`: surface, mesh, sheetmetal, plastic, createx, solidx, form. It needs only foundation part 1, so it can
      run in parallel with the rest of wave 1: pass the part 1 report as `args.f1` and `args.base` = the handover commit.

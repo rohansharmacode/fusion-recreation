@@ -152,8 +152,9 @@ function straightLength(datum, H, A, R, T) {
 function combine(shape, cuts, adds) {
   let s = shape;
   if (cuts.length) {
-    const tool = cuts.length === 1 ? cuts[0] : K.R.makeCompound(cuts);
-    try { s = K.cut(s, tool); } finally { del(tool); if (cuts.length > 1) del(cuts); }
+    // tools may touch or overlap each other: a boolean argument must not, so fuse them first
+    const tool = G.fuseList(cuts);
+    try { s = K.cut(s, tool); } finally { del(tool); }
   }
   if (adds.length) {
     const all = G.fuseList(adds);
@@ -240,7 +241,7 @@ function applyEdgeChain(st, f, P, doc, kind) {
       const s0 = it.s0 - it.ext0, s1 = it.s1 + it.ext1;
       let segsI = segs;
       if (f.extent === "object" && kind !== "hem") segsI = [{ ...segs[0], L: toObjectLength(st, f, P, d, e, s0, s1, us, it.sgn, segs[0]) }];
-      if (us < -1e-9) cuts.push(G.flatPrism(mp, G.rect(e.a, e.d, e.q, Math.max(0, s0), Math.min(e.len, s1), us - 1e-4, 1e-3), d.w0 - 1e-3, d.w0 + T + 1e-3));
+      if (us < -1e-9) cuts.push(G.flatPrism(mp, G.rect(e.a, e.d, e.q, Math.max(0, s0), Math.min(e.len, s1), us, 1e-3), d.w0 - 1e-3, d.w0 + T + 1e-3));
       const partial = it.s0 > 1e-6 || it.s1 < e.len - 1e-6;
       if (partial) {
         const relief = f.reliefOverride ? { shape: f.reliefShape || d.relief.shape, width: num(P, f, "reliefWidth", d.relief.width), depth: num(P, f, "reliefDepth", d.relief.depth) } : d.relief;
@@ -470,10 +471,14 @@ function insertFlatBends(shape, d, fid, line, specs, feature) {
   if (!f0.seeds.length) f0.seeds = [0.25, 0.5, 0.75].map((t) => V2.add(V2.add(line.o, V2.mul(line.d, lo + (hi - lo) * t)), V2.mul(line.q, -Math.min(0.5, d.T * 0.2))));
   f0.src = fid;
   f0.clip = [{ n: line.q, c: V2.dot(line.q, line.o) }];
-  // existing child bends of the split flange go with the side they are on
+  // existing child bends of the split flange go with the side they are on (a bend line may not cross them)
+  const lo0 = V2.dot(line.q, line.o) - 1e-6, hi0 = V2.dot(line.q, line.o) + off + 1e-6;
   for (const b of Object.values(d.bends)) {
     if (b.parent !== fid || ids.includes(b.id)) continue;
-    if (V2.dot(V2.sub(V2.add(b.o, V2.mul(b.d, (b.s0 + b.s1) / 2)), line.o), line.q) > 0) b.parent = parent;
+    const ends = [b.s0, b.s1].map((s) => V2.dot(line.q, V2.add(b.o, V2.mul(b.d, s))));
+    const before = ends.every((u) => u <= lo0), after = ends.every((u) => u >= hi0);
+    if (!before && !after) throw new Error("The bend line crosses an existing bend or flange of this face");
+    if (after) b.parent = parent;
   }
   return ids;
 }
@@ -506,11 +511,19 @@ function foldFeature(st, f, P, doc, jog) {
   const A = rad(Math.max(1e-3, Math.min(180, num(P, f, "angle", 90))));
   const dl = V2.norm(V2.sub([hit.qb[0], hit.qb[1]], [hit.qa[0], hit.qa[1]]));
   let q = [dl[1], -dl[0]];
-  // q points away from the stationary side
+  // q points away from the side that stays attached: the split flange's own parent bend, else the
+  // stationary face (the stationary flange itself is kept in place by keepStationary afterwards)
   const sid = sref ? flangeAt(b.shape, d, sref.p) : null;
-  if (sref) {
+  const parentBend = d.flanges[hit.fid].bend && d.bends[d.flanges[hit.fid].bend];
+  const side = (p2) => V2.dot(V2.sub(p2, [hit.qa[0], hit.qa[1]]), q);
+  if (parentBend) {
+    const pbn = parentBend;
+    const BAp = G.bendBA(pbn, d.T);
+    const end = V2.add(pbn.o, V2.add(V2.mul(pbn.q, BAp), V2.mul(pbn.d, (pbn.s0 + pbn.s1) / 2)));
+    if (side(end) > 0) q = V2.mul(q, -1);
+  } else if (sref) {
     const sp = apply(inv(G.flangeM(d, hit.fid)), sref.p);
-    if (V2.dot(V2.sub([sp[0], sp[1]], [hit.qa[0], hit.qa[1]]), q) > 0) q = V2.mul(q, -1);
+    if (side([sp[0], sp[1]]) > 0) q = V2.mul(q, -1);
   }
   const sgnBase = (hit.top ? 1 : -1) * (f.flip ? -1 : 1);
   const BA = A * (R + nd.K * nd.T);
@@ -660,6 +673,7 @@ function cornerClosure(st, f, P, doc) {
   if (flanges.length < 2) throw new Error("Select edges on two different flanges");
   const b1 = nd.bends[d.flanges[flanges[0]].bend], b2 = nd.bends[d.flanges[flanges[1]].bend];
   if (b1.parent !== b2.parent) throw new Error("The flanges must be bent from the same face");
+  if (b1.sgn !== b2.sgn) throw new Error("The flanges must be bent to the same side");
   const T = d.T;
   const gap = f.gap !== undefined && f.gap !== "" ? Math.max(0, M.fval(P, f, "gap")) : nd.miterGap ?? T;
   const mp = G.flangeM(nd, b1.parent);
@@ -679,7 +693,6 @@ function cornerClosure(st, f, P, doc) {
     const L = flangeLen(nd, fl);
     return (bb.R + T) * (bb.A <= PI / 2 ? Math.sin(bb.A) : 1) + (bb.A < PI / 2 ? L * Math.cos(bb.A) : 0);
   };
-  const adds = [];
   const ext = (bb, end, amount) => {
     const L = flangeLen(nd, bb.child);
     const s0 = end === 0 ? bb.s0 - amount : bb.s1, s1 = end === 0 ? bb.s0 : bb.s1 + amount;
@@ -692,17 +705,17 @@ function cornerClosure(st, f, P, doc) {
   const dist1 = Math.abs(V2.dot(V2.sub(c, V2.add(b1.o, V2.mul(b1.d, best.e1 === 0 ? b1.s0 : b1.s1))), b1.d));
   const dist2 = Math.abs(V2.dot(V2.sub(c, V2.add(b2.o, V2.mul(b2.d, best.e2 === 0 ? b2.s0 : b2.s1))), b2.d));
   const overlap = f.alignment === "overlap";
-  const p1 = ext(b1, best.e1, dist1 + reach(b2, b2.child) + (overlap ? 0 : 0));
-  const p2 = ext(b2, best.e2, dist2 + reach(b1, b1.child));
-  // trim with the miter (symmetric) or let flange 1 overlap flange 2
+  const flipO = !!f.flipOverlap;
+  const amount = Math.max(0, Math.min(1, f.overlap === undefined || f.overlap === "" ? 1 : M.fval(P, f, "overlap")));
+  // Overlap Gap: flange A runs on over B (Overlap = the share of B's thickness it covers); B stops `gap` short of A
+  const A = flipO ? b2 : b1, B = flipO ? b1 : b2;
+  const extA = overlap ? (A === b1 ? dist1 : dist2) + B.R + amount * T : null;
+  const p1 = ext(b1, best.e1, overlap && A === b1 ? extA : dist1 + reach(b2, b2.child));
+  const p2 = ext(b2, best.e2, overlap && A === b2 ? extA : dist2 + reach(b1, b1.child));
   let k1, k2;
   if (overlap) {
-    const flipO = !!f.flipOverlap;
-    const [A, B] = flipO ? [b2, b1] : [b1, b2];
-    // B stops `gap` short of A's inner face (A's wall sits at R..R+T past A's bend line)
-    const lim = V2.dot(A.q, A.o) + A.R - gap;
-    const keepB = [{ n: A.q, c: lim }];
-    if (flipO) { k1 = keepB; k2 = null; } else { k1 = null; k2 = keepB; }
+    const keepB = [{ n: A.q, c: V2.dot(A.q, A.o) + A.R - gap }];
+    if (B === b1) { k1 = keepB; k2 = null; } else { k1 = null; k2 = keepB; }
   } else {
     const m = V2.norm(V2.sub(b2.q, b1.q));
     k1 = [{ n: m, c: V2.dot(m, c) - gap / 2 }];
@@ -713,11 +726,69 @@ function cornerClosure(st, f, P, doc) {
     const box = G.flatPrism(mp, G.clipPoly(keep), nd.w0 - 2000, nd.w0 + 2000);
     try { return list.map((s) => { const x = K.intersect(s, box); del(s); return x; }); } finally { del(box); }
   };
-  adds.push(...clipList(p1, k1), ...clipList(p2, k2));
-  const shape = combine(b.shape, [], adds);
+  const adds = [...clipList(p1, k1), ...clipList(p2, k2)];
+  // 2-bend corner relief (rule, or the dialog's override): cut through the base and the bends at the corner
+  const relief = f.reliefOverride
+    ? { shape: f.relief || nd.corner2.shape, size: f.reliefSize !== undefined && f.reliefSize !== "" ? M.fval(P, f, "reliefSize") : nd.corner2.size, placement: f.reliefPlacement || nd.corner2.placement }
+    : { ...nd.corner2 };
+  const poly = cornerReliefPoly(relief, c, b1, b2, T);
+  let shape = combine(b.shape, [], adds);
+  if (poly) {
+    const Rm = Math.max(b1.R, b2.R);
+    const lo = b1.sgn > 0 ? nd.w0 - 1e-3 : nd.w0 - Rm - T - 1e-3;
+    const hi = b1.sgn > 0 ? nd.w0 + T + Rm + 1e-3 : nd.w0 + T + 1e-3;
+    const s2 = combine(shape, [G.flatPrism(mp, poly, lo, hi)], []);
+    del(shape);
+    shape = s2;
+  }
   G.refreshSeeds(shape, nd);
   putBody(st, bodyId, shape, nd, f, b);
   return { affected: [bodyId] };
+}
+/**
+ * 2D relief outline (parent flat coords) at corner c of bends b1, b2: Round / Square of the relief size placed by
+ * Placement (Intersection = where the bend lines meet, Vertex = the outer mould-line corner, Tangent = touching both
+ * bend lines), Trim to Bend (the overlap of the bend zones), Linear Weld (V notch), Arc Weld (zone notch with a round
+ * inner end), Laser Weld (round notch at the far corner of the zones); Tear = none.
+ */
+export function cornerReliefPoly(relief, c, b1, b2, T) {
+  const shape = relief.shape || "Trim to Bend";
+  if (shape === "Tear") return null;
+  const s = Math.max(1e-3, Number(relief.size) || T * 2);
+  const h1 = b1.R + T, h2 = b2.R + T;
+  const q1 = b1.q, q2 = b2.q;
+  const circle = (o, r, n = 32) => Array.from({ length: n }, (_, i) => V2.add(o, [r * Math.cos((2 * PI * i) / n), r * Math.sin((2 * PI * i) / n)]));
+  const pl = relief.placement || "Intersection";
+  const place = () => {
+    if (pl === "Vertex") return V2.add(c, V2.add(V2.mul(q1, (b1.R + T) * Math.tan(Math.min(b1.A, PI / 2) / 2)), V2.mul(q2, (b2.R + T) * Math.tan(Math.min(b2.A, PI / 2) / 2))));
+    if (pl === "Tangent") return V2.add(c, V2.mul(V2.add(q1, q2), s / 2));
+    return c;
+  };
+  if (shape === "Round") return circle(place(), s / 2);
+  if (shape === "Square") {
+    const o = place(), a = V2.mul(q1, s / 2), b = V2.mul(q2, s / 2);
+    return [V2.sub(V2.sub(o, a), b), V2.sub(V2.add(o, a), b), V2.add(V2.add(o, a), b), V2.add(V2.sub(o, a), b)];
+  }
+  const far = V2.add(c, V2.add(V2.mul(q1, h1), V2.mul(q2, h2)));
+  if (shape === "Trim to Bend") return [c, V2.add(c, V2.mul(q1, h1)), far, V2.add(c, V2.mul(q2, h2))];
+  const across = V2.norm(V2.sub(q1, q2));
+  if (shape === "Linear Weld") {
+    const w = Math.min(s, Math.min(h1, h2)) / 2;
+    return [V2.sub(c, V2.mul(V2.add(q1, q2), 1e-3)), V2.add(far, V2.mul(across, w)), V2.sub(far, V2.mul(across, w))];
+  }
+  if (shape === "Arc Weld") {
+    const r = Math.min(h1, h2) / 2;
+    const o = V2.add(c, V2.add(V2.mul(q1, r), V2.mul(q2, r)));
+    const a0 = Math.atan2(-q2[1], -q2[0]);
+    let da = Math.atan2(-q1[1], -q1[0]) - a0;
+    while (da > PI) da -= 2 * PI;
+    while (da < -PI) da += 2 * PI;
+    const arc = [];
+    for (let i = 0; i <= 12; i++) { const a = a0 + (da * i) / 12; arc.push(V2.add(o, [r * Math.cos(a), r * Math.sin(a)])); }
+    return [...arc, V2.add(c, V2.mul(q2, h2)), far, V2.add(c, V2.mul(q1, h1))];
+  }
+  // Laser Weld: a round notch at the far corner of the bend zones
+  return circle(far, Math.max(s / 2, Math.min(h1, h2) * 0.6));
 }
 function flangeLen(d, fid) {
   // straight length of an edge flange: from its seeds (they sit at half its length past the bend)
@@ -802,7 +873,7 @@ export const FEATURES = {
   },
   smCorner: {
     label: "Corner Closure", stem: "Corner", icon: "FusionSheetMetalCornerCommand",
-    fields: { gap: "length" },
+    fields: { gap: "length", overlap: "none", reliefSize: "length" },
     apply: cornerClosure,
     deps: BODY_DEPS(["edges"]), touches: touchesOf(["edges"]),
   },

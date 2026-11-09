@@ -115,16 +115,22 @@ export const displayShortcut = (s) => String(s || "").replace(/\bDelete\b/, "Del
 export function cmdInfo(app, id) {
   const d = app.commands.get(id);
   const s = COMMANDS[id] || APP_COMMANDS[id] || WORKSPACE_COMMANDS[id];
-  const label = (s && s[0]) || (d && d.label) || id;
+  let label = (s && s[0]) || (d && d.label) || id;
   const real = d && !d.stub;
-  const desc = (real && d.tooltip) || (s && s[1]) || (d && d.tooltip) || "";
+  let desc = (real && d.tooltip) || (s && s[1]) || (d && d.tooltip) || "";
+  // a real command may change its toolbar face with the model state (Fusion's Unfold -> Refold):
+  // def.face(app) -> {label?, tooltip?, icon? (command id whose icon to draw)}
+  let iconId = id;
+  if (real && typeof d.face === "function") {
+    try { const f = d.face(app); if (f) { if (f.label) label = f.label; if (f.tooltip) desc = f.tooltip; if (f.icon) iconId = f.icon; } } catch { /* keep the static face */ }
+  }
   const shortcut = shortcutText(d && d.shortcut) || displayShortcut((s && s[2]) || (d && d.shortcutHint) || "");
   let enabled = false, checked = false;
   if (d) {
     enabled = app.commands.isEnabled(id);
     try { checked = !!(d.checked && d.checked(app)); } catch { checked = false; }
   }
-  return { id, label, desc, shortcut, registered: !!d, stub: !d || !!d.stub, enabled, checked, def: d };
+  return { id, label, desc, shortcut, registered: !!d, stub: !d || !!d.stub, enabled, checked, def: d, iconId };
 }
 
 export const stubMessage = (label) => `${label} isn't available in this unofficial recreation yet`;

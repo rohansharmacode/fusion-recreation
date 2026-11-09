@@ -7,7 +7,7 @@ import { V, topo, vertexNormal, faceCentroid, tidy } from "./cage.js";
 import { extrudeEdges } from "./ops.js";
 import { fitToTargets } from "./ops.js";
 
-const OPS = [{ value: "new", label: "New Body", icon: "newBody" }, { value: "newComponent", label: "New Component", icon: "newComponent", disabled: true }];
+const OPS = [{ value: "new", label: "New Body", icon: "newBody" }, { value: "newComponent", label: "New Component", icon: "newComponent" }];
 const SYM_MIRROR = [{ value: "none", label: "None" }, { value: "mirror", label: "Mirror" }];
 const SYM_ALL = [...SYM_MIRROR, { value: "circular", label: "Circular" }];
 const DIRS = [{ value: "one", label: "One Side", icon: "oneSide" }, { value: "sym", label: "Symmetric", icon: "symmetric" }];
@@ -147,7 +147,7 @@ export function openPrimitive(app, type, opts = {}) {
       if (total(dlg) > 100000) throw new Error("The total number of faces cannot exceed 100,000");
       const cage = Pm.make(v, dlg, cc.pl, cc.c);
       // circular symmetry needs the primitive's frame: rebuild the spec with the plane axis
-      return { add: [cage] };
+      return { add: [cage], newComponent: v.operation === "newComponent" };
     },
     manipulators(dlg) {
       const cc = centerOf(dlg);
@@ -158,65 +158,117 @@ export function openPrimitive(app, type, opts = {}) {
 
 // ---------------------------------------------------------------- Face (append faces by points)
 export function openFace(app) {
+  // pending faces: {pts: [{p, body?}], body?, fixed} (fixed = oriented against an existing edge)
+  const startEdgeOf = (ctx) => {
+    const h = app.viewport.pick(ctx.x, ctx.y, { filter: (r) => r.kind === "tsEdge" && !!cageOf(app, r.body) });
+    if (!h || h.ref.kind !== "tsEdge") return null;
+    const c = shownCage(app, h.ref.body);
+    const t = topo(c);
+    const e = t.edge(h.ref.a, h.ref.b);
+    if (e < 0 || t.eFaces[e].length !== 1) return { error: "Select a boundary edge" };
+    // the adjacent face traverses a -> b; the new face traverses it backwards
+    const fc = c.f[t.eFaces[e][0]], i = fc.indexOf(h.ref.a);
+    const [a, b] = fc[(i + 1) % fc.length] === h.ref.b ? [h.ref.a, h.ref.b] : [h.ref.b, h.ref.a];
+    return { body: h.ref.body, A: c.v[a].slice(), B: c.v[b].slice() };
+  };
+  const pointAt = (ctx, dlg, through) => {
+    const h = app.viewport.pick(ctx.x, ctx.y, { filter: (r) => r.kind === "tsVertex" && !!cageOf(app, r.body) });
+    if (h && h.ref.kind === "tsVertex") { const c = shownCage(app, h.ref.body); return { p: c.v[h.ref.v].slice(), body: h.ref.body }; }
+    let pl = planeOf(dlg);
+    if (!pl && through) {
+      // no plane chosen: the view plane through the edge
+      const n = app.viewport.camera.getWorldDirection(new app.viewport.camera.position.constructor()).toArray();
+      const x = V.norm(V.cross(n, Math.abs(n[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0]));
+      pl = { o: through, x, n };
+    }
+    pl = pl || { o: [0, 0, 0], x: [1, 0, 0], n: [0, 0, 1] };
+    const rp = app.viewport.rayPlane(ctx.x, ctx.y, pl);
+    return rp ? { p: rp.world } : null;
+  };
   return openFormDialog(app, {
     id: "TSplineAppendFaceCommand", title: "Face", featureLabel: "Face",
-    help: "Creates individual T-Spline faces. Select a plane, then click the corners of each face (click T-Spline vertices to attach the face to that body).",
+    help: "Creates individual T-Spline faces. Simple: click the corners of each face. Edge: select a boundary edge, then click two points. Chain: select a boundary edge, then keep clicking pairs of points to add a strip of faces.",
     rows: [
-      { id: "mode", type: "dropdown", label: "Mode", options: [{ value: "simple", label: "Simple" }, { value: "edge", label: "Edge", disabled: true }, { value: "chain", label: "Chain", disabled: true }], default: "simple" },
-      { id: "sides", type: "dropdown", label: "Number of Sides", options: [{ value: "four", label: "Four Sides" }, { value: "multi", label: "Multiple Sides" }], default: "four" },
+      { id: "mode", type: "dropdown", label: "Mode", options: [{ value: "simple", label: "Simple" }, { value: "edge", label: "Edge" }, { value: "chain", label: "Chain" }], default: "simple" },
+      { id: "sides", type: "dropdown", label: "Number of Sides", options: [{ value: "four", label: "Four Sides" }, { value: "multi", label: "Multiple Sides" }], default: "four", visible: (v) => v.mode === "simple" },
       { ...planeRow, min: 0, label: "Plane" },
       { id: "info", type: "text", text: (dlg) => `${(dlg.faces || []).length} face(s)${(dlg.pts || []).length ? `, ${dlg.pts.length} point(s) placed` : ""}` },
     ],
     activate: false,
-    init(dlg) { dlg.faces = []; dlg.pts = []; },
+    init(dlg) { dlg.faces = []; dlg.pts = []; dlg.edge = null; },
+    onChange(id, dlg) { if (id === "mode") { dlg.pts = []; dlg.edge = null; } },
     prompt(dlg) {
       if (dlg.active === "plane") return "Select a plane, planar face or vertex";
       const n = (dlg.pts || []).length;
+      if (dlg.values.mode !== "simple") return dlg.edge ? (n ? "Specify second corner" : "Specify first corner") : "Select Edge";
       return ["Specify first corner", "Specify second corner", "Specify third corner", "Specify fourth corner"][Math.min(3, n)] + (dlg.values.sides === "multi" && n >= 3 ? " or select first point to complete" : "");
     },
     onCanvasDown(ctx, dlg) {
       if (dlg.active === "plane") return false;
-      const h = app.viewport.pick(ctx.x, ctx.y, { filter: (r) => r.kind === "tsVertex" && !!cageOf(app, r.body) });
-      let pt;
-      if (h && h.ref.kind === "tsVertex") {
-        const c = shownCage(app, h.ref.body);
-        pt = { p: c.v[h.ref.v].slice(), body: h.ref.body };
-      } else {
-        const pl = planeOf(dlg) || { o: [0, 0, 0], x: [1, 0, 0], n: [0, 0, 1] };
-        const rp = app.viewport.rayPlane(ctx.x, ctx.y, pl);
-        if (!rp) return true;
-        pt = { p: rp.world };
+      const mode = dlg.values.mode;
+      if (mode !== "simple") {
+        if (!dlg.edge) {
+          const e = startEdgeOf(ctx);
+          if (!e) { dlg.message(mode === "chain" ? "Chain creation failed, select edge to start new chain" : "Select Edge", "warning"); return true; }
+          if (e.error) { dlg.message(e.error, "warning"); return true; }
+          dlg.edge = e;
+          dlg.pts = [];
+          dlg.refresh();
+          return true;
+        }
+        const pt = pointAt(ctx, dlg, V.lerp(dlg.edge.A, dlg.edge.B, 0.5));
+        if (!pt) return true;
+        dlg.pts.push(pt);
+        if (dlg.pts.length === 2) {
+          // the clicked point nearer A continues from A, the other from B
+          const [p, q] = dlg.pts;
+          const [pa, pb] = V.dist(p.p, dlg.edge.A) + V.dist(q.p, dlg.edge.B) <= V.dist(q.p, dlg.edge.A) + V.dist(p.p, dlg.edge.B) ? [p, q] : [q, p];
+          dlg.faces.push({ body: dlg.edge.body, fixed: true, pts: [{ p: dlg.edge.B }, { p: dlg.edge.A }, pa, pb] });
+          dlg.pts = [];
+          // Chain continues from the far edge of the new face (it traverses pa -> pb)
+          dlg.edge = mode === "chain" ? { body: dlg.edge.body, A: pa.p.slice(), B: pb.p.slice() } : null;
+        }
+        dlg.refresh();
+        dlg.previewNow();
+        return true;
       }
+      const pt = pointAt(ctx, dlg, null);
+      if (!pt) return true;
       const pts = dlg.pts;
-      if (dlg.values.sides === "multi" && pts.length >= 3 && V.dist(pts[0].p, pt.p) < app.viewport.pixelSize(pt.p) * 8) { dlg.faces.push(pts.splice(0)); }
-      else { pts.push(pt); if (dlg.values.sides === "four" && pts.length === 4) dlg.faces.push(pts.splice(0)); }
+      if (dlg.values.sides === "multi" && pts.length >= 3 && V.dist(pts[0].p, pt.p) < app.viewport.pixelSize(pt.p) * 8) dlg.faces.push({ pts: pts.splice(0) });
+      else { pts.push(pt); if (dlg.values.sides === "four" && pts.length === 4) dlg.faces.push({ pts: pts.splice(0) }); }
       dlg.refresh();
       dlg.previewNow();
       return true;
     },
     compute(v, dlg) {
       if (!dlg.faces.length) return null;
-      // faces snapped to vertices of one body join that body, the others make a new body
-      const target = dlg.faces.flat().find((q) => q.body);
-      const polys = dlg.faces.map((f) => f.map((q) => q.p));
-      // orient each face towards the camera
       const eye = app.viewport.camera.position.toArray();
-      for (const poly of polys) {
-        const n = V.cross(V.sub(poly[1], poly[0]), V.sub(poly[2], poly[0]));
-        if (V.dot(n, V.sub(eye, poly[0])) < 0) poly.reverse();
-      }
-      if (target && target.body) {
-        const base = cageOf(app, target.body);
-        const c = { ...base, v: base.v.map((p) => p.slice()), f: base.f.map((x) => x.slice()) };
-        const key = (p) => p.map((x) => x.toFixed(4)).join(",");
-        const idx = new Map(c.v.map((p, i) => [key(p), i]));
-        for (const poly of polys) {
-          c.f.push(poly.map((p) => { const k = key(p); if (!idx.has(k)) { idx.set(k, c.v.length); c.v.push(p.slice()); } return idx.get(k); }));
+      const polys = dlg.faces.map((f) => {
+        const poly = f.pts.map((q) => q.p.slice());
+        if (!f.fixed) {
+          // free faces face the camera
+          const n = V.cross(V.sub(poly[1], poly[0]), V.sub(poly[2], poly[0]));
+          if (V.dot(n, V.sub(eye, poly[0])) < 0) poly.reverse();
         }
-        // keep the new faces consistent with the body's orientation
-        return { set: new Map([[target.body, tidy(c)]]) };
+        return { poly, body: f.body || (f.pts.find((q) => q.body) || {}).body || null };
+      });
+      // faces attached to a body (edge / snapped vertex) join it; free faces make one new body
+      const key = (p) => p.map((x) => x.toFixed(4)).join(",");
+      const set = new Map();
+      const free = { v: [], f: [] };
+      const freeIdx = new Map();
+      for (const { poly, body } of polys) {
+        if (body && cageOf(app, body)) {
+          if (!set.has(body)) { const b = cageOf(app, body); set.set(body, { c: { ...b, v: b.v.map((p) => p.slice()), f: b.f.map((x) => x.slice()) }, idx: new Map(b.v.map((p, i) => [key(p), i])) }); }
+          const { c, idx } = set.get(body);
+          c.f.push(poly.map((p) => { const k = key(p); if (!idx.has(k)) { idx.set(k, c.v.length); c.v.push(p); } return idx.get(k); }));
+        } else free.f.push(poly.map((p) => { const k = key(p); if (!freeIdx.has(k)) { freeIdx.set(k, free.v.length); free.v.push(p); } return freeIdx.get(k); }));
       }
-      return { add: [P.faces(polys)] };
+      const out = {};
+      if (set.size) out.set = new Map([...set].map(([id, { c }]) => [id, tidy(c)]));
+      if (free.f.length) out.add = [tidy({ v: free.v, f: free.f, crease: [], cv: [], frozen: [], iso: [], sym: null })];
+      return out;
     },
   });
 }
@@ -268,7 +320,7 @@ export function openExtrude(app, opts = {}) {
         const opt = sym ? { dir, d1: d1 / 2, n1: Math.max(1, Math.ceil(n1 / 2)), d2: d1 / 2, n2: Math.max(1, Math.floor(n1 / 2)) || 1 } : { dir, d1, n1, d2: two ? dlg.num("distance2") : 0, n2: two ? dlg.num("backFaces") : 0 };
         add.push(P.extrudeCage(prof, c.closed, { ...opt, taper: dlg.num("taper") || 0, center: chainCenter(prof) }));
       }
-      return { add };
+      return { add, newComponent: v.operation === "newComponent" };
     },
     manipulators(dlg) {
       const ch = curveChains(app, dlg.values.profile || [], dlg.baseState)[0];
@@ -334,7 +386,7 @@ export function openRevolve(app, opts = {}) {
       if (!ch.length || !axis) return null;
       const angle = v.revType === "full" ? 360 : dlg.num("angle");
       const add = ch.map((c) => P.revolveCage(resampleChain(c.pts, c.closed, dlg.num("profileFaces"), v.spacing), c.closed, { axis, angle, n: dlg.num("faces") }));
-      return { add };
+      return { add, newComponent: v.operation === "newComponent" };
     },
   });
 }
@@ -361,7 +413,7 @@ export function openSweep(app, opts = {}) {
       // start the path at the end nearest the profile
       const cp = V.avg(prof.pts);
       if (!path.closed && V.dist(pp[pp.length - 1], cp) < V.dist(pp[0], cp)) pp.reverse();
-      return { add: [P.sweepCage(resampleChain(prof.pts, prof.closed, dlg.num("profileFaces")), prof.closed, path.closed ? [...pp, pp[0]] : pp, path.closed, { orientation: v.orientation })] };
+      return { add: [P.sweepCage(resampleChain(prof.pts, prof.closed, dlg.num("profileFaces")), prof.closed, path.closed ? [...pp, pp[0]] : pp, path.closed, { orientation: v.orientation })], newComponent: v.operation === "newComponent" };
     },
   });
 }
@@ -384,7 +436,7 @@ export function openLoft(app, opts = {}) {
       const closed = chains[0].closed;
       if (chains.some((c) => c.closed !== closed)) throw new Error("Select profiles that are all closed or all open");
       const n = dlg.num("profileFaces");
-      return { add: [P.loftCage(chains.map((c) => resampleChain(c.pts, c.closed, n)), closed, { n: dlg.num("faces") })] };
+      return { add: [P.loftCage(chains.map((c) => resampleChain(c.pts, c.closed, n)), closed, { n: dlg.num("faces") })], newComponent: v.operation === "newComponent" };
     },
   });
 }
@@ -406,7 +458,7 @@ export function openPipe(app, opts = {}) {
       const path = curveChains(app, v.path || [], dlg.baseState)[0];
       if (!path || !(dlg.num("diameter") > 0)) return null;
       const pp = resampleChain(path.pts, path.closed, dlg.num("faces"));
-      return { add: [P.pipeCage(path.closed ? [...pp, pp[0]] : pp, path.closed, { D: dlg.num("diameter"), seg: dlg.num("segments"), ends: v.ends })] };
+      return { add: [P.pipeCage(path.closed ? [...pp, pp[0]] : pp, path.closed, { D: dlg.num("diameter"), seg: dlg.num("segments"), ends: v.ends })], newComponent: v.operation === "newComponent" };
     },
   });
 }

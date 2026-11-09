@@ -75,7 +75,7 @@ export function previewOf(app, ch) {
 }
 function applyChange(bodies, ch, newId) {
   let out = bodies.filter((c) => !(ch.remove && ch.remove.has(c.id)));
-  if (ch.set) out = out.map((c) => (ch.set.has(c.id) ? { ...clone(ch.set.get(c.id)), id: c.id, converted: ch.set.get(c.id).converted || c.converted || undefined } : c));
+  if (ch.set) out = out.map((c) => (ch.set.has(c.id) ? { ...clone(ch.set.get(c.id)), id: c.id, comp: c.comp, occ: c.occ, converted: ch.set.get(c.id).converted || c.converted || undefined } : c));
   (ch.add || []).forEach((c, i) => out.push({ ...clone(c), id: newId(i) }));
   return out;
 }
@@ -87,6 +87,11 @@ export function commitChange(app, label, ch) {
     const f = doc.features.find((x) => x.id === fid);
     if (!f) throw new Error("The Form feature no longer exists");
     f.bodies = applyChange(f.bodies || [], ch, () => { const id = app.M.nextBody(doc); ids.push(id); return id; });
+    // Operation New Component: the new bodies go into one new component (Component1:1) under the form's component
+    if (ch.newComponent && ids.length && typeof app.M.newComponentMeta === "function") {
+      const meta = app.M.newComponentMeta(doc);
+      for (const c of f.bodies) if (ids.includes(c.id)) { c.comp = meta.comp; c.occ = meta.occ; }
+    }
     if (ch.remove) for (const id of ch.remove) if (doc.bodies[id] && !f.bodies.some((c) => c.id === id)) delete doc.bodies[id];
   });
   return { ids };

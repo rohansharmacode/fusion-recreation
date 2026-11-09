@@ -6,6 +6,7 @@ import * as M from "../../model.js";
 import * as U from "../dialogs/util.js";
 import { PATTERN_FEATURE_TYPES, toBodyRef } from "../dialogs/common.js";
 import { V, Path, buildPath, pathRefs, bodiesBox, frameRotation, rigidPoint, rigidShape, rigidMesh } from "./geom.js";
+import { markerSet } from "./markers.js";
 
 /** Path of a pattern, running away from the patterned bodies (an open path starts at its end nearest to them). */
 export function orientedPath(st, f) {
@@ -40,14 +41,20 @@ export function instances(st, f, P) {
   const offsets = [];
   if (sym) { for (let i = 1; offsets.length < q - 1; i++) { offsets.push(i * step); if (offsets.length < q - 1) offsets.push(-i * step); } }
   else for (let i = 1; i < q; i++) offsets.push(sgn * i * step);
+  const sup = new Set(f.suppressInstances || []);
+  const all = [];
+  let k = 0;
   for (const d of offsets) {
+    k++;
     const s = path.wrap(s0 + d);
     if (s === null) { skipped++; continue; }
     const F = path.frame(s);
     const R = f.orientation === "path" ? frameRotation(F0, F) : [1, 0, 0, 0, 1, 0, 0, 0, 1];
-    out.push({ R, pivot: F0.o, t: V.sub(F.o, F0.o), s });
+    const T = { R, pivot: F0.o, t: V.sub(F.o, F0.o), s, k };
+    all.push(T);
+    if (!sup.has(k)) out.push(T);
   }
-  return { xs: out, skipped, path, s0 };
+  return { xs: out, all, skipped, path, s0 };
 }
 
 export function registerPathPatternFeature(app) {
@@ -56,28 +63,34 @@ export function registerPathPatternFeature(app) {
     stem: "PathPattern",
     fields: { quantity: "none", distance: "length", start: "length" },
     apply(st, f, P, doc) {
-      const { xs, skipped } = instances(st, f, P);
+      const { xs, all, skipped } = instances(st, f, P);
+      // instance markers for the Suppression toggles (pattern centre carried to every instance)
+      const bb = f.patternType === "features" ? null : bodiesBox(st, f.bodies || []);
+      const c0 = bb ? V.mul(V.add(bb.min, bb.max), 0.5) : all.length ? all[0].pivot : null;
+      const marks = c0 ? all.map((T) => ({ k: T.k, p: rigidPoint(T, c0) })) : [];
       const warn = skipped ? `${skipped} pattern instance${skipped > 1 ? "s are" : " is"} beyond the end of the path` : null;
       if (f.patternType === "features") {
         const r = M.patternFeatures(st, f, P, doc, xs.map((T) => ({ shape: (s) => rigidShape(T, s), point: (p) => rigidPoint(T, p) })));
         if (warn) r.warning = r.warning ? `${r.warning}; ${warn}` : warn;
-        return r;
+        return { ...r, marks, count: xs.length + 1 };
       }
-      let k = 0;
+      let k = 0, bi = -1;
       const affected = [];
       for (const id of f.bodies || []) {
+        bi++;
         const b = st.bodies.get(id), mb = st.meshBodies && st.meshBodies.get(id);
         if (!b && !(mb && mb.mesh)) continue;
         for (const T of xs) {
           k++;
-          const nid = (f.newBodies || [])[k - 1] || `${f.id}_${k}`;
+          // ids stay stable when instances are suppressed
+          const nid = `${f.id}_${bi * 1000 + T.k}`;
           if (b) st.bodies.set(nid, { id: nid, shape: rigidShape(T, b.shape), from: f.id });
           else st.meshBodies.set(nid, { ...mb, id: nid, mesh: rigidMesh(T, mb.mesh), from: f.id });
           affected.push(nid);
         }
       }
       if (!k && !(f.bodies || []).length) throw new Error("Select objects to pattern");
-      return { affected, count: xs.length + 1, ...(warn ? { warning: warn } : {}) };
+      return { affected, count: xs.length + 1, marks, ...(warn ? { warning: warn } : {}) };
     },
     deps: (f) => ({ sketches: [...new Set((f.path || []).map((c) => c.sketch))], bodies: [...(f.bodies || []), ...(f.edges || []).map((e) => e.body)], features: f.features || [], cplanes: [], geo: (f.edges || []).map((e) => ({ ...e, kind: "edge" })) }),
     editor: (a, id) => openPathPattern(a, { editId: id }),
@@ -135,8 +148,11 @@ export function openPathPattern(app, opts = {}) {
       { id: "flip", type: "check", label: "Flip", default: false, tooltip: "Reverses the pattern direction along the path." },
       { id: "dirType", type: "dropdown", label: "Direction", options: [{ value: "one", label: "One Direction", icon: "oneSide" }, { value: "sym", label: "Symmetric", icon: "symmetric" }], default: "one" },
       { id: "orientation", type: "dropdown", label: "Orientation", options: [{ value: "identical", label: "Identical" }, { value: "path", label: "Path Direction" }], default: "identical" },
+      { id: "suppress", type: "check", label: "Suppression", default: false, tooltip: "Check Suppression, then uncheck instances in the canvas to remove them from the pattern." },
     ],
     init(dlg) {
+      dlg.values.suppressed = f0 && Array.isArray(f0.suppressInstances) ? [...f0.suppressInstances] : [];
+      dlg._marks = markerSet(app);
       if (!f0) return;
       const st = dlg.baseState;
       Object.assign(dlg.values, {
@@ -145,6 +161,7 @@ export function openPathPattern(app, opts = {}) {
         features: (f0.features || []).map((id) => ({ kind: "feature", id })),
         pathSel: [...(f0.path || []).map((c) => ({ kind: "sketchCurve", sketch: c.sketch, curve: c.curve })), ...(f0.edges || []).map((e) => U.edgeRef(st, e.body, e.p)).filter(Boolean)],
         distType: f0.distType || "extent", dirType: f0.dirType || "one", orientation: f0.orientation || "identical", flip: !!f0.flip,
+        suppress: !!(f0.suppressInstances && f0.suppressInstances.length),
       });
       for (const k of ["quantity", "distance", "start"]) if (f0[k] !== undefined) dlg.values[k] = String(f0[k]);
     },
@@ -169,8 +186,26 @@ export function openPathPattern(app, opts = {}) {
       if (!curves.length && !edges.length) return null;
       const f = { type: "pathpattern", ...objs, path: curves, edges, distType: v.distType, quantity: v.quantity, distance: v.distance, start: v.start, dirType: v.dirType, orientation: v.orientation };
       if (v.flip) f.flip = true;
+      if (v.suppress && (v.suppressed || []).length) f.suppressInstances = [...v.suppressed].sort((a, b) => a - b);
       return f;
     },
+    afterPreview(dlg) {
+      const r = dlg.previewRes;
+      const sup = new Set(dlg.values.suppressed || []);
+      dlg._marks.set(dlg.values.suppress && r && r.marks ? r.marks.map((m) => ({ id: m.k, p: m.p, on: !sup.has(m.k) })) : []);
+    },
+    onCanvasDown(ctx, dlg) {
+      if (!dlg.values.suppress) return false;
+      const k = dlg._marks.hit(ctx.x, ctx.y);
+      if (k === null) return false;
+      const sup = new Set(dlg.values.suppressed || []);
+      if (sup.has(k)) sup.delete(k); else sup.add(k);
+      dlg.values.suppressed = [...sup];
+      dlg.touched.add("suppressed");
+      dlg.schedulePreview(0);
+      return true;
+    },
+    onClose(dlg) { dlg._marks.dispose(); },
     manipulators(dlg) {
       const v = dlg.values;
       let path, s0;

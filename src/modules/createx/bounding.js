@@ -6,7 +6,9 @@ import * as M from "../../model.js";
 import * as R0 from "../dialogs/util.js";
 import { toBodyRef } from "../dialogs/common.js";
 import { V, WORLD, orthoFrame, toFrame, fromFrame, bodyPoints, principalAxes, minAreaRect, minCircle } from "./geom.js";
-import { frameOf } from "./csys.js";
+import { frameOf, snapFrame } from "./csys.js";
+import { markerSet } from "./markers.js";
+import * as MD from "../../meshdata.js";
 
 const R = K.R;
 const LEN = ["side", "top", "bottom", "px", "nx", "py", "ny", "pz", "nz", "radial", "front", "back", "inner", "roundUp", "width", "depth", "height", "xOffset", "yOffset", "zOffset", "diameter", "length", "posOffset"];
@@ -82,7 +84,12 @@ export function measure(st, f) {
   if (!ids.length) throw new Error("Select objects to create a bounding solid around.");
   const pts = ids.flatMap((id) => bodyPoints(st, id));
   if (!pts.length) throw new Error("Select objects to create a bounding solid around.");
-  const F = orientFrame(st, f, pts);
+  let F = orientFrame(st, f, pts);
+  // Flip X / Y / Z Axis: 180 deg turns about another axis (the frame stays right-handed)
+  const neg = (v) => V.mul(v, -1);
+  if (f.flipX) F = { ...F, x: neg(F.x), y: neg(F.y) };
+  if (f.flipY) F = { ...F, y: neg(F.y), z: neg(F.z) };
+  if (f.flipZ) F = { ...F, z: neg(F.z), x: neg(F.x) };
   return { F, pts, e: extents(F, pts) };
 }
 
@@ -166,6 +173,31 @@ export function solidOf(g) {
   return K.extrudeDrawing(d, pl, 0, a1 - a0, 0);
 }
 
+/** Frame-coordinate box {min, max} of the bounding solid (cylinders: their enclosing box). */
+function boxExt(g) {
+  if (g.box) return g.box;
+  const { axis, c, r, a0, a1 } = g.cyl;
+  const mn = [0, 0, 0], mx = [0, 0, 0], iu = (axis + 1) % 3, iv = (axis + 2) % 3;
+  mn[axis] = a0; mx[axis] = a1; mn[iu] = c[0] - r; mx[iu] = c[0] + r; mn[iv] = c[1] - r; mx[iv] = c[1] + r;
+  return { min: mn, max: mx };
+}
+/** Box point [i, j, k] (0 = min, 1 = centre, 2 = max per frame axis) -> frame coordinates. */
+const boxPointAt = (ext, bp) => [0, 1, 2].map((a) => ext.min[a] + ((ext.max[a] - ext.min[a]) * bp[a]) / 2);
+const BP_NAMES = [["left", "", "right"], ["front", "", "back"], ["bottom", "", "top"]];
+/** Display name of a box point, e.g. "Bottom front left", "Top", "Center". */
+export function boxPointName(bp) {
+  const w = [BP_NAMES[2][bp[2]], BP_NAMES[1][bp[1]], BP_NAMES[0][bp[0]]].filter(Boolean).join(" ");
+  return w ? w[0].toUpperCase() + w.slice(1) : "Center";
+}
+/** World coordinate system of the result: orientation axes + the Origin Mode point. */
+function wcsOf(st, f, g) {
+  const F = g.F;
+  let o = F.o;
+  if (f.originMode === "box") o = fromFrame(F, boxPointAt(boxExt(g), f.boxPoint || [1, 1, 0]));
+  else if (f.originMode === "point") o = snapFrame(st, f.originPoint || { kind: "originPoint" }).o;
+  return { o, x: F.x, y: F.y, z: F.z };
+}
+
 export function registerBoundingFeature(app) {
   const fields = Object.fromEntries(LEN.map((k) => [k, "length"]));
   M.registerFeature("boundingsolid", {
@@ -178,7 +210,14 @@ export function registerBoundingFeature(app) {
       const tool = solidOf(g);
       const id = f.newBody;
       st.bodies.set(id, { id, shape: tool, from: f.id });
-      return { affected: [id], dims: g.dims, geom: { F: g.F, box: g.box || null, cyl: g.cyl || null } };
+      const wcs = wcsOf(st, f, g);
+      // the new component's frame is the bounding solid's coordinate system (Origin Mode + Orientation)
+      if (f.newOcc && st.occ) {
+        const parent = f.occ && st.occ.has(f.occ) ? f.occ : M.ROOT;
+        const T = [wcs.x[0], wcs.y[0], wcs.z[0], wcs.o[0], wcs.x[1], wcs.y[1], wcs.z[1], wcs.o[1], wcs.x[2], wcs.y[2], wcs.z[2], wcs.o[2]];
+        st.occ.set(f.newOcc, { id: f.newOcc, component: f.newComp, parent, T });
+      }
+      return { affected: [id], dims: g.dims, wcs, geom: { F: g.F, box: g.box || null, cyl: g.cyl || null, ext: boxExt(g) } };
     },
     deps: (f) => ({ sketches: [f.xAxis, f.zAxis].filter((a) => a && a.sketch).map((a) => a.sketch), bodies: f.bodies || [], features: f.csys ? [f.csys] : [], cplanes: f.zPlane && f.zPlane.kind === "cplane" ? [f.zPlane.id] : [], geo: [] }),
     editor: (a, id) => openBoundingSolid(a, { editId: id }),
@@ -231,6 +270,12 @@ export function openBoundingSolid(app, opts = {}) {
         { id: "zRef", type: "selection", label: "Z Axis", kinds: ["face", "cplane", "originPlane", "originAxis", "edge", "sketchCurve"], max: 1, prompt: "Select a plane or an axis for Z", visible: (v) => v.orient === "zx",
           filter: (r, dlg) => (r.kind === "face" ? r.planar !== false : r.kind === "edge" || r.kind === "sketchCurve" ? linearFilter(r, dlg) : true) },
         { id: "xRef", type: "selection", label: "X Axis", kinds: ["originAxis", "edge", "sketchCurve"], max: 1, min: 0, prompt: "Select an axis for X", visible: (v) => v.orient === "zx", filter: linearFilter },
+        { id: "flipX", type: "check", label: "Flip X Axis", default: false, tooltip: "Flips the X axis orientation 180 degrees." },
+        { id: "flipY", type: "check", label: "Flip Y Axis", default: false, tooltip: "Flips the Y axis orientation 180 degrees." },
+        { id: "flipZ", type: "check", label: "Flip Z Axis", default: false, tooltip: "Flips the Z axis orientation 180 degrees." },
+        { id: "originMode", type: "dropdown", label: "Origin Mode", options: [{ value: "model", label: "Model origin" }, { value: "box", label: "Model box point" }, { value: "point", label: "Selected point" }], default: "model", tooltip: "Automatically detects the coordinate system origin of the selected objects." },
+        { id: "boxPointText", type: "text", label: "Box Point", text: (dlg) => boxPointName(dlg.values.boxPoint || [1, 1, 0]), visible: (v) => v.originMode === "box", tooltip: "Lets you select a point on the object's bounding box to define the coordinate system origin." },
+        { id: "originPoint", type: "selection", label: "Origin Point", kinds: ["vertex", "sketchPoint", "originPoint"], max: 1, prompt: "Select a point to set the origin of the bounding solid.", visible: (v) => v.originMode === "point" },
       ] },
       { id: "axis", type: "dropdown", label: "Axis", tooltip: "Specify the axis of rotation for the cylinder or tube.", options: [{ value: "x", label: "X" }, { value: "y", label: "Y" }, { value: "z", label: "Z" }], default: "z", visible: (v) => !isBox(v) },
       { id: "gd", type: "group", label: "Dimensions", rows: [
@@ -258,6 +303,7 @@ export function openBoundingSolid(app, opts = {}) {
         val("posOffset", "Offset", L0, { visible: (v) => v.bsType === "fixCyl" || v.bsType === "fixTube" }),
         val("roundUp", "Round Up to Nearest", L0, { nonNegative: true, visible: isRel, tooltip: "Specifies the rounding up increment for the final bounding solid size." }),
       ] },
+      { id: "rigid", type: "check", label: "Rigid Group", default: true, sep: true, tooltip: "Locks the relative position of the bounding solid and selected components, so they move together as one." },
       { id: "gm", type: "group", label: "Model Dimensions", rows: [
         { id: "mdx", type: "text", label: "X", text: (dlg) => modelDim(dlg, 0) },
         { id: "mdy", type: "text", label: "Y", text: (dlg) => modelDim(dlg, 1) },
@@ -274,7 +320,10 @@ export function openBoundingSolid(app, opts = {}) {
         csys: f0.csys ? [{ kind: "feature", id: f0.csys }] : [],
         zRef: [f0.zPlane ? R0.refFromPlaneRef(f0.zPlane, st) : axisRef(f0.zAxis)].filter(Boolean),
         xRef: [axisRef(f0.xAxis)].filter(Boolean),
+        flipX: !!f0.flipX, flipY: !!f0.flipY, flipZ: !!f0.flipZ, originMode: f0.originMode || "model", rigid: !!f0.rigidGroup,
+        originPoint: f0.originPoint ? [{ ...f0.originPoint }] : [],
       });
+      if (Array.isArray(f0.boxPoint)) dlg.values.boxPoint = [...f0.boxPoint];
       for (const k of LEN) if (f0[k] !== undefined) dlg.values[k] = String(f0[k]);
     },
     onChange(id, dlg) {
@@ -297,6 +346,26 @@ export function openBoundingSolid(app, opts = {}) {
       }
     },
     build: (v) => buildFeature(v),
+    afterPreview(dlg) {
+      const r = dlg.previewRes, g = r && r.geom;
+      if (!dlg._marks) dlg._marks = markerSet(dlg.app);
+      if (dlg.values.originMode !== "box" || !g || !g.ext) { dlg._marks.set([]); return; }
+      const cur = (dlg.values.boxPoint || [1, 1, 0]).join(",");
+      const pts = [];
+      for (let k = 0; k < 3; k++) for (let j = 0; j < 3; j++) for (let i = 0; i < 3; i++) pts.push({ id: i + "," + j + "," + k, p: fromFrame(g.F, boxPointAt(g.ext, [i, j, k])), on: i + "," + j + "," + k === cur });
+      dlg._marks.set(pts);
+    },
+    onCanvasDown(ctx, dlg) {
+      if (dlg.values.originMode !== "box" || !dlg._marks) return false;
+      const id = dlg._marks.hit(ctx.x, ctx.y);
+      if (!id) return false;
+      dlg.values.boxPoint = id.split(",").map(Number);
+      dlg.touched.add("boxPoint");
+      dlg.refresh();
+      dlg.schedulePreview(0);
+      return true;
+    },
+    onClose(dlg) { if (dlg._marks) dlg._marks.dispose(); },
     manipulators(dlg) {
       const r = dlg.previewRes, g = r && r.geom;
       if (!g) return [];
@@ -333,8 +402,18 @@ export function openBoundingSolid(app, opts = {}) {
 function buildFeature(v, loose = false) {
   const bodies = (v.bodies || []).map((r) => r.body).filter(Boolean);
   if (!bodies.length && !loose) return null;
-  const f = { type: "boundingsolid", bodies, bsType: v.bsType, orient: v.orient, axis: v.axis, offMode: v.offMode, xPos: v.xPos, yPos: v.yPos, zPos: v.zPos, pos: v.pos };
+  // like Fusion, the bounding solid is a standalone component (core gives it newComp / newOcc)
+  const f = { type: "boundingsolid", operation: "newComponent", bodies, bsType: v.bsType, orient: v.orient, axis: v.axis, offMode: v.offMode, xPos: v.xPos, yPos: v.yPos, zPos: v.zPos, pos: v.pos };
   for (const k of LEN) if (v[k] !== undefined) f[k] = v[k];
+  for (const k of ["flipX", "flipY", "flipZ"]) if (v[k]) f[k] = true;
+  if (v.rigid) f.rigidGroup = true;
+  f.originMode = v.originMode || "model";
+  if (f.originMode === "box") f.boxPoint = v.boxPoint || [1, 1, 0];
+  if (f.originMode === "point") {
+    const p = (v.originPoint || [])[0];
+    if (!p) return loose ? { ...f, originMode: "model" } : null;
+    f.originPoint = p.kind === "sketchPoint" ? { kind: "sketchPoint", sketch: p.sketch, point: p.point } : p.kind === "vertex" ? { kind: "vertex", body: p.body, p: p.p } : { kind: "originPoint" };
+  }
   if (v.orient === "csys") { const c = (v.csys || [])[0]; if (!c) return loose ? { ...f, orient: "model" } : null; f.csys = c.id; }
   if (v.orient === "zx") {
     const z = (v.zRef || [])[0];
@@ -351,4 +430,56 @@ function buildFeature(v, loose = false) {
 function modelDim(dlg, i) {
   const r = dlg.previewRes;
   return r && r.dims ? fmt(r.dims[i]) : "";
+}
+
+// ---------------------------------------------------------------- Rigid Group
+/** Occurrence groups of the Bounding Solid features with Rigid Group: [newOcc, owners of the selected bodies]. */
+function rigidGroups(app) {
+  const C = app.components, out = [];
+  for (const f of app.doc.features) {
+    if (f.type !== "boundingsolid" || !f.rigidGroup || f.suppressed || !f.newOcc) continue;
+    const r = app.featureResult(f.id);
+    if (!r || r.ok === false || r.rolled) continue;
+    const set = new Set([f.newOcc]);
+    for (const b of f.bodies || []) { const o = C.ownerOf(b); if (o && o !== M.ROOT) set.add(o); }
+    const list = [...set].filter((o) => C.alive(o));
+    if (list.length > 1) out.push(list);
+  }
+  return out;
+}
+/** Add the rigid-group partners of moved occurrences (same rigid motion) to a {oid: M} map. */
+export function expandRigid(app, map) {
+  const C = app.components;
+  const out = { ...map };
+  let grew = true;
+  for (let pass = 0; grew && pass < 4; pass++) {
+    grew = false;
+    for (const g of rigidGroups(app)) {
+      const lead = g.find((o) => out[o]);
+      if (!lead) continue;
+      const delta = MD.mul(out[lead], M.invRigid(C.transform(lead)));
+      for (const o of g) if (!out[o]) { out[o] = MD.mul(delta, C.transform(o)); grew = true; }
+    }
+  }
+  return out;
+}
+/** Moves of an occurrence carry the other members of its Bounding Solid rigid group along (one undo step). */
+export function installRigidGroups(app) {
+  const hook = () => {
+    const C = app.components;
+    if (!C || C.__createxRigid || typeof C.setTransforms !== "function") return;
+    C.__createxRigid = true;
+    const many = C.setTransforms, one = C.setTransform;
+    C.setTransforms = (map, opts) => { let m = map; try { m = expandRigid(app, map || {}); } catch (e) { console.warn("[createx] rigid group", e); } return many(m, opts); };
+    C.setTransform = (oid, m, opts = {}) => {
+      let ex = null;
+      try { ex = expandRigid(app, { [oid]: m }); } catch { ex = null; }
+      if (!ex || Object.keys(ex).length === 1) return one(oid, m, opts);
+      const info = C.info && C.info(oid);
+      if (info && info.grounded && !opts.force) return one(oid, m, opts);
+      return many(ex, opts);
+    };
+  };
+  hook();
+  app.on("ready", hook);
 }

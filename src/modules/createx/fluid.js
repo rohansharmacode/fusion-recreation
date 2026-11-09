@@ -179,7 +179,8 @@ export function openFluidVolume(app, opts = {}) {
         else { const pr = R0.planeRefFromRef(r); if (pr) planes.push(pr); }
       }
       if (!bodies.length) return null;
-      const f = { type: "fluidvolume", volume: v.volume, bodies: [...new Set(bodies)], planes, split: !!v.split };
+      // the surrounding volume is created in a new component (core gives it newComp / newOcc)
+      const f = { type: "fluidvolume", operation: "newComponent", volume: v.volume, bodies: [...new Set(bodies)], planes, split: !!v.split };
       if (v.volume === "external") Object.assign(f, { shape: v.shape, dir: v.dir, flip: !!v.flip, offset: v.offset });
       return f;
     },

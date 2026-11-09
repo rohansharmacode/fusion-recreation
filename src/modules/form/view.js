@@ -7,7 +7,7 @@ import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { displayOf } from "./feature.js";
 import { topo, symmetryEdges, isTsRef, vRef, eRef, fRef, frozenSet } from "./cage.js";
 
-const COL = { frame: 0x51595f, point: 0x24292d, sym: 0x2fae3a, frozen: 0x5a77a8, sel: 0x1f86e0, hover: 0x7cc0f5 };
+const COL = { edge: 0x2f353b, frame: 0x6e777f, point: 0x24292d, sym: 0x2fae3a, frozen: 0x5a77a8, sel: 0x1f86e0, hover: 0x7cc0f5 };
 
 /** Current display mesh of an entry (box mesh in Box display, else the smooth limit mesh). */
 export function meshOf(entry) {
@@ -43,6 +43,17 @@ export function createView(app) {
     const g = new THREE.Group();
     g.name = "tspline-cage";
     const t = topo(c);
+    // T-spline edges: curves on the limit surface (Smooth / Control Frame), polygon edges in Box display
+    {
+      const segs = [];
+      for (const [a, b] of t.edges) {
+        const pl = mode === "box" ? [c.v[a], c.v[b]] : entry.data.ev.edgeCurve(a, b);
+        for (let i = 0; i < pl.length - 1; i++) segs.push(...pl[i], ...pl[i + 1]);
+      }
+      const l = new THREE.LineSegments(lineGeo(segs), new THREE.LineBasicMaterial({ color: COL.edge, transparent: true, opacity: 0.85 }));
+      l.renderOrder = 2;
+      g.add(l);
+    }
     if (mode === "frame") {
       const segs = [];
       for (const [a, b] of t.edges) segs.push(...c.v[a], ...c.v[b]);

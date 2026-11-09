@@ -1,4 +1,3 @@
-// UNDER ACTIVE DEVELOPMENT by the mesh engineer: integration engineers, do not edit; stub this module with --only if it breaks a test.
 // mesh module: the MESH tab. Mesh body editing (ParaMesh tools) as timeline features, face groups, the Mesh
 // Palette, Create Mesh Section Sketch / Fit Curves to Mesh Section, Tessellate / Convert Mesh, Display Mesh Face
 // Groups and the DIRECT MESH EDITING environment (Base Mesh Feature). See README.md.
@@ -9,6 +8,7 @@ import { initPalette, setVisible, PAL } from "./palette.js";
 import { meshRender, setGroupsDisplay, DISPLAY } from "./display.js";
 import { initDirect, enterDirect } from "./direct.js";
 import { openSectionSketch, openFitCurves } from "./section.js";
+import { analyze, fromMesh } from "./algo.js";
 
 export function init(app) {
   try {
@@ -36,7 +36,11 @@ export function init(app) {
     });
     initDirect(app);
     initPalette(app);
-    app.ui.mesh = { open: (id, opts) => openMeshCommand(app, id, opts), palette: PAL, display: DISPLAY, enterDirect: (id) => enterDirect(app, id) };
+    app.ui.mesh = {
+      open: (id, opts) => openMeshCommand(app, id, opts), palette: PAL, display: DISPLAY, enterDirect: (id) => enterDirect(app, id),
+      /** Fusion's mesh analysis of a mesh body: {closed, oriented, positive, volume, shells, openEdges, nonManifold, holes, ...}. */
+      analyze: (id) => { const e = app.result && app.result.state.meshBodies.get(id); return e && e.mesh ? analyze(fromMesh(e.mesh)) : null; },
+    };
   } catch (e) {
     console.warn("[mesh] init failed", e);
   }

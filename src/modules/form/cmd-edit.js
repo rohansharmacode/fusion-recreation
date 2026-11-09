@@ -26,6 +26,7 @@ export function openEditForm(app, opts = {}) {
     id: "TSplineEditCommand", title: "Edit Form", featureLabel: "Edit Form",
     help: "Manipulates faces, edges and vertices with transform, scale and rotate editing. Alt-drag to extrude faces or boundary edges; double-click an edge or face to select a loop.",
     preselect: pre,
+    values: pre.length && pre.every((r) => r.kind === "body") ? { filter: "body" } : {},
     labelWidth: 118,
     rows: [
       tsRow(app, "sel", "T-Spline Entity", ["tsVertex", "tsEdge", "tsFace", "body"], {
@@ -56,6 +57,7 @@ export function openEditForm(app, opts = {}) {
     ],
     init(d) {
       d.work = new Map();
+      d._space = d.values.space;
       const first = pre.find((r) => r.body);
       if (first) d.values.display = displayOf(first.body);
     },
@@ -76,6 +78,7 @@ export function openEditForm(app, opts = {}) {
     },
     onChange(id, d) {
       if (id === "sel") bake(d);
+      if (id === "space") { const now = d.values.space; d.values.space = d._space || "world"; bake(d); d.values.space = now; d._space = now; }
       if (id === "display") {
         const ids = [...new Set((d.values.sel || []).map((r) => r.body))];
         setDisplay(app, d.values.display, ids.length ? ids : null);
@@ -218,13 +221,14 @@ function triad(app, d, alt) {
   fr.axes.forEach((ax, i) => { c = V.add(c, V.mul(ax, t[i])); });
   const vp = app.viewport;
   const out = [];
-  // every drag starts from the baked state: the numbers show this drag
+  // The numbers accumulate over the drags of one selection (like Fusion). An Alt-drag first folds them into the
+  // geometry, extrudes the selection and then starts again from zero.
   const begin = (key, v0 = 0) => {
     if (d._drag) return;
     d._drag = key;
-    d._dragV0 = v0;
-    bake(d);
-    if (alt()) extrudeSelection(d);
+    d._dragV0 = 0;
+    d._alt = false;
+    if (alt()) { bake(d); extrudeSelection(d); d._dragV0 = v0; d._alt = true; }
   };
   const end = (final) => { if (final) d._drag = null; };
   if (v.mode === "multi" || v.mode === "translate") {
@@ -238,12 +242,14 @@ function triad(app, d, alt) {
       out.push(m);
     });
     const planeDrag = (fields) => ({
-      onDelta: (dv, final) => {
+      getStart: () => fields.map((k) => d.num(k) || 0),
+      onDelta: (dv, final, start) => {
         begin(fields.join());
         const step = U.niceStep(2 * ((vp && vp.pixelSize && vp.pixelSize(c)) || 0.1));
-        fields.forEach((k) => {
+        fields.forEach((k, j) => {
           const ax = fr.axes[T_FIELDS.indexOf(k)];
-          const val = Math.round(V.dot(dv, ax) / step) * step;
+          const base = d._alt || !start ? 0 : start[j];
+          const val = base + Math.round(V.dot(dv, ax) / step) * step;
           d.set(k, U.fmt(+val.toFixed(6), "length"), { user: true, delay: final ? 0 : 40, throttle: !final });
         });
         if (final) d.previewNow();

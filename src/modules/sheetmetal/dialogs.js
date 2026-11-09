@@ -69,6 +69,28 @@ const asEdge = (dlg, r) => {
   return i >= 0 ? { kind: "edge", body: r.body, index: i, p: r.p } : null;
 };
 
+/** Edges tangent-connected to edge ref r that lie on the same flange boundary (same side): Chain Selection. */
+function chainEdges(dlg, r) {
+  const b = dlg.baseState.bodies.get(r.body), d = smData(dlg, r.body);
+  if (!b || !d) return r;
+  const T = K.topoOf(b.shape);
+  const e0 = T.edges[r.index];
+  const info0 = e0 && G.edgeOnFlange(b.shape, d, e0.s, e0.t);
+  if (!info0) return r;
+  const ends = (g) => [{ p: g.s, t: g.ts }, { p: g.t, t: g.tt }];
+  const idx = [r.index];
+  for (let k = 0; k < idx.length && idx.length < 64; k++) {
+    const ea = ends(T.edges[idx[k]]);
+    T.edges.forEach((g, j) => {
+      if (idx.includes(j) || g.type !== "LINE") return;
+      if (!ea.some((a) => ends(g).some((c) => V.len(V.sub(a.p, c.p)) < 1e-5 && Math.abs(V.dot(a.t, c.t)) > 0.9995))) return;
+      const inf = G.edgeOnFlange(b.shape, d, g.s, g.t);
+      if (inf && inf.fid === info0.fid && inf.side === info0.side) idx.push(j);
+    });
+  }
+  return idx.map((i) => ({ kind: "edge", body: r.body, index: i, p: i === r.index ? r.p : T.edges[i].m }));
+}
+
 // ================================================================ Flange (base / edge), Hem, Lofted
 const TYPE_OPTS = [
   { value: "flange", label: "Flange (Base/Edge/Contour)" },
@@ -90,10 +112,13 @@ export function openFlange(app, opts = {}) {
     const lib = R.libraryRules().filter((r) => !design.some((d) => d.value === r.id)).map((r) => ({ value: r.id, label: `${r.name} (Library)` }));
     return [...design, ...lib];
   };
-  const mode = (v) => ((v.sel || []).some((r) => r.kind === "profile") ? "base" : "edge");
+  const mode = (v) => ((v.sel || []).some((r) => r.kind === "sketchCurve") ? "contour" : (v.sel || []).some((r) => r.kind === "profile") ? "base" : "edge");
+  const sheetRows = (v) => isFlange(v) && (mode(v) === "base" || mode(v) === "contour");
+  const isContour = (v) => isFlange(v) && mode(v) === "contour";
   const isFlange = (v) => v.type === "flange";
   const isHem = (v) => v.type === "hem";
   const edgeRows = (v) => (isFlange(v) && mode(v) === "edge") || isHem(v);
+  const overrideRows = (v) => edgeRows(v) || isContour(v);
   const hemIs = (...t) => (v) => isHem(v) && t.includes(v.hemType);
   return app.ui.dialog.open({
     id: type0 === "hem" ? "FusionSheetMetalHemFlangeCommand" : "FusionSheetMetalFlangeCommand",
@@ -108,21 +133,37 @@ export function openFlange(app, opts = {}) {
     rows: [
       { id: "type", type: "dropdown", label: "Type", options: TYPE_OPTS, default: type0, tooltip: "Flange (Base/Edge/Contour), Hem or Lofted Flange." },
       {
-        id: "sel", type: "selection", labelFn: (v) => (isHem(v) ? "Edges" : "Edges/Profiles"), label: "Edges/Profiles", kinds: ["edge", "profile"],
+        id: "sel", type: "selection", labelFn: (v) => (isHem(v) ? "Edges" : "Edges/Profiles"), label: "Edges/Profiles", kinds: ["edge", "profile", "sketchCurve"],
         prompt: "Select sheet metal edges or sketch profiles to create flange.",
         tooltip: "Select sheet metal edges or sketch profiles to create flange or hem.",
         filter: (r, dlg) => {
           const v = dlg.values;
-          if (r.kind === "profile") return isFlange(v) && !(v.sel || []).some((x) => x.kind === "edge");
+          if (r.kind === "profile") return isFlange(v) && !(v.sel || []).some((x) => x.kind !== "profile");
+          if (r.kind === "sketchCurve") {
+            if (!isFlange(v) || (v.sel || []).some((x) => x.kind !== "sketchCurve")) return false;
+            const sk = dlg.baseState.sketches.get(r.sketch);
+            const c = sk && sk.sk.curves[r.curve];
+            return !!c && !c.cons && (c.type === "line" || c.type === "arc") && !(v.sel || []).some((x) => x.sketch !== r.sketch);
+          }
           if (!isSheet(dlg, r) || !LINE_OK(dlg, r)) return false;
-          return !(v.sel || []).some((x) => x.kind === "profile");
+          return !(v.sel || []).some((x) => x.kind !== "edge");
+        },
+        // an open sketch profile is the whole connected chain; Chain Selection grows edges along tangent chains
+        mapRef: (r, dlg) => {
+          if (r.kind === "sketchCurve") { const sk = dlg.baseState.sketches.get(r.sketch); return sk ? G.sketchChain(sk.sk, r.curve).map((cid) => ({ kind: "sketchCurve", sketch: r.sketch, curve: cid })) : r; }
+          if (r.kind === "edge" && dlg.values.chain && isFlange(dlg.values)) return chainEdges(dlg, r);
+          return r;
         },
         selText: (n, dlg) => (n ? `${n} selected` : "Select"),
       },
       // ---- base flange
-      { id: "orientation", type: "buttons", label: "Orientation", visible: (v) => isFlange(v) && mode(v) === "base", default: "side1", options: [{ value: "side1", label: "Side 1", icon: "oneSide" }, { value: "side2", label: "Side 2", icon: "flip" }, { value: "center", label: "Center", icon: "symmetric" }], tooltip: "Extrudes the sheet metal material to one side, the other side or evenly about the profile." },
-      { id: "operation", type: "dropdown", label: "Operation", sep: true, visible: (v) => isFlange(v) && mode(v) === "base", default: "new", options: [{ value: "new", label: "New Body", icon: "newBody" }, { value: "newComponent", label: "New Component", icon: "newComponent" }] },
-      { id: "rule", type: "dropdown", label: "Rule", visible: (v) => isFlange(v) && mode(v) === "base", default: sm.active, options: ruleOpts(), tooltip: "Selects a sheet metal rule for the active component." },
+      // ---- contour flange (open sketch profile)
+      { id: "cfDistance", type: "value", labelFn: (v) => (v.direction === "two" ? "Distance 1" : "Distance"), label: "Distance", kind: "length", default: "10.00 mm", positive: true, visible: isContour, tooltip: "Specify the distance to extrude the selected profile." },
+      { id: "cfDistance2", type: "value", label: "Distance 2", kind: "length", default: "10.00 mm", nonNegative: true, visible: (v) => isContour(v) && v.direction === "two", tooltip: "Specify the distance to extrude the selected profile to the other side." },
+      { id: "direction", type: "buttons", label: "Direction", default: "one", visible: isContour, options: [{ value: "one", label: "One Side", icon: "oneSide" }, { value: "two", label: "Two Sides", icon: "twoSides" }, { value: "sym", label: "Symmetric", icon: "symmetric" }], tooltip: "Extrudes the flange on one side, unevenly on two sides or evenly on both sides of the profile plane." },
+      { id: "orientation", type: "buttons", label: "Orientation", visible: sheetRows, default: "side1", options: [{ value: "side1", label: "Side 1", icon: "oneSide" }, { value: "side2", label: "Side 2", icon: "flip" }, { value: "center", label: "Center", icon: "symmetric" }], tooltip: "Extrudes the sheet metal material to one side, the other side or evenly about the profile." },
+      { id: "operation", type: "dropdown", label: "Operation", sep: true, visible: sheetRows, default: "new", options: [{ value: "new", label: "New Body", icon: "newBody" }, { value: "newComponent", label: "New Component", icon: "newComponent" }] },
+      { id: "rule", type: "dropdown", label: "Rule", visible: sheetRows, default: sm.active, options: ruleOpts(), tooltip: "Selects a sheet metal rule for the active component." },
       // ---- edge flange
       { id: "extent", type: "dropdown", label: "Flange Extent", visible: (v) => isFlange(v) && mode(v) === "edge", default: "distance", options: [{ value: "distance", label: "Distance", icon: "distance" }, { value: "object", label: "To Object", icon: "toObject" }] },
       { id: "height", type: "value", label: "Height", kind: "length", default: "10.00 mm", positive: true, visible: (v) => isFlange(v) && mode(v) === "edge" && v.extent !== "object", tooltip: "Specifies the height of the flange from the height datum." },
@@ -147,8 +188,8 @@ export function openFlange(app, opts = {}) {
       { id: "flip", type: "check", label: "Flip", default: false, visible: edgeRows, tooltip: "Flips the flange 180 degrees over the base flange." },
       { id: "chain", type: "check", label: "Chain Selection", default: true, visible: (v) => isFlange(v) && mode(v) === "edge", tooltip: "Selects connected chains of geometry automatically." },
       { id: "miter", type: "check", label: "Miter Corners", default: false, visible: (v) => isFlange(v) && mode(v) === "edge", tooltip: "Miters the corners where sheet metal corners would otherwise overlap." },
-      { id: "override", type: "check", label: "Override rules", default: false, sep: true, visible: edgeRows, tooltip: "Changes rule values for this operation only." },
-      { id: "bendRadius", type: "value", label: "Bend Radius", kind: "length", default: fmtLen(rule.R), nonNegative: true, visible: (v) => edgeRows(v) && v.override && !isHem(v), tooltip: "Distance from the inner surface of the sheet to the center of the bend." },
+      { id: "override", type: "check", labelFn: (v) => (isContour(v) ? "Bend override" : "Override rules"), label: "Override rules", default: false, sep: true, visible: overrideRows, tooltip: "Changes rule values for this operation only." },
+      { id: "bendRadius", type: "value", label: "Bend Radius", kind: "length", default: fmtLen(rule.R), nonNegative: true, visible: (v) => overrideRows(v) && v.override && !isHem(v), tooltip: "Distance from the inner surface of the sheet to the center of the bend." },
       { id: "reliefShape", type: "dropdown", label: "Relief Shape", default: rule.relief.shape, visible: (v) => edgeRows(v) && v.override, options: R.RELIEF_SHAPES.map((s) => ({ value: s, label: s })) },
       { id: "reliefWidth", type: "value", label: "Relief Width", kind: "length", default: fmtLen(rule.relief.width), positive: true, visible: (v) => edgeRows(v) && v.override && v.reliefShape !== "Tear" },
       { id: "reliefDepth", type: "value", label: "Relief Depth", kind: "length", default: fmtLen(rule.relief.depth), nonNegative: true, visible: (v) => edgeRows(v) && v.override && v.reliefShape !== "Tear" },
@@ -158,6 +199,9 @@ export function openFlange(app, opts = {}) {
       const v = dlg.values;
       if (f0.type === "smBaseFlange") {
         Object.assign(v, { type: "flange", sel: profileSelRefs(f0.profiles), orientation: f0.orientation || "side1", operation: f0.operation || "new", rule: f0.rule || sm.active });
+      } else if (f0.type === "smContourFlange") {
+        Object.assign(v, { type: "flange", sel: (f0.curves || []).map((c) => ({ kind: "sketchCurve", sketch: c.sketch, curve: c.curve })), cfDistance: f0.distance, cfDistance2: f0.distance2 || "10.00 mm", direction: f0.direction || "one", orientation: f0.orientation || "side1", operation: f0.operation || "new", rule: f0.rule || sm.active, override: !!f0.bendRadius });
+        if (f0.bendRadius) v.bendRadius = f0.bendRadius;
       } else {
         const edges = (f0.edges || []).map((r) => asEdge(dlg, r)).filter(Boolean);
         Object.assign(v, { type: f0.type === "smHem" ? "hem" : "flange", sel: edges });
@@ -175,16 +219,29 @@ export function openFlange(app, opts = {}) {
         if (v.type === "loft") { setTimeout(() => { dlg.cancel(); openLoft(app, {}); }, 0); return; }
         if (v.type === "hem") dlg.setSelection("sel", (v.sel || []).filter((r) => r.kind === "edge"));
       }
+      if (id === "chain" && dlg.values.chain) {
+        const cur = dlg.values.sel || [];
+        const all = [];
+        for (const r of cur) for (const x of r.kind === "edge" ? [].concat(chainEdges(dlg, r)) : [r]) if (!all.some((y) => y.kind === x.kind && y.body === x.body && y.index === x.index && y.curve === x.curve)) all.push(x);
+        if (all.length !== cur.length) dlg.setSelection("sel", all);
+      }
     },
     prompt(dlg) {
       const v = dlg.values;
       if (!(v.sel || []).length) return isHem(v) ? "Select sheet metal edges to create hem." : "Select sheet metal edges or sketch profiles to create flange.";
+      if (isContour(v)) return "Select or deselect open sketch profiles";
       return "";
     },
-    status: (dlg) => (mode(dlg.values) === "base" ? profileStatus(dlg, dlg.values.sel) : edgeStatus(dlg.values.sel)),
+    status: (dlg) => (mode(dlg.values) === "base" ? profileStatus(dlg, dlg.values.sel) : mode(dlg.values) === "contour" ? `${(dlg.values.sel || []).length} Sketch Curves` : edgeStatus(dlg.values.sel)),
     build(v, dlg) {
       const sel = v.sel || [];
       if (!sel.length) return null;
+      if (isContour(v)) {
+        const f = { type: "smContourFlange", curves: sel.filter((r) => r.kind === "sketchCurve").map((r) => ({ sketch: r.sketch, curve: r.curve })), distance: v.cfDistance, direction: v.direction, orientation: v.orientation, operation: v.operation, rule: v.rule || undefined, rv: 0 };
+        if (v.direction === "two") f.distance2 = v.cfDistance2;
+        if (v.override) f.bendRadius = v.bendRadius;
+        return f;
+      }
       if (isFlange(v) && mode(v) === "base") {
         return { type: "smBaseFlange", profiles: profileRefsOf(sel), orientation: v.orientation, operation: v.operation, rule: v.rule || undefined, rv: 0 };
       }
@@ -204,9 +261,9 @@ export function openFlange(app, opts = {}) {
       return null;
     },
     commit(f, dlg) {
-      const hide = f.type === "smBaseFlange" ? [...new Set((f.profiles || []).map((p) => p.sketch))] : [];
+      const hide = f.type === "smBaseFlange" ? [...new Set((f.profiles || []).map((p) => p.sketch))] : f.type === "smContourFlange" ? [...new Set(f.curves.map((c) => c.sketch))] : [];
       const label = (dlg.editId ? "Edit " : "Create ") + (f.type === "smHem" ? "Hem" : "Flange");
-      return commitWith(app, dlg, f, { label, hideSketches: hide, ruleId: f.type === "smBaseFlange" ? f.rule : null });
+      return commitWith(app, dlg, f, { label, hideSketches: hide, ruleId: f.type === "smBaseFlange" || f.type === "smContourFlange" ? f.rule : null });
     },
     manipulators(dlg) {
       const v = dlg.values;
@@ -280,10 +337,10 @@ export function openUnfold(app, opts = {}) {
   const id = refold ? "FusionSheetmetalRefoldCommand" : "FusionSheetmetalUnfoldCommand";
   const wantFlat = !refold; // bends to pick: folded ones for Unfold, flat ones for Refold
   return app.ui.dialog.open({
-    id, title: refold ? "Refold Faces" : "Unfold", icon: id,
+    id, title: refold ? "Refold" : "Unfold", icon: id,
     featureLabel: refold ? "Refold" : "Unfold",
     editId,
-    help: refold ? "Refolds unfolded bends of the sheet metal body." : "Flattens bends so you can add features across them.",
+    help: refold ? "Returns the model to its folded shape." : "Flattens bends so you can add features across them.",
     preselect: pre.filter((r) => r.kind === "face"),
     labelWidth: 118, ctrlWidth: 170,
     rows: [
@@ -358,6 +415,7 @@ export function openFold(app, opts = {}) {
       if (jog) f.offset = v.offset;
       return f;
     },
+    commit(f, dlg) { return commitWith(app, dlg, f, { label: (dlg.editId ? "Edit " : "Create ") + (jog ? "Jog" : "Fold"), hideSketches: f.line.map((l) => l.sketch) }); },
   });
 }
 
@@ -426,20 +484,29 @@ export function openCorner(app, opts = {}) {
     labelWidth: 118, ctrlWidth: 170,
     rows: [
       { id: "edges", type: "selection", label: "Edges", kinds: ["edge"], max: 2, prompt: "Select sheet metal edges to adjust the corner.", tooltip: "Select sheet metal edges to adjust the corner.", filter: (r, dlg) => isSheet(dlg, r), advance: false },
-      { id: "alignment", type: "buttons", label: "Corner Alignment", default: "symmetric", options: [{ value: "symmetric", label: "Symmetric", icon: "symmetric" }, { value: "overlap", label: "Overlap", icon: "oneSide" }] },
-      { id: "flipOverlap", type: "check", label: "Flip", default: false, visible: (v) => v.alignment === "overlap" },
+      { id: "alignment", type: "buttons", label: "Alignment", default: "symmetric", options: [{ value: "symmetric", label: "Symmetric Gap", icon: "symmetric" }, { value: "overlap", label: "Overlap Gap", icon: "oneSide" }], tooltip: "Symmetric Gap extends both flanges with a centered gap; Overlap Gap extends one flange over the other." },
+      { id: "flipOverlap", type: "check", label: "Flip Overlap", default: false, visible: (v) => v.alignment === "overlap", tooltip: "Switches the overlapping flange without changing the overlap value." },
+      { id: "overlap", type: "value", label: "Overlap", kind: "none", default: "1.00", min: 0, max: 1, visible: (v) => v.alignment === "overlap", tooltip: "Controls how much of the adjacent flange thickness is covered. Values range from 0.0 to 1.0." },
       { id: "gap", type: "value", label: "Gap", kind: "length", default: fmtLen(rule.miterGap), nonNegative: true, tooltip: "Gap between the flanges at the corner." },
-      { id: "relief", type: "dropdown", label: "2-Bend Relief", default: rule.corner2.shape, options: R.CORNER2_SHAPES.map((s) => ({ value: s, label: s })), tooltip: "Relief shape where the two bends meet." },
+      { id: "reliefOverride", type: "check", label: "2-Bend Corner Override", default: false, sep: true, tooltip: "Lets you override the relief shape, size, and placement at corners where 2 bends intersect." },
+      { id: "relief", type: "dropdown", label: "Relief Shape", default: rule.corner2.shape, visible: (v) => v.reliefOverride, options: R.CORNER2_SHAPES.map((s) => ({ value: s, label: s })), tooltip: "Relief shape where the two bends meet." },
+      { id: "reliefSize", type: "value", label: "Relief Size", kind: "length", default: fmtLen(rule.corner2.size), positive: true, visible: (v) => v.reliefOverride && ["Round", "Square", "Linear Weld", "Laser Weld"].includes(v.relief), tooltip: "Specifies the size of the bend-relief cutout measured in the flat pattern." },
+      { id: "reliefPlacement", type: "dropdown", label: "Relief Placement", default: rule.corner2.placement, visible: (v) => v.reliefOverride && (v.relief === "Round" || v.relief === "Square"), options: R.CORNER2_PLACEMENTS.map((s) => ({ value: s, label: s })), tooltip: "Intersection, Tangent or Vertex." },
+      { id: "ruleRelief", type: "text", visible: (v) => !v.reliefOverride, text: () => `Relief (rule): ${rule.corner2.shape}` },
     ],
     init(dlg) {
       if (!f0) return;
       dlg.values.edges = (f0.edges || []).map((r) => asEdge(dlg, r)).filter(Boolean);
-      for (const k of ["alignment", "gap", "relief"]) if (f0[k] !== undefined) dlg.values[k] = f0[k];
+      for (const k of ["alignment", "gap", "relief", "overlap", "reliefSize", "reliefPlacement"]) if (f0[k] !== undefined) dlg.values[k] = f0[k];
       dlg.values.flipOverlap = !!f0.flipOverlap;
+      dlg.values.reliefOverride = !!f0.reliefOverride;
     },
     build(v) {
       if ((v.edges || []).length < 2) return null;
-      return { type: "smCorner", edges: v.edges.map(plainRef), alignment: v.alignment, flipOverlap: !!v.flipOverlap, gap: v.gap, relief: v.relief };
+      const f = { type: "smCorner", edges: v.edges.map(plainRef), alignment: v.alignment, flipOverlap: !!v.flipOverlap, gap: v.gap, reliefOverride: !!v.reliefOverride };
+      if (v.alignment === "overlap") f.overlap = v.overlap;
+      if (v.reliefOverride) Object.assign(f, { relief: v.relief, reliefSize: v.reliefSize, reliefPlacement: v.reliefPlacement });
+      return f;
     },
   });
 }

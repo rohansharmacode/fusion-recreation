@@ -227,9 +227,24 @@ export function boundaryLoops(W) {
       const nx = (from.get(e[1]) || []).filter((x) => !used.has(x));
       e = nx.length ? nx[0] : null;
     }
-    if (loop.length >= 3) loops.push(loop);
+    if (loop.length >= 3) for (const l of splitPinched(loop)) loops.push(l);
   }
   return loops;
+}
+/** Split a boundary loop that passes a vertex twice (holes touching at a vertex) into simple loops. */
+function splitPinched(loop) {
+  const out = [];
+  const stack = [loop];
+  while (stack.length) {
+    const L = stack.pop();
+    const seen = new Map();
+    let cut = null;
+    for (let i = 0; i < L.length; i++) { if (seen.has(L[i])) { cut = [seen.get(L[i]), i]; break; } seen.set(L[i], i); }
+    if (!cut) { if (L.length >= 3) out.push(L); continue; }
+    const [i, j] = cut;
+    stack.push(L.slice(i, j), [...L.slice(0, i), ...L.slice(j)]);
+  }
+  return out;
 }
 /** Edge-connected components: Int32Array comp per triangle + count. */
 export function components(W, Nb = null) {

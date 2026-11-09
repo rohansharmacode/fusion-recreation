@@ -239,7 +239,8 @@ export function buildToolbar(app, svc) {
     const b = el("button", "tb-btn", { type: "button", "data-cmd": id, "aria-label": i.label });
     // Finish Sketch / Form / Base Feature ...: Fusion's big green disc with a white tick (drawn by the shell, see common.js)
     const PP = PANEL(pid);
-    b.innerHTML = id === "SketchStop" || (PP && PP.finish === id) ? glyph("sh-finish") : cmdIcon(id, 32);
+    b.innerHTML = id === "SketchStop" || (PP && PP.finish === id) ? glyph("sh-finish") : cmdIcon(i.iconId || id, 32);
+    if (i.iconId && i.iconId !== id) b.dataset.icon = i.iconId;
     b.addEventListener("click", (ev) => {
       ev.preventDefault();
       tooltip.hide();
@@ -260,7 +261,7 @@ export function buildToolbar(app, svc) {
       key: id,
       cmd: id,
       label: i.label,
-      icon: cmdIcon(id, 16),
+      icon: cmdIcon(i.iconId || id, 16),
       shortcut: i.shortcut,
       disabled: i.registered && !i.enabled,
       checked: i.checked,
@@ -507,6 +508,8 @@ export function buildToolbar(app, svc) {
       b.classList.toggle("tb-stub", i.stub);
       if (disabled) b.setAttribute("aria-disabled", "true"); else b.removeAttribute("aria-disabled");
       b.setAttribute("aria-label", i.label);
+      // commands with a state-dependent face (def.face) redraw their icon when it changes
+      if (i.def && typeof i.def.face === "function" && (b.dataset.icon || id) !== i.iconId) { b.innerHTML = cmdIcon(i.iconId, 32); if (i.iconId !== id) b.dataset.icon = i.iconId; else delete b.dataset.icon; }
     }
   }
   const scheduleRefresh = frameThrottle(refreshStates);

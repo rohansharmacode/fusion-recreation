@@ -243,9 +243,10 @@ function assemble(polys, size) {
     for (const v of p.v) P.push(v[0], v[1], v[2]);
     for (let k = 1; k + 1 < p.v.length; k++) { T.push(base, base + k, base + k + 1); G.push(p.g); }
   }
-  const w = weldArrays(P, T, size * 1e-7);
+  // intersection points are computed separately for each fragment (and from float32 input): weld generously
+  const w = weldArrays(P, T, size * 2e-6);
   let W = { P: w.P, T: w.T, G: w.keep.map((t) => G[t]), hasGroups: true };
-  fixTJunctions(W, size * 1e-6);
+  fixTJunctions(W, size * 5e-6);
   W = clean(W, { areaEps: (size * 1e-9) ** 2 });
   return compact(W);
 }

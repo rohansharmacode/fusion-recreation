@@ -51,5 +51,855 @@
       "Perpendicular Plane rules and Remove Features check boxes are own reading",
       "Construction axes/points hide with the Construction Planes toggle"
     ]
+  },
+  "build:surface": {
+    "summary": "SURFACE tab done: 18 commands end to end; registered feature types; 'surface' body kind; geometry in src/modules/surface/occ.js; no shared edits.",
+    "implemented": [
+      "SurfaceExtrude",
+      "SurfaceRevolve",
+      "SurfaceSweep",
+      "SurfaceLoft",
+      "FusionSurfacePatchCommand",
+      "FusionSurfaceRuledCommand",
+      "FusionSurfaceOffsetCommand",
+      "SurfaceSculpt",
+      "FusionSurfaceThickenCommand",
+      "FusionExtendCommand",
+      "FusionSurfaceTrimCommand",
+      "FusionSurfaceUntrimCommand",
+      "FusionSurfaceStitchCommand",
+      "FusionSurfaceUnStitchCommand",
+      "FusionSurfaceMergeCommand",
+      "FusionSurfaceReverseNormalCommand",
+      "FusionSurfaceValidateCommand",
+      "FusionPartingLineSplitCmd"
+    ],
+    "notImplemented": [],
+    "sharedEdits": [],
+    "contracts": "Feature types surfExtrude, surfRevolve, surfSweep, surfLoft, surfPatch, surfRuled, surfOffset, surfThicken, surfBoundaryFill, surfExtend, surfTrim, surfUntrim, surfStitch, surfUnstitch, surfMerge, surfReverse, surfSilhouette, surfValidate; details in src/modules/surface/README.md.",
+    "tests": [
+      "surface 72/72; core-loop, modeling, toolbar, undo-redo, foundation pass, zero console errors"
+    ],
+    "knownIssues": [
+      "G1 Patch cannot meet perpendicular walls (warns); G2 mostly like G1",
+      "Natural Extend approximate on curved faces",
+      "Merge only same-surface faces",
+      "Silhouette Split exact only for planar parting lines",
+      "Validate Repair only re-sews",
+      "Trim removal stored as points, can be lost with a warning",
+      "Project Axis no effect; To Object and Path + Guide Rail disabled",
+      "SOLID Thin Extrude (dialogs module) still disabled"
+    ]
+  },
+  "review:solidx": {
+    "findings": [
+      {
+        "file": "src/modules/solidx/occ.js",
+        "line": 219,
+        "severity": "high",
+        "problem": "Replace Face with a body target: geomOf(solid) returns the first face's topo summary, so the body is replaced by an enlarged plane or cylinder from an arbitrary face."
+      },
+      {
+        "file": "src/modules/solidx/occ.js",
+        "line": 340,
+        "severity": "high",
+        "problem": "Edit Face applies the drag displacement scaled by the Bernstein weight (about 0.2 at the centre of a 3x3 grid), so the surface does not follow the handle shown at base + d (editface.js:90); the e2e test drives moves directly and misses it."
+      },
+      {
+        "file": "src/modules/solidx/render.js",
+        "line": 203,
+        "severity": "medium",
+        "problem": "dispose() does not remove the preview-plane group added at line 105 to vp.groups.construction, and the dot texture is never disposed."
+      },
+      {
+        "file": "src/modules/solidx/refs.js",
+        "line": 175,
+        "severity": "low",
+        "problem": "Ellipse centre computed as midpoint of edge start and mid-point (unreachable: dialog accepts CIRCLE edges only)."
+      },
+      {
+        "file": "src/modules/solidx/faces.js",
+        "line": 261,
+        "severity": "low",
+        "problem": "Remove Features removed = found - skipped overcounts when the fallback breaks early (lines 252-253)."
+      },
+      {
+        "file": "src/modules/solidx/automodel.js",
+        "line": 88,
+        "severity": "low",
+        "problem": "inputsKey omits Volume, so changing Volume does not mark alternatives stale."
+      },
+      {
+        "file": "src/modules/solidx/automodel.js",
+        "line": 49,
+        "severity": "low",
+        "problem": "When k != 1 the original outerWire is not deleted (leak)."
+      },
+      {
+        "file": "src/modules/solidx/occ.js",
+        "line": 56,
+        "severity": "low",
+        "problem": "Untranslated R.makeSphere solid not deleted after translate()."
+      },
+      {
+        "file": "src/modules/solidx/refs.js",
+        "line": 299,
+        "severity": "low",
+        "problem": "Spline path sampling uses control points as a polyline; Along Path distances on splines approximate."
+      },
+      {
+        "file": "src/modules/solidx/faces.js",
+        "line": 20,
+        "severity": "low",
+        "problem": "frame() is dead code."
+      },
+      {
+        "file": "src/modules/solidx/occ.js",
+        "line": 320,
+        "severity": "low",
+        "problem": "Variable ms declared, never assigned, only passed to K.del (dead code; also line 374)."
+      },
+      {
+        "file": "src/modules/solidx/editface.js",
+        "line": 30,
+        "severity": "low",
+        "problem": "fourSided duplicates occ.js isFourSided (lines 305-308)."
+      },
+      {
+        "file": "src/modules/solidx/occ.js",
+        "line": 376,
+        "severity": "low",
+        "problem": "M_kind duplicates model.js shapeKind."
+      }
+    ]
+  },
+  "build:plastic": {
+    "summary": "plastic module: all nine PLASTIC commands with real geometry; round 2 finished Boss tabs (Boss/Ribs/Web), Lip shoulder/reveal/groove/extents/pull guide, Snap Fit rotation types/automatic mode/extents/hook ribs/undercut, Rest top faces/trim/side 2, Rib Draft Pull Direction. Rules in doc.plastic with an 8-rule library; per-component assignment.",
+    "implemented": [
+      "FusionRibCommand",
+      "FusionWebCommand",
+      "EmbossCmd",
+      "FusionBossCommand",
+      "FusionLipCommand",
+      "FusionRestCommand",
+      "FusionSnapFitCommand",
+      "FusionAssignPlasticRuleCommand",
+      "FusionManagePlasticRuleCommand"
+    ],
+    "notImplemented": [
+      {
+        "id": "FusionWebCommand Draft Pull Direction",
+        "reason": "string tables have it for Rib only"
+      },
+      {
+        "id": "Lip Extent Result options, Boss per-rib Extent/Suppress table, Side 2 counterbore",
+        "reason": "not requested"
+      }
+    ],
+    "sharedEdits": [],
+    "contracts": "app.ui.plastic = {rules, openManage(), openAssign({preselect}), types}; doc.plastic = {rules:[...], assign:{[componentId|'root']: ruleId}}; details in src/modules/plastic/README.md.",
+    "tests": [
+      "plastic 70/70; core-loop, modeling, toolbar, undo-redo pass, 0 console errors, full build; node geomtest pass"
+    ],
+    "knownIssues": [
+      "Default library rule values are approximations",
+      "Rest Side 2 and Trim are own reading",
+      "Boss webs with Offset Position above the parting plane can merge onto the mating rim and break a later Lip",
+      "Snap fit Aligned direction mapping is own reading",
+      "Emboss wrap only on outer cylinders with axis parallel to the sketch plane",
+      "Rib/Web profiles: lines and arcs only"
+    ]
+  },
+  "build:createx": {
+    "summary": "createx: Bounding Solid, Fluid Volume (new components), Pattern on Path, Geometric Pattern, Coordinate System, Volumetric Lattice and Texture (voxel SDF, 'volumetric' body kind). First pass left some sub-options; sent back to finish them. Round 2 added Bounding Solid Flip X/Y/Z, Origin Mode, component frame, Rigid Group; Pattern on Path suppression (suppressInstances); Lattice Transform; up to 4 offset regions; Texture Clearances; Custom cells.",
+    "implemented": [
+      "StockModelCommand",
+      "EnclosureCommand",
+      "PatternOnPath",
+      "FusionPatternGeometricCommand",
+      "CoordinateSystemCommand",
+      "VolFieldCreateLatticeCommand",
+      "VolFieldTextureCommand"
+    ],
+    "notImplemented": [
+      {
+        "id": "PCB tools",
+        "reason": "wave 2b"
+      },
+      {
+        "id": "Pattern on Path Faces and Components object types",
+        "reason": "disabled, as in the rectangular and circular patterns"
+      }
+    ],
+    "sharedEdits": [],
+    "contracts": "Feature types boundingsolid, fluidvolume, pathpattern, geopattern, csys, vlattice, vtexture; st.csys Map; body kind 'volumetric'; details in src/modules/createx/README.md.",
+    "tests": [
+      "createx 58/58; core-loop, modeling, toolbar, undo-redo, components pass (full build)"
+    ],
+    "knownIssues": [
+      "Bounding Solid, Fluid Volume, Volumetric Texture: no toolbar button (spec.js hides them), S toolbox only",
+      "Voxel grid limit: rounded edges, possible non-manifold saddle cells, texture on dense mesh about 4 s",
+      "Geometric Pattern planar faces only; Spread is own reading",
+      "Coordinate System dialog layout partly guessed",
+      "Rigid Group is a runtime wrap of app.components.setTransform/setTransforms (installRigidGroups); the wave 2b assembly module should replace it with a real rigid-group feature",
+      "Rigid Group does not show in the Move dialog live preview"
+    ]
+  },
+  "review:surface": {
+    "note": "No high findings. Reviewer did not run tests; the builder reported surface 72/72, so the surface.mjs:351 claim needs a check, not a blind fix.",
+    "findings": [
+      {
+        "file": "src/modules/surface/occ.js",
+        "line": 384,
+        "severity": "medium",
+        "problem": "trimWire leaks the chained wire and throws on an empty edge list."
+      },
+      {
+        "file": "src/modules/surface/occ.js",
+        "line": 494,
+        "severity": "medium",
+        "problem": "stitch drops faces without del (leak); containsFace (506-509) is O(F*S*F)."
+      },
+      {
+        "file": "src/modules/surface/occ.js",
+        "line": 658,
+        "severity": "medium",
+        "problem": "untrimmedFace keepHoles assumes the first wire is the outer one; a real hole can be dropped."
+      },
+      {
+        "file": "src/modules/surface/occ.js",
+        "line": 349,
+        "severity": "medium",
+        "problem": "loftWires adds the closing section only for more than 2 wires, so Closed does nothing for two profiles."
+      },
+      {
+        "file": "src/modules/surface/features.js",
+        "line": 164,
+        "severity": "medium",
+        "problem": "extrudeApply leaks the parts passed to sewnOrSingle; same at 211 (revolve), 229 (sweep), 344 (ruled)."
+      },
+      {
+        "file": "src/modules/surface/dlg-modify.js",
+        "line": 325,
+        "severity": "medium",
+        "problem": "Validate summary reports 'Number of edges removed' though no edges are removed."
+      },
+      {
+        "file": "tests/e2e/scenarios/surface.mjs",
+        "line": 351,
+        "severity": "medium",
+        "problem": "After Extrude1 edit to 20 mm, Patch1 edges at z=15 may not be located, so the 4000 mm^3 check may be wrong (verify by running)."
+      },
+      {
+        "file": "src/modules/surface/occ.js",
+        "line": 364,
+        "severity": "low",
+        "problem": "explore(spine,'edge')[0] leaks the other wrappers."
+      },
+      {
+        "file": "src/modules/surface/occ.js",
+        "line": 542,
+        "severity": "low",
+        "problem": "thickenShape leaks NCollection_List and solidsOf results (also 552)."
+      },
+      {
+        "file": "src/modules/surface/occ.js",
+        "line": 751,
+        "severity": "low",
+        "problem": "rulingSamples has two identical branches."
+      },
+      {
+        "file": "src/modules/surface/occ.js",
+        "line": 882,
+        "severity": "low",
+        "problem": "bboxOf(s) dereferenced without a null check."
+      },
+      {
+        "file": "src/modules/surface/occ.js",
+        "line": 693,
+        "severity": "low",
+        "problem": "mergeFaces leaks facesOf wrappers."
+      },
+      {
+        "file": "src/modules/surface/occ.js",
+        "line": 1009,
+        "severity": "low",
+        "problem": "Math.min(...hs) can overflow the stack on a large mesh."
+      },
+      {
+        "file": "src/modules/surface/features.js",
+        "line": 669,
+        "severity": "low",
+        "problem": "resolveFaceRef face wrapper not deleted (also 589, 644)."
+      },
+      {
+        "file": "src/modules/surface/features.js",
+        "line": 772,
+        "severity": "low",
+        "problem": "fixedFace results not deleted in validateApply."
+      },
+      {
+        "file": "src/modules/surface/features.js",
+        "line": 430,
+        "severity": "low",
+        "problem": "boundaryFillApply removes tool bodies before applyOp; a failure leaves them removed."
+      },
+      {
+        "file": "src/modules/surface/features.js",
+        "line": 510,
+        "severity": "low",
+        "problem": "splitBy failure swallowed by a bare catch with no message."
+      },
+      {
+        "file": "src/modules/surface/dlg-create.js",
+        "line": 404,
+        "severity": "low",
+        "problem": "toolsKey uses r.name or r.id: unnamed planes collide and can serve stale cells."
+      },
+      {
+        "file": "src/modules/surface/dlg-create.js",
+        "line": 409,
+        "severity": "low",
+        "problem": "Cached cell shapes deleted while the preview may still reference them."
+      },
+      {
+        "file": "src/modules/surface/dlg-modify.js",
+        "line": 303,
+        "severity": "low",
+        "problem": "Report cache key omits v.repair."
+      },
+      {
+        "file": "src/modules/surface/dlg-modify.js",
+        "line": 274,
+        "severity": "low",
+        "problem": "Split Shelled Body uses the Split Solid Body path."
+      },
+      {
+        "file": "src/modules/surface/index.js",
+        "line": 40,
+        "severity": "low",
+        "problem": "Editors close over the first init's app (module-level guard)."
+      }
+    ]
+  },
+  "build:sheetmetal": {
+    "summary": "SHEET METAL tab: 18 commands; sheet metal bodies are OCCT solids with meta.sheetMetal plus st.smData; exact K-factor unfold; refold carries cuts; flat pattern environment with DXF/STEP export; six default rules from the install. First pass left contour flange, chain selection, corner relief shapes and join-by-bend face extension; sent back to finish them. Round 2 added contour flanges, Chain Selection, real Corner Closure reliefs and Overlap Gap, Join by Bend face extension, Unfold button turning into Refold.",
+    "implemented": [
+      "FusionSheetMetalRulesCommand",
+      "FusionSheetMetalRulesLibraryCommand",
+      "FusionSheetMetalFlangeCommand",
+      "FusionSheetMetalHemFlangeCommand",
+      "FusionSheetMetalLoftCommand",
+      "FusionSheetMetalJogCommand",
+      "SheetMetalFoldCmd",
+      "FusionSheetmetalUnfoldCommand",
+      "FusionSheetmetalRefoldCommand",
+      "FusionSheetMetalRipCommand",
+      "FusionSheetMetalCornerCommand",
+      "FusionSheetMetalFilletCommand",
+      "FusionSheetMetalChamferCommand",
+      "FusionJoinByBendCommand",
+      "ConvertToSheetMetalCmd",
+      "FusionSheetMetalFlatPatternCmd",
+      "ExportFlatPatternCmd",
+      "FusionSheetMetalExitFlatPatternCmd"
+    ],
+    "notImplemented": [
+      {
+        "id": "FusionSheetMetalCosmeticBendCmd",
+        "reason": "flat pattern surface tab only; solid flat patterns only"
+      },
+      {
+        "id": "DMConvertToSheetMetalCmd",
+        "reason": "direct-modeling variant, not on the tab"
+      },
+      {
+        "id": "Flange: contour flange joined to an existing edge",
+        "reason": "contour flanges always make new bodies"
+      },
+      {
+        "id": "Corner Closure Width Extents, Bend Transition, 3-bend override",
+        "reason": "left out of the dialog"
+      }
+    ],
+    "sharedEdits": [
+      "src/modules/shell/common.js cmdInfo: optional def.face(app) -> {label, tooltip, icon}",
+      "src/modules/shell/toolbar.js: icon redraw for commands with def.face"
+    ],
+    "contracts": "Feature types smBaseFlange, smEdgeFlange, smHem, smLoft, smFold, smJog, smUnfold, smRefold, smRip, smCorner, smFillet, smChamfer, smConvert, smJoinBend; doc.sheetMetal {rules, active, components, flats, rev}; rules.ruleFor(doc, componentId); app.ui.sheetMetal; environment 'flatpattern'. See src/modules/sheetmetal/README.md.",
+    "tests": [
+      "sheetmetal 91/91; core-loop, modeling, toolbar, undo-redo pass, 0 console errors, full build OK"
+    ],
+    "knownIssues": [
+      "Flange defaults Height Datum = Outer Faces, Bend Position = Adjacent are guesses",
+      "Body moved or patterned after its last sheet metal feature loses placement data",
+      "Cuts across bends through refold approximated (0.05 mm slices); holes through bends before Convert are lost",
+      "Lofted flange flat pattern unfolds the mid surface",
+      "Edge flanges need straight edges",
+      "Join by Bend Relief shape has no effect"
+    ]
+  },
+  "build:mesh": {
+    "summary": "MESH tab: 26 registered feature types, dialogs with live preview, Mesh Selection Palette, face groups display, section sketch + Fit Curves, Tessellate / Convert Mesh, DIRECT MESH EDITING environment. Algorithms in the module (no manifold-3d).",
+    "implemented": [
+      "ParaMeshAlignCommand",
+      "ParaMeshAttractToReferenceCommand",
+      "ParaMeshBaseFeatureCreateCommand",
+      "ParaMeshBaseFeatureStopCommand",
+      "ParaMeshBridgeCommand",
+      "ParaMeshCalculateFaceGroupsCommand",
+      "ParaMeshCloseCracksCommand",
+      "ParaMeshCombineCommand",
+      "ParaMeshConvertCommand",
+      "ParaMeshCreateFaceGroupCommand",
+      "ParaMeshEmptyBaseFeatureCommand",
+      "ParaMeshEraseAndFillCommand",
+      "ParaMeshExtractCommand",
+      "ParaMeshHollowCommand",
+      "ParaMeshMergeFaceGroupsCommand",
+      "ParaMeshPlanarSectionCommand",
+      "ParaMeshPlaneCutCommand",
+      "ParaMeshReduceCommand",
+      "ParaMeshRemeshCommand",
+      "ParaMeshRemoveCommand",
+      "ParaMeshRepairCommand",
+      "ParaMeshReverseNormalsCommand",
+      "ParaMeshScaleCommand",
+      "ParaMeshShowSelectionPanelCmd",
+      "ParaMeshSmoothBoundaryCommand",
+      "ParaMeshSmoothCommand",
+      "ParaMeshTessellateCommand",
+      "ParaMeshTextureCommand",
+      "ParaMeshToQuadMeshCommand",
+      "FacegroupsToggleCmd",
+      "FitCurvesToSectionCommand"
+    ],
+    "notImplemented": [
+      {
+        "id": "ParaMeshConvertCommand Method Organic",
+        "reason": "needs the Form (T-spline) module, built in parallel: integration should wire it if the form module offers a mesh-to-T-spline path"
+      }
+    ],
+    "sharedEdits": [],
+    "contracts": "Feature types meshRemesh, meshReduce, meshPlaneCut, meshShell, meshCombine, meshSeparate, meshRepair, meshReverseNormals, meshSmooth, meshSmoothBoundary, meshCloseCracks, meshEraseFill, meshBridge, meshAlign, meshAttract, meshTexture, meshScale, meshRemove, meshFaceGroups, meshMergeGroups, meshCreateGroup, meshTessellate, meshConvert, meshQuad, meshBase; environment 'meshedit'; app.ui.mesh; see src/modules/mesh/README.md.",
+    "tests": [
+      "mesh 82/82; core-loop, modeling, toolbar, undo-redo, foundation, insert pass (full build); node algo test pass"
+    ],
+    "knownIssues": [
+      "In DIRECT MESH EDITING, other modules' commands add timeline features after the base feature instead of being absorbed",
+      "Shell can self-intersect on thick concave walls",
+      "Booleans need closed meshes; Convert Mesh max 20000 faces",
+      "Texture Extrude image stored as max 160 px grey map; Remesh Method and Reduce Proportion are own reading"
+    ]
+  },
+  "review:mesh": {
+    "findings": [
+      {
+        "file": "src/modules/mesh/brep.js",
+        "line": 15,
+        "severity": "medium",
+        "problem": "Tessellate Normal Deviation is in degrees but replicad shape.mesh() angularTolerance is radians; passed unconverted, so the criterion is effectively off (also features.js:640)."
+      },
+      {
+        "file": "src/modules/mesh/features.js",
+        "line": 663,
+        "severity": "medium",
+        "problem": "Convert Mesh 'Base Feature' operation (commands.js:693) is never read by apply; always makes a parametric solid."
+      },
+      {
+        "file": "src/modules/mesh/features.js",
+        "line": 348,
+        "severity": "low",
+        "problem": "Preserve Shape snaps every vertex, not only the smoothed boundary rings."
+      },
+      {
+        "file": "src/modules/mesh/algo.js",
+        "line": 74,
+        "severity": "low",
+        "problem": "weldArrays accepts a grid-cell hit without the <= tol check; merges vertices up to 1.7 x tol apart."
+      },
+      {
+        "file": "src/modules/mesh/algo.js",
+        "line": 1002,
+        "severity": "low",
+        "problem": "compactKeep index fallback can shift the selection mask when degenerate triangles are dropped (also 1031-1036)."
+      },
+      {
+        "file": "src/modules/mesh/algo.js",
+        "line": 952,
+        "severity": "low",
+        "problem": "closestOnTri edge-region formula can divide by zero and write NaN."
+      },
+      {
+        "file": "src/modules/mesh/algo.js",
+        "line": 565,
+        "severity": "low",
+        "problem": "earClip is O(n^3); large boundary loops can stall Fill or Repair."
+      },
+      {
+        "file": "src/modules/mesh/features.js",
+        "line": 394,
+        "severity": "low",
+        "problem": "Erase and Fill patch takes face group G[0], not the erased region's group."
+      },
+      {
+        "file": "src/modules/mesh/features.js",
+        "line": 607,
+        "severity": "low",
+        "problem": "Combine Face Groups does not check adjacency."
+      },
+      {
+        "file": "src/modules/mesh/direct.js",
+        "line": 124,
+        "severity": "low",
+        "problem": "SketchStop start-block and isMesh duplicated in direct.js, section.js, commands.js."
+      },
+      {
+        "file": "tests/e2e/scenarios/mesh.mjs",
+        "line": 238,
+        "severity": "low",
+        "problem": "Mesh Align check has '|| true' and can never fail."
+      }
+    ]
+  },
+  "build:form": {
+    "summary": "FORM (T-Spline) environment: Create Form feature, FormTab environment, 'tspline' body kind with own Catmull-Clark subdivision (creases, symmetry), all 52 T-Spline ids real, FINISH FORM to sewn bicubic B-spline faces, Edit Feature re-enters, save/open. First pass left greyed options; sent back to finish them. Round 2 added Match G2, Face Edge / Chain modes, Operation New Component, Smooth Brush, cumulative Edit Form numbers; ad hoc checks moved into form.mjs.",
+    "implemented": [
+      "TSplineBaseFeatureCreationCommand",
+      "TSplineBaseFeatureStop",
+      "TSplinePrimitiveBoxCommand",
+      "TSplinePrimitivePlaneCommand",
+      "TSplinePrimitiveCylinderCommand",
+      "TSplinePrimitiveSphereCommand",
+      "TSplinePrimitiveTorusCommand",
+      "TSplinePrimitiveQuadBallCommand",
+      "TSplinePrimitivePipe",
+      "TSplineAppendFaceCommand",
+      "TSplineExtrudeCommand",
+      "TSplineRevolveCommand",
+      "TSplineSweepCommand",
+      "TSplineLoft",
+      "TSplineEditCommand",
+      "TSplineEditByCurveCmd",
+      "TSplineInsertEdgeCommand",
+      "TSplineSubsetCmd",
+      "TSplineInsertPointCommand",
+      "TSplineMergeEdgeCmd",
+      "TSplineBridgeSubDCmd",
+      "TSplineFillHoleCmd",
+      "TSplineEraseAndFillCmd",
+      "TSplineWeldCommand",
+      "TSplineUnWeldCommand",
+      "TSplineCreasedEdgeCommand",
+      "TSplineUnCreaseEdgeCmd",
+      "TSplineBevelEdgeCommand",
+      "TSplineSlideEdgeCommand",
+      "TSplineSmoothCmd",
+      "TSplineCylindrifyCmd",
+      "TSplinePullSubDCmd",
+      "TSplineFlattenSubDCmd",
+      "TSplineStraightenCmd",
+      "TSplineMatchCmd",
+      "TSplineInterpolateSubDCmd",
+      "TSplineThickenCommand",
+      "TSplineFreezeCmd",
+      "TSplineUnFreezeCmd",
+      "TSplineInternalMirrorSymmetryCmd",
+      "TSplineInternalCircularSymmetryCmd",
+      "TSplineReflectionMirrorSymmetryCmd",
+      "TSplineReflectionCircularSymmetryCmd",
+      "TSplineClearSymmetryCommand",
+      "TSplineIsolateSymmetryCmd",
+      "TSplineToggleTessModeCmd",
+      "TSplineRepairBodyCmd",
+      "TSplineMakeUniformCmd",
+      "TSpline2BRepCommand",
+      "TSplineCapSettingCommand",
+      "TSplineImportCommand",
+      "TSplineSaveAsTSMCommand"
+    ],
+    "notImplemented": [
+      {
+        "id": "Edit By Curve on-surface sketch",
+        "reason": "fitted Bezier driving curve instead"
+      }
+    ],
+    "sharedEdits": [
+      "src/modules/viewport/bodies.js _applyStyle: shading 'smooth' for body kinds",
+      "src/kernel.js: new export seedBBox(shape, {min,max})",
+      "runtime: evaluator cache truncated from Form on enter/exit; FusionDeleteCommand / FusionMoveCommand wrapped in form mode"
+    ],
+    "contracts": "Form feature {type:'form', bodies:[cage]}; refs tsVertex, tsEdge, tsFace; app.ui.form = {state, createForm, enter, finish, setDisplay, insertTSplineText, readTSM, writeTSM, cageToShape, cageFromShape, evalCage, ops, cage}; event 'form'; K.seedBBox. See src/modules/form/README.md.",
+    "tests": [
+      "form 64/64; core-loop, modeling, toolbar, undo-redo, foundation pass, 0 console errors; earlier: browser, timeline, save-open, marking-menu, toolbox, shortcuts, insert pass"
+    ],
+    "knownIssues": [
+      "T-points are n-gons; Exact modes refit only",
+      "TSM schema not confirmed: own text format, OBJ, simple XML",
+      "UnWeld needs closed or boundary chains",
+      "Display mode not saved",
+      "Finishing large forms is slow (5 s for about 400 faces)",
+      "No FORM reference captures: some defaults and row orders from strings and memory",
+      "Match G1/G2 keep the T-spline own tangent/curvature; no blend to a target surface tangent",
+      "New Component preview shows the body at root until OK"
+    ]
+  },
+  "review:sheetmetal": {
+    "findings": [
+      {
+        "file": "src/modules/sheetmetal/features.js",
+        "line": 649,
+        "severity": "high",
+        "problem": "detachBend sets child.M, but flangeM/chain (geom.js 29-60) do not apply it to descendants of the detached flange: wrong placement after Rip of a bend with child bends."
+      },
+      {
+        "file": "src/modules/sheetmetal/convert.js",
+        "line": 473,
+        "severity": "medium",
+        "problem": "reroot clears d.flanges[child].bend every iteration, corrupting flange trees deeper than one bend in Join by Bend."
+      },
+      {
+        "file": "src/modules/sheetmetal/features.js",
+        "line": 580,
+        "severity": "medium",
+        "problem": "Collinear line-line join leaves turn null (line 541); sg.turn.A throws TypeError for contour flanges."
+      },
+      {
+        "file": "src/modules/sheetmetal/flat.js",
+        "line": 54,
+        "severity": "medium",
+        "problem": "DXF $INSUNITS hard-coded to 4 (mm) even with Units = Inch."
+      },
+      {
+        "file": "src/modules/sheetmetal/convert.js",
+        "line": 299,
+        "severity": "medium",
+        "problem": "Negative-volume loft fallback calls makeSolid([solid]); makeSolid expects faces or shells, so it likely throws."
+      },
+      {
+        "file": "src/modules/sheetmetal/convert.js",
+        "line": 675,
+        "severity": "low",
+        "problem": "Join by Bend reliefShape offered but never read."
+      },
+      {
+        "file": "src/modules/sheetmetal/geom.js",
+        "line": 526,
+        "severity": "low",
+        "problem": "rebuild parts not freed on exception (leak on preview errors)."
+      },
+      {
+        "file": "src/modules/sheetmetal/features.js",
+        "line": 259,
+        "severity": "low",
+        "problem": "applyEdgeChain leaks earlier tools when a later item throws."
+      },
+      {
+        "file": "src/modules/sheetmetal/flat.js",
+        "line": 41,
+        "severity": "low",
+        "problem": "loftFlat replaces its cache entry without deleting the previous solid."
+      },
+      {
+        "file": "src/modules/sheetmetal/geom.js",
+        "line": 642,
+        "severity": "low",
+        "problem": "pts.sort(() => 0) is a no-op."
+      },
+      {
+        "file": "src/modules/sheetmetal/index.js",
+        "line": 127,
+        "severity": "low",
+        "problem": "Splines to Polylines option has no effect (flat.js:81)."
+      },
+      {
+        "file": "src/modules/sheetmetal/flat.js",
+        "line": 86,
+        "severity": "low",
+        "problem": "No loops gives Infinity DXF extents."
+      },
+      {
+        "file": "src/modules/sheetmetal/geom.js",
+        "line": 410,
+        "severity": "low",
+        "problem": "Failed bend intersection silently becomes null; holes or cuts in that zone dropped."
+      },
+      {
+        "file": "src/modules/sheetmetal/convert.js",
+        "line": 13,
+        "severity": "low",
+        "problem": "ruleNums duplicates features.js:25."
+      },
+      {
+        "file": "src/modules/sheetmetal/convert.js",
+        "line": 282,
+        "severity": "low",
+        "problem": "Degenerate loft facets dropped silently; shell may stay open."
+      },
+      {
+        "file": "src/modules/sheetmetal/convert.js",
+        "line": 325,
+        "severity": "low",
+        "problem": "Flat-pattern walk breaks early, then lines 334-335 index past flatPos (TypeError)."
+      },
+      {
+        "file": "tests/e2e/scenarios/sheetmetal.mjs",
+        "line": 183,
+        "severity": "low",
+        "problem": "app.download override restored only on the success path."
+      }
+    ]
+  },
+  "review:createx": {
+    "findings": [
+      {
+        "file": "src/modules/createx/vox.js",
+        "line": 21,
+        "severity": "high",
+        "problem": "spacingFor stops after 40 growth steps without meeting the node budget; large bodies with small cell or texture scale allocate a huge voxel grid and hang or crash (lattice.js:179, :318)."
+      },
+      {
+        "file": "src/modules/createx/bounding.js",
+        "line": 480,
+        "severity": "medium",
+        "problem": "Rigid-group expansion moves pinned (grounded) partner occurrences; only the target is checked."
+      },
+      {
+        "file": "src/modules/createx/geopattern.js",
+        "line": 127,
+        "severity": "medium",
+        "problem": "Hex and tri layouts generated in full before the MAX_INSTANCES check: millions of points for a small distance on a large face."
+      },
+      {
+        "file": "src/modules/createx/lattice.js",
+        "line": 167,
+        "severity": "low",
+        "problem": "customCell SDF runs before the cached() lookup on every recompute."
+      },
+      {
+        "file": "src/modules/createx/lattice.js",
+        "line": 158,
+        "severity": "low",
+        "problem": "Hidden Solidity value validated in gradient mode; error the user cannot see."
+      },
+      {
+        "file": "src/modules/createx/pathpattern.js",
+        "line": 86,
+        "severity": "low",
+        "problem": "Instance ids bi*1000 + k collide above 999 instances."
+      },
+      {
+        "file": "src/modules/createx/pathpattern.js",
+        "line": 92,
+        "severity": "low",
+        "problem": "Missing bodies in state give success with no affected bodies and no warning."
+      },
+      {
+        "file": "src/modules/createx/geopattern.js",
+        "line": 233,
+        "severity": "low",
+        "problem": "Stray st._tool = null has no effect."
+      },
+      {
+        "file": "src/modules/createx/fluid.js",
+        "line": 117,
+        "severity": "low",
+        "problem": "Error path leaks unexamined split pieces."
+      },
+      {
+        "file": "src/modules/createx/csys.js",
+        "line": 133,
+        "severity": "low",
+        "problem": "selOfSnap ternary with identical branches; axis-ref conversion duplicated in csys.js, bounding.js, lattice.js."
+      },
+      {
+        "file": "src/modules/createx/lattice.js",
+        "line": 177,
+        "severity": "low",
+        "problem": "TPMS range constants duplicate vox.js latticeValue (323-325)."
+      },
+      {
+        "file": "src/modules/createx/vox.js",
+        "line": 304,
+        "severity": "low",
+        "problem": "segDist duplicates segmentDist; lattice.js:210 duplicates fract."
+      }
+    ]
+  },
+  "review:plastic": {
+    "findings": [
+      {
+        "file": "src/modules/plastic/features.js",
+        "line": 197,
+        "severity": "low",
+        "problem": "Drafted re-keep uses keep(dr, depth + 1): open-ended filter 1 mm too loose."
+      },
+      {
+        "file": "src/modules/plastic/features.js",
+        "line": 210,
+        "severity": "low",
+        "problem": "Fillet branch overwrites the draft warning."
+      },
+      {
+        "file": "src/modules/plastic/features.js",
+        "line": 265,
+        "severity": "low",
+        "problem": "Emboss skin, tools, prisms leak on exception (no try/finally)."
+      },
+      {
+        "file": "src/modules/plastic/features.js",
+        "line": 812,
+        "severity": "low",
+        "problem": "Rest leaks feet, cutTool, shown on error."
+      },
+      {
+        "file": "src/modules/plastic/features.js",
+        "line": 1027,
+        "severity": "low",
+        "problem": "RibTotal is a dead input (no UI row; spread at 466 ignores it)."
+      },
+      {
+        "file": "src/modules/plastic/index.js",
+        "line": 26,
+        "severity": "low",
+        "problem": "boss, rib, web, snapFit define no touches(), so timeline/deps.js:98 cannot see the bodies they modify."
+      },
+      {
+        "file": "src/modules/plastic/geom.js",
+        "line": 311,
+        "severity": "low",
+        "problem": "revolveRZ unused; rules.js:78 resetLibrary unused."
+      },
+      {
+        "file": "src/modules/plastic/dialogs.js",
+        "line": 56,
+        "severity": "low",
+        "problem": "Help ternary branches identical."
+      },
+      {
+        "file": "src/modules/plastic/features.js",
+        "line": 66,
+        "severity": "low",
+        "problem": "dir3 defined twice (also 658)."
+      },
+      {
+        "file": "src/modules/plastic/schematics.js",
+        "line": 5,
+        "severity": "low",
+        "problem": "Marker id plArr repeated in every SVG: duplicate DOM ids."
+      },
+      {
+        "file": "src/modules/plastic/rules-ui.js",
+        "line": 127,
+        "severity": "low",
+        "problem": "Async click handlers without catch (also 176): unhandled rejection."
+      },
+      {
+        "file": "src/modules/plastic/dialogs.js",
+        "line": 511,
+        "severity": "low",
+        "problem": "Automatic snap fit stores placeholder point id 'o'."
+      }
+    ]
   }
 }

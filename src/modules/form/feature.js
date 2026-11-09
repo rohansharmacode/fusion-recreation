@@ -78,6 +78,12 @@ export function registerFormFeature(M, K, editor) {
           if (r.faceted) faceted++;
           st.bodies.set(c.id, { id: c.id, shape: r.shape, from: f.id });
         }
+        // bodies made with Operation New Component belong to their own occurrence (under the form's component)
+        if (c.occ && c.comp && st.occ && st.bodyOcc) {
+          const parent = f.occ && st.occ.has(f.occ) ? f.occ : M.ROOT || "root";
+          if (!st.occ.has(c.occ)) st.occ.set(c.occ, { id: c.occ, component: c.comp, parent, T: M.occTransform ? M.occTransform(st, parent) : undefined });
+          st.bodyOcc.set(c.id, c.occ);
+        }
       }
       const out = { affected };
       if (faceted) out.warning = `${faceted} T-Spline bod${faceted > 1 ? "ies were" : "y was"} converted to a faceted body`;
@@ -94,12 +100,16 @@ export function tsplineKind(view) {
   return {
     label: "T-Spline Body",
     brep: false,
-    edges: "groups",
+    edges: "none", // the render hook draws the T-spline edges itself (in every visual style, like Fusion)
     shading: "smooth",
     exportSTL: true,
     mesh(entry) {
       if (!entry || !entry.data || !entry.data.ev) return entry && entry.mesh;
-      return displayOf(entry.id) === "box" ? entry.data.ev.box() : entry.data.ev.smooth;
+      const ev = entry.data.ev, mode = displayOf(entry.id);
+      // a distinct object per display mode: the viewport rebuilds the body (and its cage) when it changes
+      if (mode === "box") return ev.box();
+      if (mode === "frame") return ev.frameMesh || (ev.frameMesh = { ...ev.smooth });
+      return ev.smooth;
     },
     render: (entry, app) => view.renderCage(entry, app),
     pick: (entry, x, y, ray, opts) => view.pick(entry, x, y, ray, opts),

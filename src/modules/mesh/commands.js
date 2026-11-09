@@ -108,9 +108,11 @@ export function openMeshCommand(app, id, opts = {}) {
   const rows = cfg.rows(app, f0);
   const sel0 = (rows.find((r) => r.meshRow) || {}).modes;
   // the Selection Filter follows the command (body tools start with bodies, face tools with faces)
-  if (cfg.defaultMode) setMode(cfg.defaultMode);
-  else if (sel0 && !sel0.includes(PAL.mode)) setMode(sel0[0]);
   const pre = (opts.preselect || app.selection.items || []).filter((r) => r && (r.kind === "body" || r.kind === "meshFace"));
+  const preMode = pre.length ? (pre[0].kind === "body" ? "body" : pre[0].triOnly ? "face" : "group") : null;
+  if (preMode && sel0 && sel0.includes(preMode)) setMode(preMode);
+  else if (cfg.defaultMode) setMode(cfg.defaultMode);
+  else if (sel0) setMode(sel0[0]);
   const build = (v, d) => { try { return cfg.make(v, d); } catch (e) { d._mshError = e.message || String(e); return null; } };
   return app.ui.dialog.open({
     id, title: cfg.title, icon: id, editId, featureLabel: cfg.title, help: cfg.help,

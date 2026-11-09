@@ -240,6 +240,25 @@ function edgePts(st, ref) {
  * Path from sketch curves ([{sketch, curve}]) and body edges ([{body, p, sig}]): chained head to tail.
  * Returns a Path (see below) or throws.
  */
+/** Unchained world polylines of sketch curves and body edges (region / cell geometry). */
+export function curvePolylines(st, curves = [], edges = []) {
+  const out = [];
+  for (const r of curves) { const q = sketchCurvePts(st, r); if (q) out.push(q.pts); }
+  for (const r of edges) { const q = edgePts(st, r); if (q) out.push(q.pts); }
+  return out;
+}
+/** World point of a stored point ref (sketch point, vertex, origin point), or null. */
+export function pointOf(st, r) {
+  if (!r) return null;
+  if (r.kind === "sketchPoint") {
+    const sk = st.sketches.get(r.sketch);
+    const q = sk && sk.sk.points[r.point];
+    return q ? K.toWorld(sk.plane, q.x, q.y) : null;
+  }
+  if (r.kind === "originPoint") return [0, 0, 0];
+  return Array.isArray(r.p) ? [...r.p] : null;
+}
+
 export function buildPath(st, curves = [], edges = []) {
   const parts = [];
   let up = null;

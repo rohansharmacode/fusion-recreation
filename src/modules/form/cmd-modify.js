@@ -319,15 +319,68 @@ function shapeOp(app, spec) {
   });
 }
 export function openSmooth(app, opts = {}) {
-  return shapeOp(app, {
-    id: "TSplineSmoothCmd", title: "Smooth", featureLabel: "Smooth", help: "Smoothes an area of the T-Spline geometry. Select the faces to smooth and the smoothing rate.",
-    preselect: pre(app, opts, ["tsFace", "tsVertex", "tsEdge", "body"]), selRow: "faces",
+  // Brush mode: drag over the surface; vertices under the brush relax towards their neighbours (falloff to the rim)
+  let painting = false, last = 0;
+  const up = () => { painting = false; };
+  window.addEventListener("pointerup", up, true);
+  const paint = (ctx, d) => {
+    const now = performance.now();
+    if (now - last < 35) return;
+    last = now;
+    const h = app.viewport.pick(ctx.x, ctx.y, { filter: (r) => r.kind === "tsFace" && !!cageOf(app, r.body) });
+    if (!h || h.ref.kind !== "tsFace") return;
+    const id = h.ref.body;
+    const c = d.work.get(id) || cageOf(app, id);
+    const R = d.num("brush"), rate = d.num("rate");
+    if (!(R > 0) || !(rate > 0)) return;
+    const ev = evalCage(c);
+    const t = topo(c);
+    const fz = frozenSet(c);
+    const P = c.v.map((p) => p.slice());
+    const moved = new Set();
+    for (let i = 0; i < c.v.length; i++) {
+      if (fz.has(i)) continue;
+      const dist = V.dist(ev.limit(i), h.point);
+      if (dist >= R) continue;
+      const es = t.vEdges[i];
+      if (!es.length || es.some((e) => t.eFaces[e].length !== 2)) continue;
+      const nb = es.map((e) => c.v[t.edges[e][0] === i ? t.edges[e][1] : t.edges[e][0]]);
+      const w = 1 - dist / R;
+      P[i] = V.lerp(c.v[i], V.avg(nb), Math.min(1, rate * 0.5 * w * w * (3 - 2 * w) + rate * 0.15));
+      moved.add(i);
+    }
+    if (!moved.size) return;
+    d.work.set(id, tidy({ ...clone(c), v: symmetrize(c, P, moved) }));
+    d.schedulePreview(20, true);
+  };
+  return openFormDialog(app, {
+    id: "TSplineSmoothCmd", title: "Smooth", featureLabel: "Smooth",
+    help: "Smoothes an area of the T-Spline geometry. Selection: select the faces to smooth and the smoothing rate. Brush: drag over the surface.",
+    preselect: pre(app, opts, ["tsFace", "tsVertex", "tsEdge", "body"]),
     rows: [
-      tsRow(app, "faces", "Faces", ["tsFace", "tsEdge", "tsVertex", "body"], { prompt: "Select Faces" }),
-      { id: "mode", type: "dropdown", label: "Smoothing Mode", options: [{ value: "selection", label: "Selection" }, { value: "brush", label: "Brush", disabled: true }], default: "selection" },
+      { id: "mode", type: "dropdown", label: "Smoothing Mode", options: [{ value: "selection", label: "Selection" }, { value: "brush", label: "Brush" }], default: "selection" },
+      { ...tsRow(app, "faces", "Faces", ["tsFace", "tsEdge", "tsVertex", "body"], { prompt: "Select Faces" }), visible: (v) => v.mode !== "brush" },
+      { id: "brush", type: "value", label: "Brush Size", kind: "length", default: "5.00 mm", positive: true, visible: (v) => v.mode === "brush" },
       { id: "rate", type: "value", label: "Smoothing", kind: "none", default: "0.5", min: 0.01, max: 1, step: 0.1 },
     ],
-    shape: (c, rs, v, d) => O.smooth(c, vertsOf(c, rs), d.num("rate"), 3),
+    init(d) { d.work = new Map(); },
+    onChange(id, d) { if (id === "mode") { d.work = new Map(); d.activate(d.values.mode === "brush" ? null : "faces"); } },
+    prompt: (d) => (d.values.mode === "brush" ? "Drag over the T-Spline surface to smooth it" : "Select Faces"),
+    onCanvasDown(ctx, d) { if (d.values.mode !== "brush") return false; painting = true; last = 0; paint(ctx, d); return true; },
+    onCanvasMove(ctx, d) { if (d.values.mode !== "brush" || !painting) return false; paint(ctx, d); return true; },
+    onClose() { window.removeEventListener("pointerup", up, true); },
+    compute(v, d) {
+      if (v.mode === "brush") return d.work.size ? { set: new Map(d.work) } : null;
+      const set = new Map();
+      for (const [id, rs] of byBody(v.faces || [])) {
+        const c = cageOf(app, id);
+        if (!c) continue;
+        const out = O.smooth(c, vertsOf(c, rs), d.num("rate"), 3);
+        const moved = new Set(out.v.map((p, i) => (V.dist(p, c.v[i]) > 1e-12 ? i : -1)).filter((i) => i >= 0));
+        set.set(id, tidy({ ...out, v: symmetrize(c, out.v, moved) }));
+      }
+      return set.size ? { set } : null;
+    },
   });
 }
 export function openCylindrify(app, opts = {}) {
@@ -475,19 +528,33 @@ export function openMatch(app, opts = {}) {
     rows: [
       tsRow(app, "edges", "T-Spline Edges", ["tsEdge"], { prompt: "Select T-Spline edges", advance: false }),
       { id: "target", type: "selection", label: "Match Edges", kinds: ["sketchCurve", "edge", "face", "body"], meshBodies: true, prompt: "Select Targets", filter: (r) => !r.body || !cageOf(app, r.body) },
-      { id: "continuity", type: "dropdown", label: "Continuity", options: [{ value: "g0", label: "Connected (G0)" }, { value: "g1", label: "Tangent (G1)" }, { value: "g2", label: "Curvature (G2)", disabled: true }], default: "g0" },
+      { id: "continuity", type: "dropdown", label: "Continuity", options: [{ value: "g0", label: "Connected (G0)" }, { value: "g1", label: "Tangent (G1)" }, { value: "g2", label: "Curvature (G2)" }], default: "g0" },
     ],
     shape: (c, rs, v, d) => {
       const fn = targetFn(app, v.target || [], d.baseState);
       if (!fn) throw new Error("Select Targets");
       const vs = vertsOf(c, rs);
       let out = O.pull(c, vs, fn, "surface");
-      if (v.continuity === "g1") {
-        // the next row in follows half of the boundary's displacement (keeps the tangent direction)
+      if (v.continuity !== "g0") {
+        // G1: the first row in moves with the matched boundary (keeps the cross-boundary tangent),
+        // G2: the second row too (keeps the curvature next to the boundary)
         const t = topo(c);
         const P = out.v.map((p) => p.slice());
         const fz = frozenSet(c);
-        for (const vv of vs) for (const e of t.vEdges[vv]) { const w = t.edges[e][0] === vv ? t.edges[e][1] : t.edges[e][0]; if (vs.has(w) || fz.has(w)) continue; P[w] = V.add(c.v[w], V.mul(V.sub(out.v[vv], c.v[vv]), 0.5)); }
+        const disp = new Map([...vs].map((x) => [x, V.sub(out.v[x], c.v[x])]));
+        let prev = new Set(vs);
+        const done = new Set(vs);
+        for (let ring = 0; ring < (v.continuity === "g2" ? 2 : 1); ring++) {
+          const next = new Map();
+          for (const x of prev) for (const e of t.vEdges[x]) {
+            const w = t.edges[e][0] === x ? t.edges[e][1] : t.edges[e][0];
+            if (done.has(w) || fz.has(w)) continue;
+            if (!next.has(w)) next.set(w, []);
+            next.get(w).push(disp.get(x));
+          }
+          for (const [w, ds] of next) { const dv = V.avg(ds); disp.set(w, dv); P[w] = V.add(c.v[w], dv); done.add(w); }
+          prev = new Set(next.keys());
+        }
         out = tidy({ ...out, v: P });
       }
       return out;

@@ -1,4 +1,3 @@
-// UNDER ACTIVE DEVELOPMENT by the plastic engineer: integration engineers, do not edit; stub this module with --only if it breaks a test.
 // plastic module: the PLASTIC tab and the plastic-style solid features. Timeline feature types (registered
 // with model.js registerFeature): rib, web, emboss, boss, lip, rest, snapFit; commands FusionRibCommand,
 // FusionWebCommand, EmbossCmd, FusionBossCommand, FusionLipCommand, FusionRestCommand, FusionSnapFitCommand,
@@ -9,30 +8,36 @@ import * as RU from "./rules.js";
 import { openThin, openEmboss, openBoss, openLip, openRest, openSnapFit, begin } from "./dialogs.js";
 import { createRulesUI } from "./rules-ui.js";
 
-const L = "length", A = "angle";
 const sk = (refs) => [...new Set((refs || []).map((r) => r && r.sketch).filter(Boolean))];
 const faceGeo = (refs, kind = "face") => (refs || []).filter((r) => r && r.body && Array.isArray(r.p)).map((r) => ({ kind, body: r.body, p: r.p, n: r.n }));
-const BOSS_FIELDS = Object.fromEntries([
-  ...["D", "B", "E", "A", "C", "F", "R", "O"].map((k) => [`s1${k}`, L]), ["s1Cs", A], ["s1Draft", A],
-  ...["D", "B", "G", "C", "F", "R", "O"].map((k) => [`s2${k}`, L]), ["s2Draft", A],
-]);
+/** Dependencies of an optional extra reference (plane, face, edge, sketch entity). */
+const refDeps = (refs) => {
+  const out = { sketches: [], cplanes: [], geo: [] };
+  for (const r of (refs || []).filter(Boolean)) {
+    if (r.kind === "cplane") out.cplanes.push(r.id);
+    else if (r.sketch) out.sketches.push(r.sketch);
+    else if (r.body && Array.isArray(r.p)) out.geo.push({ kind: Array.isArray(r.n) ? "face" : "edge", body: r.body, p: r.p, n: r.n });
+  }
+  return out;
+};
+const merge = (...ds) => { const o = { sketches: [], cplanes: [], bodies: [], geo: [] }; for (const d of ds) for (const k of Object.keys(o)) o[k].push(...(d[k] || [])); return o; };
 
 /** Feature types: evaluator, expression fields, dependencies, dialog. */
 export const TYPES = {
-  rib: { label: "Rib", icon: "FusionRibCommand", cmd: "FusionRibCommand", fields: { thickness: L, depth: L, draft: A, fillet: L }, apply: F.applyRib,
-    open: (app, o) => openThin(app, "rib", o), deps: (f) => ({ sketches: f.curves ? [f.curves.sketch] : [] }) },
-  web: { label: "Web", icon: "FusionWebCommand", cmd: "FusionWebCommand", fields: { thickness: L, depth: L, draft: A, fillet: L }, apply: F.applyWeb,
+  rib: { label: "Rib", icon: "FusionRibCommand", cmd: "FusionRibCommand", apply: F.applyRib,
+    open: (app, o) => openThin(app, "rib", o), deps: (f) => merge({ sketches: f.curves ? [f.curves.sketch] : [] }, refDeps([f.pull])) },
+  web: { label: "Web", icon: "FusionWebCommand", cmd: "FusionWebCommand", apply: F.applyWeb,
     open: (app, o) => openThin(app, "web", o), deps: (f) => ({ sketches: f.curves ? [f.curves.sketch] : [] }) },
-  emboss: { label: "Emboss", icon: "EmbossCmd", cmd: "EmbossCmd", fields: { depth: L, hdist: L, vdist: L, angle: A }, apply: F.applyEmboss, open: openEmboss,
+  emboss: { label: "Emboss", icon: "EmbossCmd", cmd: "EmbossCmd", apply: F.applyEmboss, open: openEmboss,
     deps: (f) => ({ sketches: sk(f.profiles), geo: faceGeo(f.faces) }), touches: (f) => [...new Set((f.faces || []).map((r) => r.body))] },
-  boss: { label: "Boss", icon: "FusionBossCommand", cmd: "FusionBossCommand", fields: BOSS_FIELDS, apply: F.applyBoss, open: openBoss, deps: (f) => ({ sketches: sk(f.points) }) },
-  lip: { label: "Lip", icon: "FusionLipCommand", cmd: "FusionLipCommand", fields: { height: L, width: L, clearance: L, draft1: A, draft2: A }, apply: F.applyLip, open: openLip,
-    deps: (f) => ({ geo: [...faceGeo(f.edges, "edge"), ...faceGeo(f.guide ? [f.guide] : [])] }), touches: (f) => [...new Set((f.edges || []).map((r) => r.body))] },
-  rest: { label: "Rest", icon: "FusionRestCommand", cmd: "FusionRestCommand", fields: { thickness: L, offset: L, draft: A }, apply: F.applyRest, open: openRest,
-    deps: (f) => ({ sketches: sk(f.profiles), bodies: f.body ? [f.body] : [], cplanes: f.object && f.object.kind === "cplane" ? [f.object.id] : [], geo: f.object && f.object.body ? faceGeo([f.object]) : [] }),
+  boss: { label: "Boss", icon: "FusionBossCommand", cmd: "FusionBossCommand", apply: F.applyBoss, open: openBoss, deps: (f) => ({ sketches: sk(f.points) }) },
+  lip: { label: "Lip", icon: "FusionLipCommand", cmd: "FusionLipCommand", apply: F.applyLip, open: openLip,
+    deps: (f) => merge({ geo: [...faceGeo(f.edges, "edge"), ...faceGeo(f.guide ? [f.guide] : [])] }, refDeps([f.pull, f.extent1, f.extent2])), touches: (f) => [...new Set((f.edges || []).map((r) => r.body))] },
+  rest: { label: "Rest", icon: "FusionRestCommand", cmd: "FusionRestCommand", apply: F.applyRest, open: openRest,
+    deps: (f) => merge({ sketches: sk(f.profiles), bodies: f.body ? [f.body] : [], geo: faceGeo(f.topFaces) }, refDeps([f.object, f.object2])),
     touches: (f) => (f.body ? [f.body] : []) },
   snapFit: { label: "Snap Fit", icon: "FusionSnapFitCommand", cmd: "FusionSnapFitCommand", stem: "Snap Fit", apply: F.applySnapFit, open: openSnapFit,
-    fields: { rotation: A, hA: L, hB: L, hC: L, hD: L, hE: L, hF: L, hH: L, hAlpha1: A, hAlpha2: A, gJ: L, gL: L, gM: L }, deps: (f) => ({ sketches: sk(f.points) }) },
+    deps: (f) => merge({ sketches: [...sk(f.points), ...(f.selectMode === "auto" && f.autoSketch ? [f.autoSketch] : [])] }, refDeps([f.align])) },
 };
 
 const TIPS = {
@@ -52,7 +57,7 @@ export function init(app) {
   for (const [type, t] of Object.entries(TYPES)) {
     try {
       app.M.registerFeature(type, {
-        label: t.label, stem: t.stem || t.label, fields: t.fields, apply: t.apply, icon: t.icon,
+        label: t.label, stem: t.stem || t.label, fields: F.FIELDS[type], apply: t.apply, icon: t.icon,
         deps: (f) => ({ sketches: [], cplanes: [], bodies: [], features: [], geo: [], ...t.deps(f) }),
         touches: t.touches || (() => []),
         editor: (a, id) => t.open(a, { editId: id }),

@@ -1,4 +1,3 @@
-// UNDER ACTIVE DEVELOPMENT by the sheetmetal engineer: integration engineers, do not edit; stub this module with --only if it breaks a test.
 // sheetmetal module: SHEET METAL tab: rules, flanges, bends, unfold, flat pattern (see README.md).
 import "./style.css";
 import * as M from "../../model.js";
@@ -15,6 +14,7 @@ import * as R from "./rules.js";
 const EDITORS = {
   smBaseFlange: (app, id) => openFlange(app, { editId: id }),
   smEdgeFlange: (app, id) => openFlange(app, { editId: id }),
+  smContourFlange: (app, id) => openFlange(app, { editId: id }),
   smHem: (app, id) => openFlange(app, { editId: id }),
   smLoft: (app, id) => openLoft(app, { editId: id }),
   smFold: (app, id) => openFold(app, { editId: id }),
@@ -54,7 +54,11 @@ export function init(app) {
   let flat = null;
   part("flat", () => { flat = createFlatEnv(app); app.ui.sheetMetal = { flatOf: (id) => flatOf(app, id), flatDXF, enterFlat: (id) => flat.enter(id), exitFlat: () => flat.exit(), get flatActive() { return flat.active ? flat.active.bodyId : null; }, rules: R }; });
   part("commands", () => registerCommands(app, () => flat));
-  part("browser", () => registerBrowser(app, () => flat));
+  // the browser module starts after this one: add the Flat Pattern folder once it exists
+  let browserDone = false;
+  const tryBrowser = () => { if (!browserDone && app.ui.browser && typeof app.ui.browser.registerFolder === "function") { browserDone = true; part("browser", () => registerBrowser(app, () => flat)); } };
+  tryBrowser();
+  if (!browserDone) { const off = app.on("ready", () => { tryBrowser(); if (typeof off === "function") off(); }); }
 }
 
 function registerCommands(app, flatEnv) {
@@ -70,8 +74,11 @@ function registerCommands(app, flatEnv) {
   C("FusionSheetMetalCornerCommand", "Corner Closure", (a, ctx) => openCorner(a, { preselect: ctx.preselect }));
   C("FusionSheetMetalFilletCommand", "Sheet Metal Fillet", (a, ctx) => openSMEdge(a, { preselect: ctx.preselect }));
   C("FusionSheetMetalChamferCommand", "Sheet Metal Chamfer", (a, ctx) => openSMEdge(a, { chamfer: true, preselect: ctx.preselect }));
-  C("FusionSheetmetalUnfoldCommand", "Unfold", (a, ctx) => openUnfold(a, { refold: hasUnfolded(a), preselect: ctx.preselect }));
-  C("FusionSheetmetalRefoldCommand", "Refold Faces", (a, ctx) => openUnfold(a, { refold: true, preselect: ctx.preselect }));
+  C("FusionSheetmetalUnfoldCommand", "Unfold", (a, ctx) => openUnfold(a, { refold: hasUnfolded(a), preselect: ctx.preselect }), {
+    // like Fusion, the button becomes Refold while bends are unfolded
+    face: (a) => (hasUnfolded(a) ? { label: "Refold", tooltip: "Returns the model to its folded shape.", icon: "FusionSheetmetalRefoldCommand" } : null),
+  });
+  C("FusionSheetmetalRefoldCommand", "Refold", (a, ctx) => openUnfold(a, { refold: true, preselect: ctx.preselect }));
   C("FusionJoinByBendCommand", "Join by Bend", (a, ctx) => openJoinByBend(a, { preselect: ctx.preselect }));
   C("ConvertToSheetMetalCmd", "Convert to Sheet Metal", (a, ctx) => openConvert(a, { preselect: ctx.preselect }));
   C("FusionSheetMetalFlatPatternCmd", "Create Flat Pattern", (a) => createFlatPattern(a, flatEnv()));

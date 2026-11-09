@@ -693,4 +693,20 @@ export function seamsOpen(d, ids) {
 /** Half-plane filters [{n, c}] (n.p <= c keeps p). */
 export const keepSeed = (hp, p) => hp.every((h) => V2.dot(h.n, p) <= h.c + 1e-9);
 
+/** Connected open chain of lines / arcs of a sketch containing curve id (ordered curve ids). */
+export function sketchChain(sk, id) {
+  const ok = (c) => c && !c.cons && (c.type === "line" || c.type === "arc");
+  if (!ok(sk.curves[id])) return [id];
+  const ends = (cid) => { const c = sk.curves[cid]; return [c.p1, c.p2]; };
+  const same = (a, b) => a === b || V2.len(V2.sub([sk.points[a].x, sk.points[a].y], [sk.points[b].x, sk.points[b].y])) < 1e-6;
+  const ids = [id];
+  for (let k = 0; k < ids.length; k++) {
+    for (const [cid, c] of Object.entries(sk.curves)) {
+      if (ids.includes(cid) || !ok(c)) continue;
+      if (ends(cid).some((p) => ends(ids[k]).some((q) => same(p, q)))) ids.push(cid);
+    }
+  }
+  return ids;
+}
+
 export { V, V2, apply, applyDir, inv, mul, fromFrame, I4 };

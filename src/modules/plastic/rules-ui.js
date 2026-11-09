@@ -210,8 +210,8 @@ export function createRulesUI(app) {
       ...design.map((r) => ({ value: r.id, label: r.name })),
       ...lib.filter((r) => !design.some((d) => d.id === r.id)).map((r) => ({ value: r.id, label: `${r.name} (Library)` })),
     ];
-    const pre = (opts.preselect || []).filter((r) => r.kind === "body" || r.kind === "face").map((r) => ({ kind: "body", body: r.body }));
-    const comp0 = pre.length ? componentOfBody(app, pre[0].body) : "root";
+    const pre = (opts.preselect || []).map((r) => toOccRef(app, r)).filter(Boolean).slice(0, 1);
+    const comp0 = pre.length ? compOfOcc(app, pre[0].occ) : activeComponent(app);
     const cur = RU.assignedRuleId(app.doc, comp0) || RU.libraryDefaultId();
     return D.open({
       id: "FusionAssignPlasticRuleCommand",
@@ -224,9 +224,9 @@ export function createRulesUI(app) {
       activate: false,
       values: { rule: options.some((o) => o.value === cur) ? cur : (options[0] || {}).value },
       rows: [
-        { id: "component", type: "selection", label: "Component", kinds: ["body", "face"], min: 0, max: 1, mapRef: (r) => (r && r.body ? { kind: "body", body: r.body } : null),
-          prompt: "Select a component in the browser or canvas", tooltip: "Select a component. With no selection the rule goes to the root component.",
-          selText: (n, dlg) => (n ? compLabel(app, componentOfBody(app, dlg.values.component[0].body)) : "Root Component") },
+        { id: "component", type: "selection", label: "Component", kinds: ["occurrence", "body", "face"], min: 0, max: 1, mapRef: (r) => toOccRef(app, r),
+          prompt: "Select a component in the browser or canvas", tooltip: "Select a component in the browser, or a body of it in the canvas. With no selection the rule goes to the root component.",
+          selText: (n, dlg) => compLabel(app, n ? compOfOcc(app, dlg.values.component[0].occ) : "root") },
         { id: "rule", type: "dropdown", label: "Plastic Rule", options, tooltip: "Select a plastic rule" },
         { id: "details", type: "custom", label: "Rule Details", render: () => h("div", { class: "pl-assign-det" }), update: (el, dlg) => { el.innerHTML = `<div class="pl-det-title">Rule Details:</div>${detailsHtml(RU.findRule(app.doc, dlg.values.rule))}`; } },
       ],
@@ -235,7 +235,7 @@ export function createRulesUI(app) {
         const ruleId = dlg.values.rule;
         const r = RU.findRule(app.doc, ruleId);
         if (!r) throw new Error("Select a plastic rule");
-        const comp = (dlg.values.component || []).length ? componentOfBody(app, dlg.values.component[0].body) : "root";
+        const comp = (dlg.values.component || []).length ? compOfOcc(app, dlg.values.component[0].occ) : "root";
         app.mutate("Assign Plastic Rule", (doc) => {
           const P = RU.ensurePlastic(doc);
           if (!P.rules.some((x) => x.id === r.id)) P.rules.push({ ...r });
@@ -251,23 +251,35 @@ export function createRulesUI(app) {
   return { openManage, openAssign, editRule, detailsHtml };
 }
 
-// ---------------------------------------------------------------- components (root-only until app.components exists)
-/** Component id of a body: app.components when the foundation provides it, else the root. */
-export function componentOfBody(app, bodyId) {
-  try {
-    const C = app.components;
-    if (C && typeof C.ofBody === "function") return C.ofBody(bodyId) || "root";
-    if (C && typeof C.componentOfBody === "function") return C.componentOfBody(bodyId) || "root";
-  } catch { /* fall back */ }
-  return "root";
+// ---------------------------------------------------------------- components (app.components contract)
+// Rules belong to components (doc.components ids; "root" = the design). A body belongs to the component of the
+// occurrence that owns it (app.components.ownerOf); without the components module everything is the root.
+const ROOT = "root";
+/** Occurrence that owns a body. */
+export function occOfBody(app, bodyId) {
+  try { const C = app.components; if (C && typeof C.ownerOf === "function") return C.ownerOf(bodyId) || ROOT; } catch { /* root */ }
+  return ROOT;
+}
+/** Component id of an occurrence ("root" for the root). */
+export function compOfOcc(app, oid) {
+  if (!oid || oid === ROOT) return ROOT;
+  try { const i = app.components.info(oid); return (i && i.component) || ROOT; } catch { return ROOT; }
+}
+export const componentOfBody = (app, bodyId) => compOfOcc(app, occOfBody(app, bodyId));
+/** Component of the active occurrence (new features belong to it). */
+export const activeComponent = (app) => compOfOcc(app, app.doc && app.doc.activeOcc);
+/** Selection ref -> occurrence ref (a body or face picks the occurrence that owns it). */
+function toOccRef(app, r) {
+  if (!r) return null;
+  if (r.kind === "occurrence") return { kind: "occurrence", occ: r.occ || ROOT };
+  if (r.body) return { kind: "occurrence", occ: occOfBody(app, r.body) };
+  return null;
 }
 export function componentBodies(app, doc, comp) {
-  const all = Object.keys(doc.bodies || {});
-  if (comp === "root") return all.filter((id) => componentOfBody(app, id) === "root");
-  return all.filter((id) => componentOfBody(app, id) === comp);
+  return Object.keys(doc.bodies || {}).filter((id) => componentOfBody(app, id) === comp);
 }
 export function compLabel(app, comp) {
-  if (comp === "root") return (app.doc && app.doc.name) || "Root Component";
-  try { const C = app.components; const c = C && typeof C.get === "function" ? C.get(comp) : null; if (c && c.name) return c.name; } catch { /* ignore */ }
-  return comp;
+  if (comp === ROOT) return (app.doc && app.doc.name) || "Root Component";
+  const c = app.doc && app.doc.components && app.doc.components[comp];
+  return (c && c.name) || comp;
 }

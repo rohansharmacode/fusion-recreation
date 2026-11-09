@@ -175,7 +175,7 @@ export function createFlatEnv(app) {
     });
     setBodiesHidden(true);
     active.prevFilter = app.selection.filter;
-    app.selection.clear && app.selection.clear();
+    try { if (app.selection.clear) app.selection.clear(); if (app.selection.setHover) app.selection.setHover(null); } catch { /* ignore */ }
     active.off.push(app.on("model", (e) => { if (!e || !e.preview) { if (active) { if (!(app.result.state.smData instanceof Map) || !app.result.state.smData.get(bodyId)) exit("missing"); else display(); } } }));
     display();
     if (look && res.fp && app.viewport.lookAt) {

@@ -1,4 +1,3 @@
-// UNDER ACTIVE DEVELOPMENT by the createx engineer: integration engineers, do not edit; stub this module with --only if it breaks a test.
 // createx module: the remaining SOLID Create tools (see README.md).
 //   Bounding Solid (StockModelCommand)                 bounding.js   feature 'boundingsolid'
 //   Fluid Volume (EnclosureCommand)                    fluid.js      feature 'fluidvolume'
@@ -9,7 +8,7 @@
 import "./style.css";
 import { beginModelCommand } from "../dialogs/common.js";
 import { registerCsysFeature, installCsysDisplay, openCsys } from "./csys.js";
-import { registerBoundingFeature, openBoundingSolid } from "./bounding.js";
+import { registerBoundingFeature, openBoundingSolid, installRigidGroups } from "./bounding.js";
 import { registerFluidFeature, openFluidVolume } from "./fluid.js";
 import { registerPathPatternFeature, openPathPattern } from "./pathpattern.js";
 import { registerGeoPatternFeature, openGeoPattern } from "./geopattern.js";
@@ -48,4 +47,5 @@ export function init(app) {
   }
   // the coordinate-system triads need the viewport (created by an earlier module)
   try { installCsysDisplay(app); } catch (e) { console.warn("[createx] coordinate system display", e); }
+  try { installRigidGroups(app); } catch (e) { console.warn("[createx] rigid groups", e); }
 }

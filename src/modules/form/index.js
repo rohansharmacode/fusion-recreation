@@ -1,4 +1,3 @@
-// UNDER ACTIVE DEVELOPMENT by the form engineer: integration engineers, do not edit; stub this module with --only if it breaks a test.
 // form module: Fusion's FORM (T-Spline) contextual environment. Create Form enters it and adds a Form feature to
 // the timeline; primitives, curve-based creation, Edit Form, the modify / symmetry / utility tools edit T-spline
 // bodies (Catmull-Clark control cages with creases, subdivided here); FINISH FORM converts them to B-rep bodies.
@@ -18,6 +17,13 @@ import * as CAGE from "./cage.js";
 import { readTSM, writeTSM } from "./tsm.js";
 import { cageToShape } from "./brep.js";
 import { isTsRef } from "./cage.js";
+
+/** A T-spline element or body of the edited form. */
+function isFormSel(a, r) {
+  if (isTsRef(r)) return true;
+  const f = FORM.editing && a.feature(FORM.editing);
+  return r.kind === "body" && !!f && (f.bodies || []).some((c) => c.id === r.body);
+}
 
 export function init(app) {
   registerFormIcons();
@@ -121,14 +127,14 @@ export function init(app) {
     const del = app.commands.get("FusionDeleteCommand");
     if (del && !del.stub && !del._formWrapped) {
       const orig = del.run;
-      del.run = (a, ctx) => (a.mode === "form" && a.selection.items.some((r) => isTsRef(r) || (r.kind === "body" && CAGE && FORM.editing && (a.feature(FORM.editing).bodies || []).some((c) => c.id === r.body))) && deleteSelected(a) ? undefined : orig(a, ctx));
+      del.run = (a, ctx) => (a.mode === "form" && a.selection.items.some((r) => isFormSel(a, r)) && deleteSelected(a) ? undefined : orig(a, ctx));
       del._formWrapped = true;
     }
     const mv = app.commands.get("FusionMoveCommand");
     if (mv && !mv.stub && !mv._formWrapped) {
       const orig = mv.run;
       mv.run = (a, ctx = {}) => {
-        const ts = a.selection.items.filter((r) => isTsRef(r) || (r.kind === "body" && FORM.editing && (a.feature(FORM.editing).bodies || []).some((c) => c.id === r.body)));
+        const ts = a.selection.items.filter((r) => isFormSel(a, r));
         if (a.mode === "form" && ts.length) return CE.openEditForm(a, { preselect: ts });
         return orig(a, ctx);
       };

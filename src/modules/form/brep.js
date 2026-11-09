@@ -5,6 +5,25 @@
 // curves exactly). The faces are sewn; a closed result becomes a solid. Faceted fallback: the subdivided
 // triangles sewn into a polyhedral body.
 import { subdivide, displayMesh } from "./subdiv.js";
+import { topo } from "./cage.js";
+
+const ek = (a, b) => (a < b ? a + "," + b : b + "," + a);
+/** Cage edges whose patches must be cut at the midpoint: edges of non-quad faces, propagated across quads. */
+function splitEdges(cage) {
+  const cut = new Set();
+  for (const fc of cage.f) if (fc.length !== 4) for (let i = 0; i < fc.length; i++) cut.add(ek(fc[i], fc[(i + 1) % fc.length]));
+  if (!cut.size) return cut;
+  const quads = cage.f.filter((fc) => fc.length === 4);
+  for (let changed = true, guard = 0; changed && guard < 10000; guard++) {
+    changed = false;
+    for (const fc of quads) for (const [a, b, c, d] of [[0, 1, 2, 3], [1, 2, 3, 0]]) {
+      const e1 = ek(fc[a], fc[b]), e2 = ek(fc[c], fc[d]);
+      if (cut.has(e1) !== cut.has(e2)) { cut.add(e1); cut.add(e2); changed = true; }
+    }
+  }
+  void topo;
+  return cut;
+}
 
 // ---------------------------------------------------------------- 1D clamped cubic interpolation
 const SOLVERS = new Map();
@@ -75,28 +94,33 @@ export function interpCurve(Q) {
 }
 /** Tensor-product interpolation of a (m+1) x (m+1) grid G[i][j] -> poles[i][j] (n x n). */
 export function interpGrid(G) {
-  const m = G.length - 1;
+  // G[i][j]: i along u (mu + 1 points), j along v (mv + 1 points)
+  const mv = G[0].length - 1;
   const rowsU = [];
-  for (let j = 0; j <= m; j++) rowsU.push(interpCurve(G.map((col) => col[j])));
-  const n = m + 3;
+  for (let j = 0; j <= mv; j++) rowsU.push(interpCurve(G.map((col) => col[j])));
+  const nu = rowsU[0].length;
   const P = [];
-  for (let i = 0; i < n; i++) P.push(interpCurve(rowsU.map((r) => r[i])));
-  return P; // P[i][j]
+  for (let i = 0; i < nu; i++) P.push(interpCurve(rowsU.map((r) => r[i])));
+  return P; // P[i][j], (mu + 3) x (mv + 3)
 }
 
 // ---------------------------------------------------------------- OCCT
 const CACHE = new Map();
 const keyOf = (c, L) => JSON.stringify([c.v, c.f, c.crease || [], c.cv || [], L]);
 
-function patchFace(O, P) {
-  const n = P.length, m = n - 3;
-  const poles = new O.NCollection_Array2_gp_Pnt(1, n, 1, n);
+function knotsFor(O, m) {
   const kn = new O.NCollection_Array1_double(1, m + 1), mu = new O.NCollection_Array1_int(1, m + 1);
-  const tmp = [poles, kn, mu];
+  for (let k = 0; k <= m; k++) { kn.SetValue(k + 1, k); mu.SetValue(k + 1, k === 0 || k === m ? 4 : 1); }
+  return [kn, mu];
+}
+function patchFace(O, P) {
+  const nu = P.length, nv = P[0].length;
+  const poles = new O.NCollection_Array2_gp_Pnt(1, nu, 1, nv);
+  const [ku, mu] = knotsFor(O, nu - 3), [kv, mv] = knotsFor(O, nv - 3);
+  const tmp = [poles, ku, mu, kv, mv];
   try {
-    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) { const p = new O.gp_Pnt(P[i][j][0], P[i][j][1], P[i][j][2]); poles.SetValue(i + 1, j + 1, p); p.delete(); }
-    for (let k = 0; k <= m; k++) { kn.SetValue(k + 1, k); mu.SetValue(k + 1, k === 0 || k === m ? 4 : 1); }
-    const bs = new O.Geom_BSplineSurface(poles, kn, kn, mu, mu, 3, 3, false, false);
+    for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) { const p = new O.gp_Pnt(P[i][j][0], P[i][j][1], P[i][j][2]); poles.SetValue(i + 1, j + 1, p); p.delete(); }
+    const bs = new O.Geom_BSplineSurface(poles, ku, kv, mu, mv, 3, 3, false, false);
     tmp.push(bs);
     const mf = new O.BRepBuilderAPI_MakeFace(bs, 1e-7);
     tmp.push(mf);
@@ -152,21 +176,30 @@ export function cageToShape(K, cage, opts = {}) {
   if (CACHE.has(key)) { const hit = CACHE.get(key); CACHE.delete(key); CACHE.set(key, hit); return hit; }
   const t0 = typeof performance !== "undefined" ? performance.now() : Date.now();
   const sub = subdivide(cage, L, { track: true });
-  let size = 1;
+  let size = 1, bounds = null;
   {
     const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
     for (let i = 0; i < sub.P.length; i += 3) for (let c = 0; c < 3; c++) { lo[c] = Math.min(lo[c], sub.P[i + c]); hi[c] = Math.max(hi[c], sub.P[i + c]); }
     size = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) || 1;
+    bounds = { lo, hi };
   }
   const O = K.R.getOC();
   let res = null;
   const faces = [];
   try {
+    // quads next to other polygons are cut at their edge midpoints (propagated across quad rings) so that both
+    // sides of every cage edge are covered by patches of the same extent (shared boundary curves)
+    const cut = splitEdges(cage);
     for (const g of sub.grids) {
       const n = g.n;
       const G = [];
       for (let i = 0; i < n; i++) { G.push([]); for (let j = 0; j < n; j++) { const v = g.G[i * n + j]; G[i].push([sub.P[3 * v], sub.P[3 * v + 1], sub.P[3 * v + 2]]); } }
-      faces.push(patchFace(O, interpGrid(G)));
+      const fc = g.k < 0 ? cage.f[g.face] : null;
+      const h = (n - 1) / 2;
+      const cu = fc && (cut.has(ek(fc[0], fc[1])) || cut.has(ek(fc[2], fc[3])));
+      const cv = fc && (cut.has(ek(fc[1], fc[2])) || cut.has(ek(fc[3], fc[0])));
+      const us = cu ? [[0, h], [h, n - 1]] : [[0, n - 1]], vs = cv ? [[0, h], [h, n - 1]] : [[0, n - 1]];
+      for (const [i0, i1] of us) for (const [j0, j1] of vs) faces.push(patchFace(O, interpGrid(G.slice(i0, i1 + 1).map((col) => col.slice(j0, j1 + 1)))));
     }
     const shape = sewFaces(K, faces, size);
     if (!shape || (K.isEmptyShape && K.isEmptyShape(shape))) throw new Error("empty");
@@ -176,6 +209,8 @@ export function cageToShape(K, cage, opts = {}) {
     res = null;
   } finally { for (const f of faces) { try { f.delete(); } catch { /* ignore */ } } }
   if (!res) res = { shape: faceted(K, cage, size), faceted: true };
+  // bounds from the limit points (replicad's optimal box on B-spline faces takes seconds)
+  if (K.seedBBox && bounds) { const m = size * 0.002; K.seedBBox(res.shape, { min: bounds.lo.map((x) => x - m), max: bounds.hi.map((x) => x + m) }); }
   res.ms = (typeof performance !== "undefined" ? performance.now() : Date.now()) - t0;
   CACHE.set(key, res);
   while (CACHE.size > 24) CACHE.delete(CACHE.keys().next().value);

@@ -1492,6 +1492,13 @@ export function bboxOf(shape) {
   }
   return { min: [...b[0]], max: [...b[1]] };
 }
+/**
+ * Seed bboxOf's cache for a shape whose optimal box is slow to compute (bodies made of many B-spline faces,
+ * e.g. converted T-splines: AddOptimal takes seconds). b = {min, max}. Ignored when a box is already cached.
+ */
+export function seedBBox(shape, b) {
+  if (shape && typeof shape === "object" && b && b.min && b.max && !BBOX.has(shape)) BBOX.set(shape, [b.min.slice(), b.max.slice()]);
+}
 
 export function boxesOverlap(a, b, tol = 1e-4) {
   if (!a || !b) return false;

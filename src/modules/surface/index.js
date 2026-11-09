@@ -1,4 +1,3 @@
-// UNDER ACTIVE DEVELOPMENT by the surface engineer: integration engineers, do not edit; stub this module with --only if it breaks a test.
 // surface module: SURFACE tab: surface bodies and surface create / modify tools (Fusion command ids).
 // Feature types: features.js (registerFeature), geometry: occ.js, dialogs: dlg-create.js / dlg-modify.js.
 import "./style.css";

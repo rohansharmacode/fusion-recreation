@@ -601,7 +601,10 @@ export function bevelEdges(c, edgeRefs, { ratio = 0.3, segments = 1 } = {}) {
   // drop original chain vertices left in the middle of merged faces (degree 2)
   const t2 = topo(cur);
   const dropV = new Set();
-  for (let v = 0; v < cur.v.length; v++) if (orig.has(v) && t2.vEdges[v] && t2.vEdges[v].length === 2) dropV.add(v);
+  // (indices changed when the dissolve compacted the cage: find the original chain vertices by position)
+  const pk = (q) => q.map((x) => x.toFixed(5)).join(",");
+  const origPos = new Set([...orig].map((v) => pk(c.v[v])));
+  for (let v = 0; v < cur.v.length; v++) if (origPos.has(pk(cur.v[v])) && t2.vEdges[v] && t2.vEdges[v].length === 2) dropV.add(v);
   cur = compact({ ...cur, f: cur.f.map((fc) => fc.filter((v) => !dropV.has(v))) }).cage;
   segments = Math.max(1, Math.min(12, segments | 0));
   if (segments > 1) {

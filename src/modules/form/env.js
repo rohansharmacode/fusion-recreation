@@ -2,7 +2,7 @@
 // While active: the edited Form feature evaluates to T-spline bodies, double-click selects edge / face loops,
 // Delete removes T-spline faces / edges / vertices, Alt+1 / Alt+2 / Alt+3 switch the display mode.
 import { FORM, displayOf } from "./feature.js";
-import { edgeLoop, faceLoop, topo, eRef, fRef, isTsRef, V } from "./cage.js";
+import { edgeLoop, faceLoop, topo, eRef, fRef, isTsRef, V, withSymmetry } from "./cage.js";
 import { deleteElements } from "./ops.js";
 import { formFeature, cageOf, shownCage, commitChange, byBody } from "./common.js";
 
@@ -147,7 +147,7 @@ export function deleteSelected(app) {
       if (ch.remove.has(id)) continue;
       const c = cageOf(app, id);
       if (!c) continue;
-      const out = deleteElements(c, rs);
+      const out = deleteElements(c, withSymmetry(c, rs));
       if (!out.f.length) ch.remove.add(id); else ch.set.set(id, out);
     }
   } catch (e) { app.toast(e.message || String(e), "error"); return true; }

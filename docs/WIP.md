@@ -47,7 +47,7 @@ ask the user before deploying.
 - manage (utilities, scripts API, select tools, design advice, navigator): DONE, reviewed (`review:manage`).
 - sketch (remaining sketch tools): DONE on the Windows PC run, reviewed (`build:sketch`, `review:sketch`).
 - foundation part 2 (components): DONE on the Windows PC run (`build:foundation-2`); its review covers parts 1 and 2.
-- Windows PC run (2026-11-09): paths and the shared agent brief are in `docs/workflows/agent-context.md`. Wave 2a
+- Windows PC run (2026-11-09): paths and the shared agent brief are in `docs/workflows/agent-context.md`. Wave 2a (DONE)
   builders run in parallel; their reports and reviews go to `docs/wave2a-reports.json`. One integration run follows.
 - Cloud prep: `tests/e2e/harness.mjs` falls back to Chromium off Windows (or with `QA_BROWSER=chromium`), and
   `docs/fusion-evidence.json` holds command names, short dialog labels and toolbar layouts extracted from the

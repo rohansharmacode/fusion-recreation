@@ -176,6 +176,6 @@ export function initPalette(app) {
 export function setVisible(on) {
   PAL.visible = !!on;
   render();
-  if (PAL.app) { PAL.app.emit("layout", {}); PAL.app.emit("commands", { id: "ParaMeshShowSelectionPanelCmd" }); }
+  if (PAL.app) PAL.app.emit("layout", {});
 }
 export const refreshPalette = render;

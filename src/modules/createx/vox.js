@@ -122,6 +122,49 @@ function chamfer(G, D, cap) {
   sweep(-1);
 }
 
+/** Distance (clamped to band) to segments [[a, b], ...] (a point is [p, p]); exact within 1.75 cells, chamfer beyond. */
+export function segmentDist(G, segs, bandOut) {
+  const { o, h, nx, ny, nz } = G;
+  const band = Math.min(bandOut, 1.75 * h);
+  const D = new Float32Array(G.n).fill(band * band);
+  const cl = (v, n) => Math.max(0, Math.min(n - 1, v));
+  for (const [a, b] of segs) {
+    const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
+    const L2 = dx * dx + dy * dy + dz * dz || 1e-18;
+    const i0 = cl(Math.floor((Math.min(a[0], b[0]) - band - o[0]) / h), nx), i1 = cl(Math.ceil((Math.max(a[0], b[0]) + band - o[0]) / h), nx);
+    const j0 = cl(Math.floor((Math.min(a[1], b[1]) - band - o[1]) / h), ny), j1 = cl(Math.ceil((Math.max(a[1], b[1]) + band - o[1]) / h), ny);
+    const k0 = cl(Math.floor((Math.min(a[2], b[2]) - band - o[2]) / h), nz), k1 = cl(Math.ceil((Math.max(a[2], b[2]) + band - o[2]) / h), nz);
+    for (let k = k0; k <= k1; k++) for (let j = j0; j <= j1; j++) {
+      let idx = i0 + nx * (j + ny * k);
+      const py = o[1] + j * h, pz = o[2] + k * h;
+      for (let i = i0; i <= i1; i++, idx++) {
+        const px = o[0] + i * h;
+        let u = ((px - a[0]) * dx + (py - a[1]) * dy + (pz - a[2]) * dz) / L2;
+        u = u < 0 ? 0 : u > 1 ? 1 : u;
+        const qx = a[0] + u * dx - px, qy = a[1] + u * dy - py, qz = a[2] + u * dz - pz;
+        const d2 = qx * qx + qy * qy + qz * qz;
+        if (d2 < D[idx]) D[idx] = d2;
+      }
+    }
+  }
+  for (let i = 0; i < D.length; i++) D[i] = D[i] >= band * band ? bandOut : Math.sqrt(D[i]);
+  if (bandOut > band) chamfer(G, D, bandOut);
+  return D;
+}
+
+/** Trilinear sample of a grid field at (x, y, z) (clamped to the grid). */
+export function sample(G, F, x, y, z) {
+  const { o, h, nx, ny, nz } = G;
+  let fx = (x - o[0]) / h, fy = (y - o[1]) / h, fz = (z - o[2]) / h;
+  fx = fx < 0 ? 0 : fx > nx - 1.0001 ? nx - 1.0001 : fx;
+  fy = fy < 0 ? 0 : fy > ny - 1.0001 ? ny - 1.0001 : fy;
+  fz = fz < 0 ? 0 : fz > nz - 1.0001 ? nz - 1.0001 : fz;
+  const i = fx | 0, j = fy | 0, k = fz | 0, u = fx - i, v = fy - j, w = fz - k;
+  const n = i + nx * (j + ny * k), sy = nx, sz = nx * ny;
+  const L = (a, b, t) => a + (b - a) * t;
+  return L(L(L(F[n], F[n + 1], u), L(F[n + sy], F[n + sy + 1], u), v), L(L(F[n + sz], F[n + sz + 1], u), L(F[n + sz + sy], F[n + sz + sy + 1], u), v), w);
+}
+
 /** Inside flags (1 = inside) of a closed triangle mesh by ray parity along +X per (y, z) column. */
 export function insideFlags(G, T) {
   const { o, h, nx, ny, nz } = G;

@@ -108,6 +108,7 @@ const W = (pl, q) => K.toWorld(pl, q[0], q[1]);
 
 function edge3(pl, s) {
   if (s.kind === "line") return R.makeLine(W(pl, s.a), W(pl, s.b));
+  if (s.kind === "arc3") return R.makeThreePointArc(W(pl, s.a), W(pl, s.m), W(pl, s.b));
   return R.makeThreePointArc(W(pl, segStart(s)), W(pl, segMid(s)), W(pl, segEnd(s)));
 }
 /** Planar face bounded by a closed loop of 2D segments on plane pl. */
@@ -206,12 +207,17 @@ export function fuseAll(list) {
 /** Min distance between shapes (Infinity on failure). */
 export function dist(a, b) { try { return K.shapeDistance(a, b); } catch { return Infinity; } }
 
-/** Pieces (solids) of `shape` that touch any of the seed shapes. Non-kept solids are deleted. */
+/**
+ * Pieces (solids) of `shape` that touch any of the seed shapes. Consumes `shape`: it and the pieces that are
+ * not kept are deleted (a single-solid shape is returned as its own piece when it touches).
+ */
 export function piecesTouching(shape, seeds, tol = TOL) {
   const keep = [];
-  for (const s of K.solidsOf(shape)) {
+  const sol = K.solidsOf(shape);
+  for (const s of sol) {
     if (seeds.some((q) => dist(s, q) < tol)) keep.push(s); else K.del(s);
   }
+  if (!keep.includes(shape) && !sol.includes(shape)) K.del(shape);
   return keep;
 }
 
@@ -346,4 +352,79 @@ export function thickenFace(face, t) {
     if (K.volumeOf(s) < 0) { const rv = R.cast(s.wrapped.Reversed()); K.del(s); s = rv; }
     return s;
   } finally { K.del(b); }
+}
+
+// ---------------------------------------------------------------- rounded profiles
+/**
+ * Closed 2D polygon with corner i rounded by radii[i] (tangent arcs; a radius too large for the
+ * adjacent sides is reduced). Returns a loop of {kind:'line'} / {kind:'arc3', a, m, b} segments.
+ */
+export function roundCorners(pts, radii = []) {
+  const n = pts.length;
+  const c = pts.map((P, i) => {
+    const r = Number(radii[i]) || 0;
+    if (!(r > 1e-9)) return { a: P, b: P };
+    const A = pts[(i - 1 + n) % n], B = pts[(i + 1) % n];
+    const la = v2.len(v2.sub(A, P)), lb = v2.len(v2.sub(B, P));
+    if (la < 1e-9 || lb < 1e-9) return { a: P, b: P };
+    const u1 = v2.mul(v2.sub(A, P), 1 / la), u2 = v2.mul(v2.sub(B, P), 1 / lb);
+    const th = Math.acos(Math.max(-1, Math.min(1, v2.dot(u1, u2))));
+    if (th < 1e-6 || th > Math.PI - 1e-6) return { a: P, b: P };
+    let t = r / Math.tan(th / 2);
+    const tmax = 0.49 * Math.min(la, lb);
+    let rr = r;
+    if (t > tmax) { t = tmax; rr = t * Math.tan(th / 2); }
+    const bis = v2.norm(v2.add(u1, u2));
+    const C = v2.add(P, v2.mul(bis, rr / Math.sin(th / 2)));
+    return { a: v2.add(P, v2.mul(u1, t)), b: v2.add(P, v2.mul(u2, t)), m: v2.sub(C, v2.mul(bis, rr)) };
+  });
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const cur = c[i], nx = c[(i + 1) % n];
+    if (cur.m) out.push({ kind: "arc3", a: cur.a, m: cur.m, b: cur.b });
+    if (v2.len(v2.sub(nx.a, cur.b)) > 1e-9) out.push({ kind: "line", a: cur.b, b: nx.a });
+  }
+  return out;
+}
+/** Solid of revolution of a rounded (r, z) polygon about the axis o + t*d (360 deg). */
+export function revolveRounded(o, d, pts, radii = []) {
+  d = V.norm(d);
+  const u = perp(d);
+  const pl = { o, x: u, n: V.cross(u, d) }; // planeY = d
+  const f = loopFace(pl, roundCorners(pts, radii));
+  try {
+    let s = K.revolveFace(f, o, d, 360);
+    if (K.volumeOf(s) < 0) { const rv = R.cast(s.wrapped.Reversed()); K.del(s); s = rv; }
+    return s;
+  } finally { K.del(f); }
+}
+/** Prism along vec (starting at start) of a rounded 2D polygon on plane pl. */
+export function prismRounded(pl, pts, radii, vec, start = null) {
+  return prismUnion([loopFace(pl, roundCorners(pts, radii))], vec, start);
+}
+/** Fillet edges with their own radii: [[Edge, r], ...] (edges of shape). Throws on failure. */
+export function filletMulti(shape, pairs) {
+  const O = R.getOC();
+  const b = new O.BRepFilletAPI_MakeFillet(shape.wrapped, O.ChFi3d_FilletShape.ChFi3d_Rational);
+  try {
+    for (const [e, r] of pairs) b.Add(r, e.wrapped);
+    const s = R.cast(b.Shape());
+    if (!R.isShape3D(s) || K.isEmptyShape(s)) { K.del(s); throw new Error("fillet failed"); }
+    return s;
+  } finally { K.del(b); }
+}
+/** Fillet the junction edges of a joined tool with r(edge midpoint) (0 = skip); {shape, warning}. */
+export function filletJunctionBy(result, tool, body, radiusAt) {
+  const edges = junctionEdges(result, tool, body);
+  const pairs = [];
+  for (const e of edges) { let r = 0; try { r = radiusAt(K.edgeMid(e)); } catch { r = 0; } if (r > 1e-6) pairs.push([e, r]); else K.del(e); }
+  if (!pairs.length) return { shape: result };
+  try {
+    const s = filletMulti(result, pairs);
+    if (!(K.volumeOf(s) > 0)) { K.del(s); return { shape: result, warning: "The fillet could not be applied; try a smaller fillet radius" }; }
+    K.del(result);
+    return { shape: s };
+  } catch {
+    return { shape: result, warning: "The fillet could not be applied; try a smaller fillet radius" };
+  } finally { K.del(...pairs.map((x) => x[0])); }
 }

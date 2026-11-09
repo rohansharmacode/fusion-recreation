@@ -33,3 +33,6 @@
 .pl-assign-det .pl-det-title { margin: 0 0 4px; }
 .pl-pic { display: flex; justify-content: center; padding: 4px 0 2px; }
 .pl-pic svg { max-width: 100%; height: auto; }
+.pl-rot-list { display: flex; flex-direction: column; gap: 3px; width: 100%; }
+.pl-rot-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 11px; }
+.pl-rot-row input { width: 90px; }

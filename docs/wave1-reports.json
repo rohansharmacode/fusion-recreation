@@ -738,5 +738,81 @@
       "Display-only transforms do not shift edge or vertex picking.",
       "SOLID tab has no New Component in Fusion 2706 part designs (reachable from other create panels, browser and S toolbox)."
     ]
+  },
+  "review:foundation": {
+    "findings": [
+      {
+        "file": "src/model.js",
+        "line": 382,
+        "severity": "high",
+        "problem": "applyOp restricts default participants to the feature's component only when f.occ is set; a root feature gets scope null, so a root join/cut consumes visible solids of components."
+      },
+      {
+        "file": "src/model.js",
+        "line": 1854,
+        "severity": "medium",
+        "problem": "A feature whose type has no APPLY entry now throws instead of being skipped with ok:true, so every later feature fails when a module's feature type is not loaded."
+      },
+      {
+        "file": "src/modules/browser/index.js",
+        "line": 587,
+        "severity": "medium",
+        "problem": "Pasted-occurrence instance bodies (b1@oN) have no doc.bodies entry, so the eye toggle and rename silently do nothing (see core.js:533, timeline/actions.js:81)."
+      },
+      {
+        "file": "src/app/components.js",
+        "line": 104,
+        "severity": "medium",
+        "problem": "activate(), setOccFlag (125), rename (233-237), setProperties (244) go through app.mutate: view-only changes push undo steps and set dirty. Check Fusion's behaviour before changing."
+      },
+      {
+        "file": "src/model.js",
+        "line": 1673,
+        "severity": "medium",
+        "problem": "transformShape() results (moveOccurrence, refreshInstances, copy-component) are cached per input shape and never K.del'd: OCCT memory leak on re-evaluation."
+      },
+      {
+        "file": "src/app/core.js",
+        "line": 533,
+        "severity": "low",
+        "problem": "bodyMeta() names lazy bodies from counters.body while nextBody() uses counters.bodyName (model.js:84): duplicate body names possible."
+      },
+      {
+        "file": "src/modules/viewport/bodies.js",
+        "line": 367,
+        "severity": "low",
+        "problem": "rebuild() makes a new placeholder BufferGeometry per render-only body each time and removes old groups without disposing geometry."
+      },
+      {
+        "file": "src/modules/dialogs/cmd-component.js",
+        "line": 186,
+        "severity": "low",
+        "problem": "RevertPositions duplicates SnapshotEditCancel."
+      },
+      {
+        "file": "src/modules/inspect/insert.js",
+        "line": 18,
+        "severity": "low",
+        "problem": "meshPivot, meshWorldInfo, meshMatrix, f32ToB64, UNIT_MM duplicate model.js meshInsertMatrix / MESH_UNIT_MM and are dead code."
+      },
+      {
+        "file": "src/model.js",
+        "line": 559,
+        "severity": "low",
+        "problem": "meshDataOf cache key (length + first/last 48 chars) can collide between different meshes."
+      },
+      {
+        "file": "src/app/components.js",
+        "line": 53,
+        "severity": "low",
+        "problem": "info(ROOT) returns the shared IDENTITY array in T; a caller that mutates it corrupts the constant."
+      },
+      {
+        "file": "src/modules/configure/rules-ui.js",
+        "line": 249,
+        "severity": "low",
+        "problem": "Three em dashes (U+2014) in added lines 249-251."
+      }
+    ]
   }
 }

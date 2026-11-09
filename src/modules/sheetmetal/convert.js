@@ -406,10 +406,27 @@ function applyJoinBend(st, f, P, doc) {
   const us = -s0.dist / k;
   const sol = solveFor(us);
   // straight connector from the bend end to B's edge
-  const L = V.dot(V.sub(pB, sol.p), applyDir(inv(mA), applyDir(sol.mc, [q[0], q[1], 0])));
-  const r = chainOnEdge(d, ea.info, [{ A: Aang, R, rel: 1, L: Math.max(0, L) }], { s0: 0, s1: ea.info.len, us, sgn, feature: f.id });
+  const L = Math.max(0, V.dot(V.sub(pB, sol.p), applyDir(inv(mA), applyDir(sol.mc, [q[0], q[1], 0]))));
+  // B's edge range along A's edge (A's flat coordinates)
+  const bA = apply(toA, [eb.info.a[0], eb.info.a[1], 0]), bB = apply(toA, [eb.info.b[0], eb.info.b[1], 0]);
+  const sB = [bA, bB].map((p) => V2.dot(V2.sub([p[0], p[1]], ea.info.a), ea.info.d)).sort((x, y) => x - y);
+  // Face extension: Perpendicular keeps the connector square to the edges (A's width); Aligned runs its sides
+  // from A's edge ends to B's edge ends
+  const aligned = (f.extension || "aligned") === "aligned" && (Math.abs(sB[0]) > 1e-6 || Math.abs(sB[1] - ea.info.len) > 1e-6);
+  const r = chainOnEdge(d, ea.info, [{ A: Aang, R, rel: 1, L: aligned ? 0 : L }], { s0: 0, s1: ea.info.len, us, sgn, feature: f.id });
   const cuts = [];
-  if (us < -1e-9) cuts.push(G.flatPrism(mA, G.rect(ea.info.a, ea.info.d, q, 0, ea.info.len, us - 1e-4, 1e-3), d.w0 - 1e-3, d.w0 + T + 1e-3));
+  if (us < -1e-9) cuts.push(G.flatPrism(mA, G.rect(ea.info.a, ea.info.d, q, 0, ea.info.len, us, 1e-3), d.w0 - 1e-3, d.w0 + T + 1e-3));
+  // A's face extended up to the bend when the bend starts past A's edge
+  if (us > 1e-9) r.tools.push(G.flatPrism(mA, G.rect(ea.info.a, ea.info.d, q, 0, ea.info.len, 0, us), d.w0, d.w0 + T));
+  if (aligned && L > 1e-6) {
+    const bd = d.bends[r.bends[0]];
+    const BA = G.bendBA(bd, T);
+    const P2 = (s, u) => V2.add(bd.o, V2.add(V2.mul(bd.d, s), V2.mul(bd.q, u)));
+    const poly = [P2(0, BA), P2(ea.info.len, BA), P2(sB[1], BA + L), P2(sB[0], BA + L)];
+    r.tools.push(G.flatPrism(G.flangeM(d, r.flanges[0]), poly, d.w0, d.w0 + T));
+    const m0 = sB[0] / 2, m1 = (ea.info.len + sB[1]) / 2;
+    d.flanges[r.flanges[0]].seeds = [0.25, 0.5, 0.75].map((k) => P2(m0 + (m1 - m0) * k, BA + L * 0.5));
+  }
   // merge B's data under the connector flange (B re-rooted at the joined flange)
   const cid = r.flanges[0];
   const mc = G.flangeM(d, cid);
@@ -460,6 +477,119 @@ function reroot(d, fid) {
   d.frame = M0;
 }
 
+// ================================================================ Contour flange (open sketch profile)
+const ptOf = (sk, id) => [sk.points[id].x, sk.points[id].y];
+/** Ordered path [{type, a, b, (c, r, ccw)}] (2D, direction of travel) of the chain of curve ids. */
+function orderPath(sk, ids, first = ids[0]) {
+  const ends = (cid) => { const c = sk.curves[cid]; return [ptOf(sk, c.p1), ptOf(sk, c.p2)]; };
+  const near = (a, b) => V2.len(V2.sub(a, b)) < 1e-6;
+  const count = (p) => ids.reduce((n, cid) => n + ends(cid).filter((q) => near(p, q)).length, 0);
+  const starts = [];
+  for (const cid of ids) for (const p of ends(cid)) if (count(p) === 1) starts.push(p);
+  if (starts.length !== 2) throw new Error("Select an open sketch profile (a closed loop makes a base flange)");
+  // walk the chain in the direction of the first selected curve (its start point to its end point)
+  const walk = (from) => { const order = []; const left = new Set(ids); let cur = from; while (left.size) { const cid = [...left].find((x) => ends(x).some((q) => near(q, cur))); if (!cid) return null; left.delete(cid); const [p1, p2] = ends(cid); order.push({ cid, fwd: near(p1, cur) }); cur = near(p1, cur) ? p2 : p1; } return order; };
+  const w0 = walk(starts[0]);
+  const hit = w0 && w0.find((x) => x.cid === first);
+  const start = { p: !hit || hit.fwd ? starts[0] : starts[1] };
+  const out = [];
+  const left = new Set(ids);
+  let cur = start.p;
+  while (left.size) {
+    const cid = [...left].find((x) => ends(x).some((q) => near(q, cur)));
+    if (!cid) throw new Error("The contour must be one connected chain of lines and arcs");
+    left.delete(cid);
+    const c = sk.curves[cid];
+    const [p1, p2] = ends(cid);
+    const fwd = near(p1, cur);
+    const a = fwd ? p1 : p2, b = fwd ? p2 : p1;
+    if (c.type === "line") out.push({ type: "line", a, b });
+    else out.push({ type: "arc", a, b, c: ptOf(sk, c.c), r: V2.len(V2.sub(p1, ptOf(sk, c.c))), ccw: fwd });
+    cur = b;
+  }
+  return out;
+}
+function applyContour(st, f, P, doc) {
+  const refs = f.curves || [];
+  if (!refs.length) throw new Error("Select an open sketch profile");
+  const s = st.sketches.get(refs[0].sketch);
+  if (!s) throw new Error("The contour sketch is missing");
+  const path = orderPath(s.sk, refs.map((r) => r.curve));
+  if (path[0].type !== "line" || path[path.length - 1].type !== "line") throw new Error("The contour must start and end with a line");
+  const rule = ruleNums(doc, P, f.rule);
+  const T = rule.T;
+  const Rr = f.bendRadius ? Math.max(0, M.fval(P, f, "bendRadius")) : rule.R;
+  const w0 = f.orientation === "side2" ? -T : f.orientation === "center" ? -T / 2 : 0;
+  // straight segments and the turns between them (sharp corners -> bends of the rule radius)
+  const dirOf = (e) => V2.norm(V2.sub(e.b, e.a));
+  const segs = []; // {len, turn: {A, sgn, rc (radius at the sketch curve), arc}}
+  let i = 0;
+  while (i < path.length) {
+    const e = path[i];
+    if (e.type !== "line") throw new Error("Arcs in a contour must sit between two lines");
+    segs.push({ len: V2.len(V2.sub(e.b, e.a)), dir: dirOf(e), setA: 0, setB: 0, turn: null });
+    const nx = path[i + 1];
+    if (!nx) break;
+    if (nx.type === "arc") {
+      const after = path[i + 2];
+      if (!after || after.type !== "line") throw new Error("Arcs in a contour must sit between two lines");
+      const th = V2.cross(dirOf(e), dirOf(after)) >= 0 ? Math.acos(Math.max(-1, Math.min(1, V2.dot(dirOf(e), dirOf(after))))) : -Math.acos(Math.max(-1, Math.min(1, V2.dot(dirOf(e), dirOf(after)))));
+      segs[segs.length - 1].turn = { A: Math.abs(th), sgn: th >= 0 ? 1 : -1, rc: nx.r, arc: true };
+      i += 2;
+    } else {
+      const th = Math.atan2(V2.cross(dirOf(e), dirOf(nx)), V2.dot(dirOf(e), dirOf(nx)));
+      if (Math.abs(th) < 1e-9) { segs[segs.length - 1].len += 0; i += 1; continue; }
+      const sgn = th >= 0 ? 1 : -1;
+      const rc = sgn > 0 ? Rr + w0 + T : Rr - w0;
+      segs[segs.length - 1].turn = { A: Math.abs(th), sgn, rc, arc: false };
+      i += 1;
+    }
+  }
+  // inner bend radius from the radius at the sketch curve (w = 0)
+  for (const sg of segs) if (sg.turn) {
+    const t = sg.turn;
+    t.R = t.sgn > 0 ? t.rc - w0 - T : t.rc + w0;
+    if (t.R < -1e-9) throw new Error("A bend radius in the contour is smaller than the sheet thickness allows");
+    t.R = Math.max(0, t.R);
+    if (!t.arc) { const sb = t.rc * Math.tan(t.A / 2); sg.setB = sb; }
+  }
+  for (let k = 1; k < segs.length; k++) if (segs[k - 1].turn && !segs[k - 1].turn.arc) segs[k].setA = segs[k - 1].setB;
+  for (const sg of segs) { sg.L = sg.len - sg.setA - sg.setB; if (sg.L < -1e-6) throw new Error("A contour segment is too short for its bend"); sg.L = Math.max(0, sg.L); }
+  // flat frame: u along the first line, v against the sketch normal, w to the left of the path
+  const pl = s.plane;
+  const N = V.norm(pl.n);
+  const d0 = segs[0].dir;
+  const x = V.norm(V.sub(K.toWorld(pl, path[0].a[0] + d0[0], path[0].a[1] + d0[1]), K.toWorld(pl, path[0].a[0], path[0].a[1])));
+  const z = V.cross(N, x);
+  const frame = fromFrame(K.toWorld(pl, path[0].a[0], path[0].a[1]), x, V.mul(N, -1), z);
+  const D = Math.max(1e-3, M.fval(P, f, "distance"));
+  const D2 = f.direction === "two" ? Math.max(0, M.fval(P, f, "distance2")) : 0;
+  const [vA, vB] = f.direction === "sym" ? [-D / 2, D / 2] : f.direction === "two" ? [-D, D2] : [-D, 0];
+  const d = G.newData({ T, K: rule.K, R: Rr, rule: rule.id, w0, frame });
+  applyRule(d, rule);
+  d.R = Rr;
+  d.flanges.F1.feature = f.id;
+  const L0 = segs[0].L;
+  const base = [[0, vA], [L0, vA], [L0, vB], [0, vB]];
+  d.flanges.F1.seeds = L0 > 1e-6 ? [0.25, 0.5, 0.75].map((k) => [L0 * k, vA + (vB - vA) * (1 - k)]) : [];
+  const tools = L0 > 1e-6 ? [G.flatPrism(frame, base, w0, w0 + T)] : [];
+  const turns = segs.filter((sg) => sg.turn);
+  if (turns.length) {
+    const sgnBase = turns[0].turn.sgn;
+    const e = { fid: "F1", a: [L0, 0], d: [0, 1], q: [1, 0], len: vB - vA };
+    const chainSegs = segs.slice(0, -1).map((sg, k) => ({ A: sg.turn.A, R: sg.turn.R, rel: sg.turn.sgn * sgnBase, L: segs[k + 1].L }));
+    const r = chainOnEdge(d, e, chainSegs, { s0: vA, s1: vB, us: 0, sgn: sgnBase, feature: f.id });
+    tools.push(...r.tools);
+    r.flanges.forEach((fid, k) => { d.flanges[fid].len = chainSegs[k].L; });
+  }
+  if (!tools.length) throw new Error("The contour is too short");
+  const solid = G.fuseList(tools);
+  const id = f.newBody || `${f.id}_b`;
+  if (!d.flanges.F1.seeds.length) d.flanges.F1.seeds = [];
+  putBody(st, id, solid, d, f);
+  return { affected: [id] };
+}
+
 // ================================================================ registration data
 const deps = (keys) => (f) => {
   const bodies = [];
@@ -476,6 +606,11 @@ export const EXTRA_FEATURES = {
     label: "Lofted Flange", stem: "LoftedFlange", icon: "FusionSheetMetalLoftCommand",
     fields: {}, makesBodies: true, apply: applyLoft,
     deps: deps([]), touches: () => [],
+  },
+  smContourFlange: {
+    label: "Contour Flange", stem: "Flange", icon: "FusionSheetMetalFlangeCommand",
+    fields: { distance: "length", distance2: "length", bendRadius: "length" }, makesBodies: true, apply: applyContour,
+    deps: (f) => ({ sketches: [...new Set((f.curves || []).map((c) => c.sketch))], cplanes: [], bodies: [], features: [], geo: [] }), touches: () => [],
   },
   smJoinBend: {
     label: "Join by Bend", stem: "JoinByBend", icon: "FusionJoinByBendCommand",

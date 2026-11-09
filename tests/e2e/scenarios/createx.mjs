@@ -102,10 +102,21 @@ const scenario = defineScenario({
     t.check("Bounding Solid rows: Objects, Type, Orientation, Offset Mode, Side/Top/Bottom Offset, Round Up to Nearest", ["Objects", "Type", "Orientation", "Offset Mode", "Side Offset", "Top Offset", "Bottom Offset", "Round Up to Nearest"].every((l) => labels.includes(l)), labels.join("|"));
     await t.fill(sel("StockModelCommand", "side"), "2 mm");
     await t.fill(sel("StockModelCommand", "top"), "1 mm");
+    await pickOption(t, "StockModelCommand", "originMode", "box");
+    await t.settle(400);
+    const corner = await t.canvasXY([22, 12, 11]);
+    await t.canvasClick(corner.x, corner.y);
+    await t.settle(300);
+    const bpv = await t.app(() => { const d = window.app.ui.dialog.current; return { bp: d.values.boxPoint, rigid: d.values.rigid, text: (document.querySelector('.dlg[data-dialog="StockModelCommand"] [data-row="boxPointText"]') || {}).innerText }; });
+    t.check("box point marker clicked (top back right), Rigid Group on by default", bpv.bp && bpv.bp.join() === "2,2,2" && bpv.rigid === true && /Top back right/.test(bpv.text || ""), JSON.stringify(bpv));
     await t.shot("bounding-dialog");
     t.check("Bounding Solid OK", await okDialog(t, "StockModelCommand"));
     const bs = await last(t, "boundingsolid");
+    const wcs = await t.app((id) => (window.app.featureResult(id) || {}).wcs, bs && bs.id);
+    t.check("bounding solid coordinate system origin at the picked box point (22, 12, 11)", wcs && near(wcs.o[0], 22, 1e-3) && near(wcs.o[1], 12, 1e-3) && near(wcs.o[2], 11, 1e-3) && bs.f.rigidGroup === true, JSON.stringify(wcs));
     const bsV = bs && (await volume(t, bs.body));
+    const bsOcc = await t.app((id) => { const st = window.app.result.state; return !!(st.bodyOcc && st.bodyOcc.get(id)); }, bs && bs.body);
+    t.check("the bounding solid is a new component (its body belongs to an occurrence)", bsOcc);
     t.check("bounding solid 44 x 24 x 11 = 11616 mm^3", bs && bs.ok && bs.tl && bs.icon && near(bsV, 11616, 1), JSON.stringify({ bs: bs && { ok: bs.ok, err: bs.error, tl: bs.tl }, bsV }));
 
     t.step("Edit Feature: Relative size cylinder about Z");
@@ -115,7 +126,34 @@ const scenario = defineScenario({
     await okDialog(t, "StockModelCommand");
     const bcV = await volume(t, bs.body);
     t.check("edited to a cylinder around the box (r = 22.36, h = 10)", near(bcV, Math.PI * 500 * 10, 2), fmt(bcV));
+    t.step("Edit Feature: Relative size box oriented to the coordinate system (pick the triad)");
+    await t.app((id) => window.app.editFeature(id), bs.id);
+    await t.waitFor(`.dlg[data-dialog="StockModelCommand"][data-edit="${bs.id}"]`, { timeout: 3000 });
+    await pickOption(t, "StockModelCommand", "bsType", "relBox");
+    await pickOption(t, "StockModelCommand", "orient", "csys");
+    const tri = await clickAt(t, [csF.o], "h && h.ref && h.ref.kind === 'feature'");
+    t.check("coordinate system triad picked into the Coordinate System row", !!tri && (await t.app(() => (window.app.ui.dialog.current.values.csys || []).length === 1)));
+    await okDialog(t, "StockModelCommand");
+    const brV = await volume(t, bs.body);
+    t.check("box aligned to the 30 deg coordinate system (48.64 x 41.32 x 11)", near(brV, (40 * Math.cos(Math.PI / 6) + 14) * (20 + 20 * Math.cos(Math.PI / 6) + 4) * 11, 3), fmt(brV));
     await t.app((id) => { const a = window.app; a.mutate("hide", (doc) => { doc.bodies[id].visible = false; }); }, bs.body);
+
+    t.step("Rigid Group: moving the component of the selected body moves the bounding solid; Flip Z Axis");
+    const rg = await t.app(() => {
+      const a = window.app, C = a.components;
+      const b = a.addFeature({ type: "box", length: "10 mm", width: "10 mm", height: "6 mm", center: [0, -140], operation: "new", plane: { kind: "origin", name: "XY" } }).newBody;
+      C.createFromBodies([b]);
+      const f = a.addFeature({ type: "boundingsolid", operation: "newComponent", bodies: [b], bsType: "relBox", orient: "model", offMode: "none", flipZ: true, originMode: "box", boxPoint: [1, 1, 0], rigidGroup: true });
+      const w = a.featureResult(f.id).wcs;
+      const occ = C.ownerOf(b), T0 = C.transform(f.newOcc);
+      C.setTransform(occ, [1, 0, 0, 30, 0, 1, 0, 0, 0, 0, 1, 0]);
+      const T1 = C.transform(f.newOcc);
+      const out = { z: w.z, o: w.o, dx: T1[3] - T0[3], min: a.bodyInfo(f.newBody).bbox.min };
+      C.revert && C.revert();
+      return out;
+    });
+    t.check("Flip Z Axis turns the coordinate system (z down, origin on the top centre)", near(rg.z[2], -1, 1e-6) && near(rg.o[2], 6, 1e-6), JSON.stringify(rg));
+    t.check("the rigid group moves the bounding solid with the component (+30 mm)", near(rg.dx, 30, 1e-6) && near(rg.min[0], 25, 1e-3), JSON.stringify(rg));
 
     // ------------------------------------------------------------ Pattern on Path
     t.step("Pattern on Path: small cube along the front bottom edge of the box, 3 instances");
@@ -129,11 +167,18 @@ const scenario = defineScenario({
     const edgeAim = await clickAt(t, [[0, 10, 10], [5, 10, 10], [-5, 10, 10]], "h && h.ref && h.ref.kind === 'edge'");
     t.check("path edge picked", !!edgeAim);
     await t.fill(sel("PatternOnPath", "quantity"), "3");
+    await t.click(sel("PatternOnPath", "suppress"));
+    await t.settle(500);
+    const marks = await t.app(() => (window.app.ui.dialog.current.previewRes || {}).marks || []);
+    const m2 = marks.find((m) => m.k === 2);
+    if (m2) { const q = await t.canvasXY(m2.p); await t.canvasClick(q.x, q.y); await t.settle(400); }
+    const supp = await t.app(() => window.app.ui.dialog.current.values.suppressed);
+    t.check("Suppression shows instance markers; clicking instance 2 suppresses it", marks.length === 2 && JSON.stringify(supp) === "[2]", JSON.stringify({ marks: marks.length, supp }));
     await t.shot("pathpattern-dialog");
     t.check("Pattern on Path OK", await okDialog(t, "PatternOnPath"));
     const pp = await last(t, "pathpattern");
     const ppBodies = await t.app((id) => window.app.allBodies().filter((b) => b.id.startsWith(id + "_")).length, pp && pp.id);
-    t.check("PathPattern made 2 copies, timeline item with icon", pp && pp.ok && pp.tl && pp.icon && ppBodies === 2 && /^PathPattern/.test(pp.name), JSON.stringify({ pp: pp && { ok: pp.ok, err: pp.error, name: pp.name }, ppBodies }));
+    t.check("PathPattern made 1 copy (instance 2 suppressed), timeline item with icon", pp && pp.ok && pp.tl && pp.icon && ppBodies === 1 && JSON.stringify(pp.f.suppressInstances) === "[2]" && /^PathPattern/.test(pp.name), JSON.stringify({ pp: pp && { ok: pp.ok, err: pp.error, name: pp.name, sup: pp.f.suppressInstances }, ppBodies }));
 
     // ------------------------------------------------------------ Geometric Pattern
     t.step("Geometric Pattern: 4 x 3 cylinders cut through a 5 mm plate");
@@ -185,11 +230,41 @@ const scenario = defineScenario({
     t.check("block picked", !!(await clickAt(t, [[0, -60, 15], [5, -55, 15], [-5, -65, 15]], `h && h.ref && h.ref.body === '${lb}'`)));
     await t.click('.dlg[data-dialog="VolFieldCreateLatticeCommand"] .cx-tab[data-tab="density"]');
     await t.fill(sel("VolFieldCreateLatticeCommand", "solidity"), "0.4");
+    await t.click('.dlg[data-dialog="VolFieldCreateLatticeCommand"] .cx-tab[data-tab="setup"]');
+    await t.click(sel("VolFieldCreateLatticeCommand", "move"));
+    await t.fill(sel("VolFieldCreateLatticeCommand", "lrz"), "30 deg");
+    await t.click('.dlg[data-dialog="VolFieldCreateLatticeCommand"] .cx-tab[data-tab="offset"]');
+    await t.click(sel("VolFieldCreateLatticeCommand", "rAdd"));
+    await t.settle(800);
+    t.check("region top picked on the lattice preview", !!(await clickAt(t, [[12, -48, 13], [-12, -72, 13], [12, -72, 13], [-12, -48, 13], [13, -60, 14], [-13, -60, 14], [12, -48, 15], [-12, -72, 15]], "h && h.ref && h.ref.kind === 'meshFace'")));
+    await t.settle(300);
+    const rsel = await t.app(() => (window.app.ui.dialog.current.values.rgeo1 || []).map((r) => r.kind + ":" + (r.n ? r.n.map((x) => Math.round(x)).join(",") : "")));
+    t.check("the region holds the top face of the block", rsel.length === 1 && rsel[0] === "face:0,0,1", JSON.stringify(rsel));
     await t.shot("lattice-dialog");
     t.check("Volumetric Lattice OK", await okDialog(t, "VolFieldCreateLatticeCommand"));
     const la = await last(t, "vlattice");
     const laInfo = await t.app((id) => { const a = window.app; return { kind: a.bodyKind(id), info: a.bodyInfo(id) }; }, lb);
-    t.check("lattice body is a volumetric model, roughly 30-55 % solid", la && la.ok && la.tl && laInfo.kind === "volumetric" && laInfo.info.triangles > 1000 && laInfo.info.volume > 0.25 * 13500 && laInfo.info.volume < 0.6 * 13500, JSON.stringify({ la: la && { ok: la.ok, err: la.error }, kind: laInfo.kind, v: laInfo.info.volume, tri: laInfo.info.triangles }));
+    t.check("lattice: transform and one offset region stored", la && la.f.lrz === "30 deg" && (la.f.regions || []).length === 1 && la.f.rt1 !== undefined, JSON.stringify(la && { lrz: la.f.lrz, regions: la.f.regions, rt1: la.f.rt1 }));
+    t.check("lattice body is a volumetric model, roughly 30-70 % solid", la && la.ok && la.tl && laInfo.kind === "volumetric" && laInfo.info.triangles > 1000 && laInfo.info.volume > 0.25 * 13500 && laInfo.info.volume < 0.7 * 13500, JSON.stringify({ la: la && { ok: la.ok, err: la.error }, kind: laInfo.kind, v: laInfo.info.volume, tri: laInfo.info.triangles }));
+
+    t.step("Volumetric Lattice with a Custom cell: a 10 x 2 x 2 bar repeated every 10 mm");
+    const cb = await t.app(() => {
+      const a = window.app;
+      const blk = a.addFeature({ type: "box", length: "30 mm", width: "30 mm", height: "15 mm", center: [-60, -60], operation: "new", plane: { kind: "origin", name: "XY" } }).newBody;
+      const bar = a.addFeature({ type: "box", length: "10 mm", width: "2 mm", height: "2 mm", center: [-60, -100], operation: "new", plane: { kind: "origin", name: "XY" } }).newBody;
+      return { blk, bar };
+    });
+    await t.app(() => window.app.viewport.fit({ animate: false }));
+    await t.frames(4);
+    t.check("Volumetric Lattice opens (custom cell)", !!(await openCmd(t, "VolFieldCreateLatticeCommand", { panel: "SolidModifyPanel", search: "Volumetric Lattice" })));
+    t.check("block picked (custom)", !!(await clickAt(t, [[-60, -60, 15], [-55, -55, 15], [-65, -65, 15]], `h && h.ref && h.ref.body === '${cb.blk}'`)));
+    await pickOption(t, "VolFieldCreateLatticeCommand", "cell", "custom");
+    t.check("cell geometry bar picked", !!(await clickAt(t, [[-60, -100, 2], [-62, -100, 2], [-58, -100, 1]], `h && h.ref && h.ref.body === '${cb.bar}'`)));
+    t.check("Volumetric Lattice OK (custom)", await okDialog(t, "VolFieldCreateLatticeCommand"));
+    const lc = await last(t, "vlattice");
+    const lcV = await volume(t, cb.blk);
+    t.check("custom cell lattice from the picked bar geometry (0.4-8 % of the block)", lc && lc.ok && lc.f.cell === "custom" && Object.values(lc.f.cellGeom).reduce((n, l) => n + l.length, 0) === 1 && lcV > 0.004 * 13500 && lcV < 0.08 * 13500, JSON.stringify({ ok: lc && lc.ok, err: lc && lc.error, lcV }));
+    await t.app((id) => { const a = window.app; a.mutate("hide", (doc) => { doc.bodies[id].visible = false; }); }, cb.bar);
 
     // ------------------------------------------------------------ Volumetric Texture
     t.step("Volumetric Texture (S toolbox): Stripe 1 mm on the top face of a block");
@@ -199,10 +274,16 @@ const scenario = defineScenario({
     t.check("Volumetric Texture opens from the toolbox", (await openCmd(t, "VolFieldTextureCommand", { search: "Volumetric Texture" })) === "toolbox");
     t.check("top face picked", !!(await clickAt(t, [[80, -60, 15], [85, -55, 15], [75, -65, 15]], `h && h.ref && h.ref.kind === 'face' && h.ref.body === '${tb}'`)));
     await pickOption(t, "VolFieldTextureCommand", "pattern", "stripe");
+    await t.click('.dlg[data-dialog="VolFieldTextureCommand"] .cx-tab[data-tab="clearances"]');
+    await t.click(sel("VolFieldTextureCommand", "cAdd"));
+    await t.settle(800);
+    t.check("clearance picked on the +X side of the preview", !!(await clickAt(t, [[95, -60, 7], [95, -55, 10], [95, -65, 5], [95, -60, 12]], "h && h.ref && h.ref.kind === 'meshFace'")));
+    await t.fill(sel("VolFieldTextureCommand", "ct1"), "8 mm");
     t.check("Volumetric Texture OK", await okDialog(t, "VolFieldTextureCommand"));
     const tx = await last(t, "vtexture");
     const txInfo = await t.app((id) => { const a = window.app; return { kind: a.bodyKind(id), v: (a.bodyInfo(id) || {}).volume }; }, tb);
-    t.check("texture carved the top face (volume between 13500 - 900 and 13500)", tx && tx.ok && txInfo.kind === "volumetric" && txInfo.v < 13500 - 100 && txInfo.v > 13500 - 950, JSON.stringify({ tx: tx && { ok: tx.ok, err: tx.error }, txInfo }));
+    t.check("texture with one clearance region (+X face, 8 mm)", tx && (tx.f.regions || []).length === 1 && (tx.f.regions[0].faces || []).length === 1 && tx.f.ct1 === "8 mm", JSON.stringify(tx && { regions: tx.f.regions, ct1: tx.f.ct1 }));
+    t.check("texture carved the top face (volume between 13500 - 900 and 13500)", tx && tx.ok && txInfo.kind === "volumetric" && txInfo.v < 13500 - 50 && txInfo.v > 13500 - 950, JSON.stringify({ tx: tx && { ok: tx.ok, err: tx.error }, txInfo }));
     await t.app(() => window.app.viewport.fit({ animate: false }));
     await t.frames(4);
     await t.shot("all-features");

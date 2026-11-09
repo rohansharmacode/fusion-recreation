@@ -289,7 +289,14 @@ export function openHole(app, opts = {}) {
       const out = [];
       if (dlg.values.extent !== "all") {
         const dir = V.mul(c.n, dlg.values.flip ? 1 : -1);
-        out.push(dlg.valueManip("depth", { origin: c.p, dir, min: 0.01, fixedDir: true }));
+        // Fusion shows the depth arrow but no on-canvas value box while a face-placed hole still
+        // waits for its reference edges (only the cursor prompt is shown); the box appears once the
+        // location is fully defined. A distinct id makes the manipulator re-create with its box then.
+        const v = dlg.values;
+        const pending = v.placement !== "multi" && (!(v.ref1 || []).length || !(v.ref2 || []).length);
+        const m = dlg.valueManip("depth", { origin: c.p, dir, min: 0.01, fixedDir: true, id: pending ? "depth-pending" : "depth" });
+        if (m && pending) m.box = false;
+        out.push(m);
       }
       for (const [row, field] of [["ref1", "off1"], ["ref2", "off2"]]) {
         const gm = refGeom(dlg, row);

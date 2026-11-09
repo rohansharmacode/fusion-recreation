@@ -3,7 +3,7 @@
 .sk-overlay { position: absolute; inset: 0; pointer-events: none; overflow: hidden; font-family: var(--font-ui); z-index: 2; }
 .sk-svg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .sk-svg .sk-dimline { fill: none; stroke: #3c3c3c; stroke-width: 1; }
-.sk-svg .sk-ext { fill: none; stroke: #7a7a7a; stroke-width: 1; }
+.sk-svg .sk-ext { fill: none; stroke: #3c3c3c; stroke-width: 1; } /* same dark stroke as the dimension line (captures 09/10) */
 .sk-svg .sk-arrow { fill: #1e1e1e; stroke: none; }
 .sk-svg .preview.sk-dimline { stroke: #3c3c3c; }
 .sk-svg .preview.sk-arrow { fill: #1e1e1e; }

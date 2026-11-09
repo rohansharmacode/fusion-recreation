@@ -563,6 +563,15 @@ export function init(app) {
     }
   }
 
+  function commandRefs() {
+    const out = [];
+    try {
+      const d = app.activeCommand && app.activeCommand.dialog;
+      if (d && !d.closed && d.values && Array.isArray(d.selIds)) for (const id of d.selIds) for (const r of d.values[id] || []) if (r && typeof r === "object") out.push(r);
+    } catch { /* dialog internals unavailable */ }
+    return out;
+  }
+
   function updateStates() {
     const hov = refKey(app.selection.hover);
     const selKeys = new Set(app.selection.items.map(refKey));
@@ -581,6 +590,17 @@ export function init(app) {
       row.classList.toggle("sel", s);
       row.classList.toggle("hov", !!hov && hov === k && key !== ctxKey);
       if (s || key === ctxKey) { const p = parentOf.get(key); if (p && p !== "doc:root") marked.add(p); }
+    }
+    // sub-entities (profiles / sketch geometry, faces / edges / vertices) underline the node that
+    // owns them and its folder -- Fusion marks "Sketches" while Extrude holds a profile, "Bodies"
+    // while Fillet / Hole hold an edge / face (a command dialog keeps face / edge picks out of
+    // app.selection, so its selection rows are read too).
+    for (const it of [...app.selection.items, ...commandRefs()]) {
+      const own = it && (it.sketch ? `sketch:${it.sketch}` : it.body && it.kind !== "body" ? `body:${it.body}` : null);
+      if (!own || !rowEls.has(own)) continue;
+      marked.add(own);
+      const p = parentOf.get(own);
+      if (p && p !== "doc:root") marked.add(p);
     }
     for (const [key, row] of rowEls) row.classList.toggle("has-sel", marked.has(key) && !row.classList.contains("sel"));
   }
@@ -642,8 +662,10 @@ export function init(app) {
     if (n.ref && accepts(n.ref)) { hoverKey = refKey(n.ref); app.selection.setHover(n.ref); }
     if (n.ref && (n.ref.kind === "body" || n.ref.kind === "feature" || n.ref.kind === "cplane")) { statusSet = n.label; app.setStatus(n.label); }
     updateStates();
+    // Fusion (ref 27) opens the menu just below-left of the cursor and keeps it anchored there even
+    // when it runs past the bottom of the app window (the last row may be partly cut off)
     showMenu(app, n.menu(), ev.clientX, ev.clientY, {
-      className: "br-ctx-browser",
+      className: "br-ctx-browser", dx: -3, dy: 2, overflowY: 16,
       onClose: () => {
         if (ctxKey === key) ctxKey = null;
         if (hoverKey && refKey(app.selection.hover) === hoverKey) app.selection.setHover(null);
@@ -776,7 +798,7 @@ export function init(app) {
 
   // ------------------------------------------------------------------ events
   app.on("model", (d) => {
-    if (d && d.preview) return; // keep showing the committed design while a command previews
+    if (d && d.preview) { updateStates(); return; } // keep showing the committed design while a command previews
     committed = { bodies: orderedBodies() };
     scheduleRender();
   });
@@ -785,6 +807,7 @@ export function init(app) {
   app.on("mode", () => scheduleRender());
   app.on("selection", () => { if (folderPick && folderPick.sig !== selSig()) folderPick = null; updateStates(); });
   app.on("hover", () => updateStates());
+  app.on("dialog", () => updateStates());
   app.on("ready", () => { hookViewport(); fitHeight(); scheduleRender(); });
   app.on("file", () => scheduleRender()); // save / open: root "Name vN" label
 

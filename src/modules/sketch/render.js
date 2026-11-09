@@ -12,7 +12,7 @@ import * as HUD from "./hud.js";
 // (rendered rgb(67,164,232)); the rest from the environment files (SketchFullyConstrainedColor,
 // SketchConstructionColor, SketchProjectedLineColor, SketchFixedLineColor, SketchSelectEffectInfo).
 export const COLORS = {
-  free: "#329be4", // under-constrained (renders like the capture's rgb(67,164,232) at any sub-pixel offset)
+  free: "#43a4e8", // under-constrained: the capture's crisp 1 px rgb(67,164,232)
   done: "#000000", // fully constrained
   cons: "#c75900", // construction (dashed)
   proj: "#ab63cf", // projected
@@ -21,14 +21,15 @@ export const COLORS = {
   sel: "#2f6dc6",
   trim: "#e0262c",
   preview: "#8c8c8c", // rubber band while drawing (thin grey)
-  profile: "#0596d6", // SketchProfileColor; drawn at ~3% so it is barely visible, as in the captures
+  profile: "#0596d6", // SketchProfileColor; unselected profiles are not shaded (interior stays canvas white, captures 09/10/12)
   profileHover: "#1f7bff",
   profileSel: "#1f7bff",
   gridMinor: "#dde2e8",
   gridMajor: "#c3cad3",
 };
-const W = { base: 1.75, inactive: 1.75, hi: 2.2, preview: 1 };
-const PROFILE_ALPHA = { base: 0.03, hover: 0.28, sel: 0.88 };
+// Fusion draws sketch curves 1 px wide (captures 09/10: one crisp rgb(67,164,232) pixel across an edge)
+const W = { base: 1, inactive: 1, hi: 2.2, preview: 1 };
+const PROFILE_ALPHA = { base: 0, hover: 0.28, sel: 0.88 };
 
 const R = {
   root: null, // THREE.Group in groups.sketches
@@ -56,6 +57,15 @@ function lineMat(color, width, dashed = false, depthTest = true) {
   if (!m) {
     // transparent pass so renderOrder puts curves above the (transparent) profile fill
     m = new LineMaterial({ color, linewidth: width, dashed, dashSize: 3, gapSize: 2, depthTest, transparent: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -6 });
+    // Snap segment ends to pixel centres so a 1 px curve is one crisp full-colour pixel wide (as in Fusion)
+    // rather than two half-tone pixels when it falls on a pixel boundary under MSAA.
+    m.defines.SK_PIXEL_SNAP = "";
+    m.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader.replace(
+        "vec4 clip = ( position.y < 0.5 ) ? clipStart : clipEnd;",
+        "vec4 clip = ( position.y < 0.5 ) ? clipStart : clipEnd;\n#ifdef SK_PIXEL_SNAP\n{ vec2 skPx = floor( ( clip.xy / clip.w * 0.5 + 0.5 ) * resolution ) + 0.5; clip.xy = ( skPx / resolution * 2.0 - 1.0 ) * clip.w; }\n#endif",
+      );
+    };
     const c = vp().canvas;
     m.resolution.set(c.clientWidth || 1, c.clientHeight || 1);
     matCache.set(key, m);
@@ -66,7 +76,7 @@ const meshMat = {};
 function profileMat(kind) {
   if (!meshMat[kind]) {
     const col = kind === "hover" ? COLORS.profileHover : kind === "sel" ? COLORS.profileSel : COLORS.profile;
-    meshMat[kind] = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: PROFILE_ALPHA[kind] || 0.06, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
+    meshMat[kind] = new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: PROFILE_ALPHA[kind] ?? 0.06, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
   }
   return meshMat[kind];
 }
@@ -198,8 +208,8 @@ export function rebuild() {
       g.add(obj);
       R.curves.set(refKey(obj.userData.ref), { obj, cls, active, dashed: cls === "cons" });
     }
-    // points: end points are tiny (they sit on the line corners, as in Fusion); sketch points and
-    // centres are a little larger. The sketch origin is drawn as an overlay glyph (quartered circle).
+    // points: plain end points are not drawn (Fusion shows clean corners); sketch points and
+    // centres are. The sketch origin is drawn as an overlay glyph (quartered circle).
     const big = new Set();
     for (const cv of Object.values(sk.curves)) {
       if (cv.type === "point") big.add(cv.p);
@@ -234,6 +244,9 @@ export function rebuild() {
     }
     for (const [k, set] of Object.entries(sets)) {
       const pts = set.ids;
+      // plain curve end points get no dot (captures 09/10: clean rectangle corners); they stay pickable and
+      // show the larger hover / selection dot. Sketch points and centres keep theirs.
+      if (k === "s") continue;
       if (!pts.length) continue;
       const pos = new Float32Array(pts.length * 3);
       pts.forEach((pid, i) => { pos[i * 3] = sk.points[pid].x; pos[i * 3 + 1] = sk.points[pid].y; pos[i * 3 + 2] = 0; });
@@ -798,6 +811,17 @@ function pathOf(proj, pts) {
   return s;
 }
 
+/** Straight dimension / extension segment; horizontal and vertical ones sit on pixel centres so the
+ * 1 px stroke stays one crisp dark pixel (as in Fusion) instead of two half-grey ones. */
+function segPath(proj, seg) {
+  if (seg.length !== 2) return pathOf(proj, seg);
+  const a = proj(seg[0][0], seg[0][1]), b = proj(seg[1][0], seg[1][1]);
+  const mid = (u, v) => Math.floor((u + v) / 2) + 0.5;
+  if (Math.abs(a[0] - b[0]) < 0.5) { const x = mid(a[0], b[0]); a[0] = b[0] = x; }
+  else if (Math.abs(a[1] - b[1]) < 0.5) { const y = mid(a[1], b[1]); a[1] = b[1] = y; }
+  return segPx(a, b);
+}
+
 /** Screen geometry of a HUD dimension spec: {lines, ext, arrows, ref, cross, anchor}. */
 function hudDimScreen(proj, ps, sp) {
   const out = { lines: "", ext: "", arrows: "", ref: "", cross: "", anchor: null };
@@ -892,14 +916,14 @@ export function updateOverlay() {
       let g;
       try { g = dimGeom(sk, c, ps); } catch { return; }
       let L = "", Ar = "", X = "";
-      for (const seg of g.lines) L += pathOf(proj, seg);
+      for (const seg of g.lines) L += segPath(proj, seg);
       for (const a of g.arcs) {
         const n = Math.max(8, Math.ceil(Math.abs(a.sw) / 0.08));
         const pts = [];
         for (let i = 0; i <= n; i++) { const t = a.a0 + (a.sw * i) / n; pts.push([a.c[0] + a.r * Math.cos(t), a.c[1] + a.r * Math.sin(t)]); }
         L += pathOf(proj, pts);
       }
-      for (const seg of g.ext) X += pathOf(proj, seg);
+      for (const seg of g.ext) X += segPath(proj, seg);
       for (const a of g.arrows) Ar += arrowPath(proj, a.tip, a.dir, ps);
       if (preview) { prevLines += L + X; prevArrows += Ar; }
       else { lines += L; ext += X; arrows += Ar; }

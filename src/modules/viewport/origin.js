@@ -27,6 +27,7 @@ export const ORIGIN_PLANE_AXES = {
   YZ: [[0, 1, 0], [0, 0, 1]],
 };
 export const PLANE_BOUNDS = [0.125, 1.0];
+const AXIS_LW = 1.15; // dash-dot axis width (px): thin like Fusion's (refs 05/06)
 export const AXIS_BOUNDS = [0.06, 1.13];
 
 function quadGeometry(a, b, lo, hi) {
@@ -79,15 +80,16 @@ function planeMats(name) {
   const one = withPlaneGrid(new THREE.MeshBasicMaterial({ ...base, color: FILL1.color, transparent: true, opacity: FILL1.opacity, stencilWrite: true, stencilFunc: THREE.EqualStencilFunc, stencilRef: 1, stencilZPass: THREE.ZeroStencilOp, stencilFail: THREE.KeepStencilOp, stencilZFail: THREE.KeepStencilOp }), mask);
   // pass 3: overlaps (two or more planes)
   const two = withPlaneGrid(new THREE.MeshBasicMaterial({ ...base, color: FILL2.color, transparent: true, opacity: FILL2.opacity, stencilWrite: true, stencilFunc: THREE.LessEqualStencilFunc, stencilRef: 2, stencilZPass: THREE.ZeroStencilOp, stencilFail: THREE.KeepStencilOp, stencilZFail: THREE.KeepStencilOp }), mask);
-  // hovered / selected plane: drawn on top with plain blending
-  const solo = withPlaneGrid(new THREE.MeshBasicMaterial({ ...base, color: HOVER_FILL.color, transparent: true, opacity: HOVER_FILL.opacity }), mask);
+  // hovered / selected plane: drawn on top with plain blending, a plain face without the inner
+  // grid lines (ref 06)
+  const solo = new THREE.MeshBasicMaterial({ ...base, color: HOVER_FILL.color, transparent: true, opacity: HOVER_FILL.opacity });
   return { count, one, two, solo };
 }
 
 function dashedAxisMaterial(color) {
   // Fusion draws the plane-selection axes dash-dot (on screen in the iso view: 13px dash, 4px gap,
   // 2px dot, 4px gap); distances here are face-on pixels (dashScale = unit px), so / 0.8165
-  const m = new LineMaterial({ color, linewidth: 1.4, transparent: true, dashed: true, dashSize: 19.6, gapSize: 9.8, worldUnits: false });
+  const m = new LineMaterial({ color, linewidth: AXIS_LW, transparent: true, dashed: true, dashSize: 19.6, gapSize: 9.8, worldUnits: false });
   m.onBeforeCompile = (sh) => {
     sh.fragmentShader = sh.fragmentShader.replace(
       "if ( mod( vLineDistance + dashOffset, dashSize + gapSize ) > dashSize ) discard; // todo - FIX",
@@ -225,7 +227,7 @@ export class OriginLayer {
     for (const [name, a] of Object.entries(this.axes)) {
       const s = state(`oa:${name}`);
       a.mat.color.copy(s === "sel" ? SELECT : s === "hov" ? HOVER : AXIS_COLORS[name]);
-      a.mat.linewidth = s ? 3 : 1.3;
+      a.mat.linewidth = s ? 3 : AXIS_LW;
     }
     const ps = state("opt");
     this.pointMat.color.set(ps === "sel" ? SELECT : ps === "hov" ? HOVER : 0x555555);

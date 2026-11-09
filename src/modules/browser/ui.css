@@ -16,10 +16,11 @@
   cursor: default;
 }
 .br-ctx-item { position: relative; display: flex; align-items: center; height: 24px; padding: 0 12px 0 0; white-space: nowrap; }
-.br-ctx-item:hover, .br-ctx-item.open { background: #d1ebfa; }
+/* .armed: the pointer has moved inside the menu (no row lights up under a resting cursor) */
+.br-ctx.armed .br-ctx-item:hover, .br-ctx-item.open { background: #d1ebfa; }
 .br-ctx-item.disabled { color: var(--c-text-disabled, #a0a0a4); }
 .br-ctx-item.disabled .br-ctx-icon { opacity: 0.45; }
-.br-ctx-item.disabled:hover { background: transparent; }
+.br-ctx.armed .br-ctx-item.disabled:hover { background: transparent; }
 .br-ctx-icon { flex: none; width: 22px; margin-left: 0; margin-right: 7px; height: 16px; display: inline-flex; align-items: center; justify-content: center; color: #1e1e1e; }
 .br-ctx-icon .ico { display: block; }
 .br-ctx-label { flex: 1 1 auto; min-width: 124px; }
@@ -35,6 +36,11 @@
 .br-ctx.tl-ctx .br-ctx-label { min-width: 120px; }
 .br-ctx.tl-ctx .br-ctx-hint { width: 32px; margin-left: 5px; }
 .br-ctx.tl-ctx .br-ctx-sep { margin: 0 4px 0 5px; background: #555; }
+/* browser variant (ref 27): 223px wide, labels at +31, shortcut column at +163, arrow 13px from the right */
+.br-ctx.br-ctx-browser { min-width: 223px; font-size: 11.8px; }
+.br-ctx.br-ctx-browser .br-ctx-label { min-width: 130px; }
+.br-ctx.br-ctx-browser .br-ctx-hint { width: 48px; margin-left: 1px; }
+.br-ctx.br-ctx-browser .br-ctx-arrow { right: 7px; }
 .br-ctx.br-ctx-sub { min-width: 120px; }
 .br-ctx.br-ctx-sub .br-ctx-label { min-width: 60px; }
 

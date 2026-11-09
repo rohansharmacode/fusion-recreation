@@ -1,5 +1,5 @@
 // Data Panel (slide-out project browser stub), Comments panel stub and a small modal helper.
-import { el, glyph, frameThrottle } from "./common.js";
+import { el, glyph, frameThrottle, profileName, profileInitials } from "./common.js";
 
 // ------------------------------------------------------------------ Data Panel
 export function buildDataPanel(app, svc) {
@@ -159,7 +159,7 @@ export function buildComments(app, svc) {
     if (!comments.length) list.append(el("div", "cm-empty", { text: "No comments yet." }));
     for (const c of comments) {
       list.append(el("div", "cm-item", null,
-        el("div", "cm-item-head", null, el("span", "cm-avatar", { text: "GU" }), el("span", "cm-author", { text: "Guest User" }), el("span", "cm-when", { text: c.when })),
+        el("div", "cm-item-head", null, el("span", "cm-avatar", { text: profileInitials() }), el("span", "cm-author", { text: profileName() }), el("span", "cm-when", { text: c.when })),
         el("div", "cm-text", { text: c.text })));
     }
     bar.querySelector(".cm-count").textContent = comments.length ? String(comments.length) : "";

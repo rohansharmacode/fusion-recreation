@@ -247,7 +247,10 @@ function buildMenu(app, list, cls, onPick, onSub) {
     el("span", { class: "br-ctx-label", text: it.label }),
     el("span", { class: "br-ctx-hint", text: it.hint || "" }),
     it.submenu ? el("span", { class: "br-ctx-arrow", html: glyph("submenu-arrow", 14) }) : null);
-    row.addEventListener("pointerenter", () => onSub(it.submenu && !it.disabled ? { it, row } : null));
+    // hover (and submenu opening) only once the pointer has moved inside the menu: like Qt, a menu
+    // that pops up under a resting cursor shows no highlighted row
+    row._enter = () => onSub(it.submenu && !it.disabled ? { it, row } : null);
+    row.addEventListener("pointerenter", () => { if (menu.classList.contains("armed")) row._enter(); });
     if (!it.disabled && !it.submenu) {
       row.addEventListener("click", (ev) => { ev.stopPropagation(); onPick(it); });
     } else if (it.submenu && !it.disabled) {
@@ -263,14 +266,17 @@ function place(menu, x, y, opts) {
   const W = window.innerWidth, H = window.innerHeight;
   if (opts.above) y -= r.height;
   if (x + r.width > W - 2) x = opts.flipX != null ? opts.flipX - r.width : W - r.width - 2;
-  if (y + r.height > H - 2) y = H - r.height - 2;
+  // opts.overflowY: px the menu may run past the bottom edge before it is pushed up (Fusion's menus
+  // stay anchored at the cursor and extend past the app window onto the screen below it)
+  const maxBottom = opts.overflowY ? H + opts.overflowY : H - 2;
+  if (y + r.height > maxBottom) y = maxBottom - r.height;
   menu.style.left = `${Math.max(2, Math.round(x))}px`;
   menu.style.top = `${Math.max(2, Math.round(y))}px`;
 }
 
 /**
  * Show a context menu at (clientX, clientY). opts: {className, above (open upwards from the
- * point), onClose}. Returns the menu element.
+ * point), dx/dy (offset from the point), overflowY (see place), onClose}. Returns the menu element.
  */
 export function showMenu(app, items, clientX, clientY, opts = {}) {
   hideMenu();
@@ -297,7 +303,7 @@ export function showMenu(app, items, clientX, clientY, opts = {}) {
       closeSub();
       const sl = cleanList(s.it.submenu);
       if (!sl.length) return;
-      const sm = buildMenu(app, sl, `${cls} br-ctx-sub`, pick, () => clearTimeout(state.timer));
+      const sm = buildMenu(app, sl, `${cls} br-ctx-sub armed`, pick, () => clearTimeout(state.timer));
       sm.addEventListener("pointerenter", () => clearTimeout(state.timer));
       host.appendChild(sm);
       const rr = s.row.getBoundingClientRect();
@@ -311,7 +317,13 @@ export function showMenu(app, items, clientX, clientY, opts = {}) {
   };
   const menu = buildMenu(app, list, cls, pick, openSub);
   host.appendChild(menu);
-  place(menu, clientX, clientY, opts);
+  place(menu, clientX + (opts.dx || 0), clientY + (opts.dy || 0), opts);
+  menu.addEventListener("pointermove", (ev) => {
+    if (menu.classList.contains("armed") || Math.abs(ev.clientX - clientX) + Math.abs(ev.clientY - clientY) < 3) return;
+    menu.classList.add("armed");
+    const r = ev.target && ev.target.closest ? ev.target.closest(".br-ctx-item") : null;
+    if (r && r._enter) r._enter();
+  });
   const onDown = (ev) => { if (!openMenu || !openMenu.els.some((m) => m.contains(ev.target))) hideMenu(); };
   const onKey = (ev) => { if (ev.key === "Escape") { ev.stopPropagation(); ev.preventDefault(); hideMenu(); } };
   const onBlur = () => hideMenu();

@@ -414,7 +414,7 @@ try {
   await sleep(150);
   await expandParams();
   const dimRow =await page.evaluate((p) => document.querySelector(`.pm-row[data-param="${p}"] .pm-param`)?.textContent, dim.param);
-  check("sketch dimension listed as 'Linear Dimension-1'", dimRow === "Linear Dimension-1", dimRow);
+  check("sketch dimension listed as 'Linear Dimension-2' (Fusion numbers from 2)", dimRow === "Linear Dimension-2", dimRow);
   const dSel = `[data-dialog="ChangeParameterCommand"] [data-input="expr:${dim.param}"]`;
   await page.fill(dSel, "42 mm");
   await page.press(dSel, "Enter");

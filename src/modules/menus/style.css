@@ -166,6 +166,8 @@
 .mn-open-recovery .mn-thumb-empty { color: #c48a00; }
 
 /* ------------------------------------------------------------------ parameters (PARAMETERS dialog, Fusion 2706 layout) */
+/* Fusion's PARAMETERS window drops a deep shadow mostly below it (~28 px, dark first ~10 px) */
+.mn-modal.pm-dialog { box-shadow: 0 15px 18px -6px rgba(0, 0, 0, .4), 0 3px 3px rgba(0, 0, 0, .1), 1px 0 5px rgba(0, 0, 0, .16); }
 .pm-dialog .mn-body { padding: 0 23px 0 22px; display: flex; flex-direction: column; overflow: hidden; user-select: none; }
 .pm-dialog .mn-foot { padding: 10px 22px 11px 23px; }
 .pm-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
@@ -208,6 +210,7 @@
 .pm-glabel-plain { padding-left: 3px; }
 .pm-bold .pm-glabel { font-weight: 600; color: #262626; }
 .pm-table tbody tr:hover td { background: #f4fdfd; }
+.pm-table tbody tr.pm-cur td { background: #f9fffd; }
 .pm-table tbody tr.pm-sel td { background: #a1fcfd; }
 .pm-dim { color: #858585; margin-left: 6px; }
 .pm-ferr { margin-left: 10px; color: #d9302c; font-weight: 400; display: inline-flex; align-items: center; gap: 3px; }

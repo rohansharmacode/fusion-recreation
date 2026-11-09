@@ -69,6 +69,8 @@
 .vp-menu-nav[data-level="0"].vp-menu-display { min-width: 283px; }
 .vp-menu-item { display: flex; align-items: center; height: 24px; padding: 0 0 0 4px; cursor: default; white-space: nowrap; }
 .vp-menu-item:hover { background: #e5f1fb; }
+/* a parent row whose submenu is open stays plain (refs 24, 25) */
+.vp-menu-item.sub-open, .vp-menu-item.sub-open:hover { background: transparent; }
 .vp-menu-item.disabled { color: var(--c-text-disabled, #a0a0a0); }
 .vp-menu-item.disabled:hover { background: transparent; }
 .vp-menu-mark { width: 17px; flex: none; display: inline-flex; justify-content: center; align-items: center; color: #262626; }

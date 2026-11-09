@@ -395,9 +395,17 @@ export function init(app) {
     overlayHead.position.copy(head.position).sub(rig.target);
     // grid (+ its axis lines and origin glyph; the origin point replaces the glyph when shown)
     const gridOn = !!prefs.grid.visible;
-    grid.mesh.visible = gridOn;
-    grid.axes.visible = gridOn;
     origin.updateScale(rig);
+    // hovering an origin plane (Create Sketch plane pick) shows that plane's numbers; Fusion drops
+    // the layout grid lines meanwhile, so the hovered square reads as a plain face (ref 06)
+    grid.mesh.visible = gridOn && !(app.mode !== "sketch" && origin.hoveredPlane());
+    grid.axes.visible = gridOn;
+    // the origin point ring is drawn without depth test (over the planes and axes) but, like
+    // Fusion's, disappears behind bodies (ref 18: origin shown during Hole)
+    if (origin.visible && origin.point.visible && !vp.styleInfo().xray) {
+      const ms = bodies.visible().map((b) => b.mesh);
+      if (ms.length && picker._occluded(new V3(0, 0, 0), ms)) origin.point.visible = false;
+    }
     if (gridOn) {
       grid.setMode(app.mode === "sketch" ? "sketch" : "model");
       grid.update(rig, { project: (p) => picker.project(p, [0, 0, 0, 1]), dpr: renderer.getPixelRatio() });
@@ -678,6 +686,7 @@ export function init(app) {
   let nav = null; // MMB drag {x, y, at}
   let lastMMB = { t: 0, x: 0, y: 0 };
   let leftDown = false;
+  let pointerInCanvas = false; // mouse over the canvas (hover-derived status text)
   // The cursor follows the input stack's top handler (set when the stack changes) and the
   // navigation drag; handlers may still set canvas.style.cursor themselves while hovering.
   const updateCursor = () => {
@@ -791,7 +800,13 @@ export function init(app) {
   };
   canvas.addEventListener("pointerup", endPointer);
   canvas.addEventListener("pointercancel", endPointer);
-  canvas.addEventListener("pointerleave", () => { if (!nav && !leftDown) app.selection.setHover(null); });
+  canvas.addEventListener("pointerenter", () => { pointerInCanvas = true; });
+  canvas.addEventListener("pointermove", () => { pointerInCanvas = true; }, { passive: true });
+  canvas.addEventListener("pointerleave", () => {
+    pointerInCanvas = false;
+    if (!nav && !leftDown) app.selection.setHover(null);
+    if (myStatus !== null && app.status === myStatus) refreshStatus();
+  });
   canvas.addEventListener("auxclick", (ev) => { if (ev.button === 1) ev.preventDefault(); });
   canvas.addEventListener("mousedown", (ev) => { if (ev.button === 1) ev.preventDefault(); });
   canvas.addEventListener("dblclick", (ev) => { if (ev.button === 0) app.input.dispatch("onDoubleClick", ev, ctxFor(ev)); });
@@ -856,7 +871,9 @@ export function init(app) {
   function refreshStatus() {
     const sel = app.selection.items || [];
     let t = refStatus(app, sel);
-    if (!sel.length && !app.activeCommand) {
+    if (!sel.length && !app.activeCommand && pointerInCanvas) {
+      // the pre-highlight is named only while the mouse is over the canvas: hovers driven from the
+      // browser / timeline rows leave the status alone (they manage their own)
       const h = app.selection.hover;
       const ht = h ? refStatus(app, [h]) : "";
       if (ht) t = ht;
@@ -895,6 +912,22 @@ export function init(app) {
     requestRender();
   });
 
+  // Origin planes/axes forced visible: by setOriginVisible() (Create Sketch, dialogs whose
+  // selection wants origin items) and, like Fusion (ref 18), while the Hole dialog is open.
+  let originApiForced = false;
+  const originDialogs = new Set();
+  const ORIGIN_DIALOGS = new Set(["FusionHoleCommand"]);
+  function syncOriginForced() {
+    origin.forced = (originApiForced ? 1 : 0) + originDialogs.size;
+    origin.updateHighlight();
+    requestRender();
+  }
+  app.on("dialog", ({ open, id } = {}) => {
+    if (!ORIGIN_DIALOGS.has(id)) return;
+    if (open) originDialogs.add(id); else originDialogs.delete(id);
+    syncOriginForced();
+  });
+
   // ---------- widgets ----------
   const selectTool = new SelectionTool(vp);
   vp.selectTool = selectTool;
@@ -927,7 +960,7 @@ export function init(app) {
     lookAt, setView, fit,
     setPreview: (items) => preview.set(items),
     clearPreview: () => preview.set([]),
-    setOriginVisible(v) { origin.forced = v ? 1 : 0; origin.updateHighlight(); requestRender(); },
+    setOriginVisible(v) { originApiForced = !!v; syncOriginForced(); },
     meshFor: (shape) => cache.meshFor(shape),
     // --- extensions (additive) ---
     rig,

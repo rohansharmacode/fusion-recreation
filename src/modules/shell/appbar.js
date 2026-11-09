@@ -3,9 +3,7 @@
 //   white document tab filling the middle: cube icon + name centred, close x at the right end
 //   grey block: + (New Design), Autodesk Assistant, Extensions, Job Status (orange dot),
 //               Notification Center, Help, profile avatar
-import { el, glyph, cmdInfo, frameThrottle, store } from "./common.js";
-
-const PROFILE_KEY = "fusion-recreation.profile.v1";
+import { el, glyph, cmdInfo, frameThrottle, profileName, profileInitials } from "./common.js";
 
 export function buildAppbar(app, svc) {
   const host = app.dom.appbar;
@@ -134,14 +132,13 @@ export function buildAppbar(app, svc) {
     helpBtn.classList.add("ab-open");
     menu.open(helpMenuItems(), helpBtn, { owner: helpBtn, align: "right", className: "ab-help-menu", onClose: () => helpBtn.classList.remove("ab-open") });
   });
-  const profile = store.get(PROFILE_KEY, { name: "Guest User" });
-  const initials = String(profile.name || "Guest User").split(/\s+/).filter(Boolean).map((w) => w[0]).join("").slice(0, 2).toUpperCase() || "GU";
-  const avatar = el("button", "ab-avatar", { type: "button", "aria-label": "Profile", "data-menu": "profile", text: initials });
-  tip(avatar, { title: profile.name || "Guest User", more: false });
+  const userName = profileName();
+  const avatar = el("button", "ab-avatar", { type: "button", "aria-label": "Profile", "data-menu": "profile", text: profileInitials(userName) });
+  tip(avatar, { title: userName, more: false });
   avatar.addEventListener("click", () => {
     if (menu.isOpenFor(avatar)) { menu.closeAll(); return; }
     menu.open([
-      { header: true, label: profile.name || "Guest User" },
+      { header: true, label: userName },
       { header: true, note: true, label: "Not signed in. Work is kept in this browser." },
       "-",
       { key: "prefs", label: "Preferences", onClick: later("Preferences") },
@@ -173,12 +170,27 @@ export function buildAppbar(app, svc) {
   };
   const files = () => app.ui.files || null;
   const everSaved = () => { const f = files(); return !!((f && f.current) || (app.doc && app.doc.savedVersion)); };
-  const recoveredCount = () => {
+  // Fusion's "Open Recovered Documents (n)" counts auto-save files left by an earlier session that ended
+  // without saving -- never the running session's own auto-save. So only the recovery copy found at
+  // start-up counts, and only while it has not been overwritten by this session's auto-recovery.
+  const readRecovery = () => {
     try {
       const f = files();
-      const rec = f && typeof f.recovery === "function" ? f.recovery() : null;
-      return rec && rec.doc && Array.isArray(rec.doc.features) && rec.doc.features.length ? 1 : 0;
-    } catch { return 0; }
+      return f && typeof f.recovery === "function" ? f.recovery() : null;
+    } catch { return null; }
+  };
+  let startupRecovery;               // undefined until start-up finished; then a savedAt stamp or null
+  const noteStartupRecovery = () => {
+    if (startupRecovery !== undefined) return;
+    const rec = readRecovery();
+    startupRecovery = rec && rec.dirty && rec.doc && Array.isArray(rec.doc.features) && rec.doc.features.length ? rec.savedAt : null;
+  };
+  if (app.isReady) noteStartupRecovery(); else app.on("ready", noteStartupRecovery);
+  const recoveredCount = () => {
+    if (startupRecovery === undefined) noteStartupRecovery();
+    if (startupRecovery == null) return 0;
+    const rec = readRecovery();
+    return rec && rec.savedAt === startupRecovery ? 1 : 0;
   };
 
   // Fusion 2706 File menu (Toolbars.xml FileSubMenuCommand; items Fusion hides for a local design left out)

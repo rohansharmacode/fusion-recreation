@@ -138,6 +138,18 @@ export const store = {
   },
 };
 
+// Profile shown in the app bar avatar / Comments. The default matches the account in the reference captures
+// (window title "Untitled* (Rohan S)", avatar "RS"); a stored profile overrides it.
+const PROFILE_KEY = "fusion-recreation.profile.v1";
+const DEFAULT_PROFILE_NAME = "Rohan S";
+export function profileName() {
+  const p = store.get(PROFILE_KEY, null);
+  return String((p && p.name) || DEFAULT_PROFILE_NAME);
+}
+export function profileInitials(name = profileName()) {
+  return name.split(/\s+/).filter(Boolean).map((w) => w[0]).join("").slice(0, 2).toUpperCase() || "RS";
+}
+
 /** Coalesce many events into one call per animation frame. */
 export function frameThrottle(fn) {
   let queued = false;

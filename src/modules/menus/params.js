@@ -3,7 +3,7 @@
 //            + (add user parameter), copy, delete, import, export, ☑ Automatic Compute
 //   columns: Parameter ▾ | Name | Unit | Expression | Value | Comments
 //   tree:    Favorites · fx User Parameters · ⌄ Model Parameters › (Unsaved) › Sketch1 ›
-//            "☆ Linear Dimension-1 | d1 | mm | 40 mm | 40.00"
+//            "☆ Linear Dimension-2 | d1 | mm | 40 mm | 40.00"
 //   footer:  (i) at the left, blue OK at the right; × in the title bar.
 // Edits apply live through app.mutate (the model updates while the dialog is open); invalid
 // expressions are flagged in place and not applied. OK keeps the changes as one undo step,
@@ -104,7 +104,8 @@ export function createParams(app, modals) {
     try { list = M.featureParamsList(app.doc, P); } catch (e) { console.error(e); }
     for (const g of list) {
       const f = g.feature;
-      let dimN = 0;
+      // Fusion numbers a sketch's dimensions from 2 ("Linear Dimension-2" is the first one, ref 31)
+      let dimN = 1;
       const items = g.items.map((it) => {
         const kind = it.kind || "length";
         const label = it.cid ? `${it.label || "Dimension"}-${++dimN}` : (PARAM_LABEL[f.type] && PARAM_LABEL[f.type][it.key]) || it.key;
@@ -234,7 +235,9 @@ export function createParams(app, modals) {
   function open() {
     if (current && !current.handle.closed) { current.handle.modal.querySelector(".pm-search")?.focus(); return current.handle; }
     const session = { startLen: app.history.undoStack.length, before: clone(app.doc), redo: app.history.redoStack.slice(), dirty: app.dirty, changed: false };
-    const state = { filter: "", show: "all", selected: null, auto: true, pendingCompute: false, sort: 0 };
+    // current: the tree's current item before anything is selected -- Fusion opens the dialog with the
+    // design's component row ("(Unsaved)") current, drawn with a faint full-row tint (ref 29).
+    const state = { filter: "", show: "all", selected: null, current: "comp", auto: true, pendingCompute: false, sort: 0 };
 
     // ---- top row
     const toggle = (key, title, html) => {
@@ -456,6 +459,8 @@ export function createParams(app, modals) {
 
     function select(sel, tr) {
       state.selected = sel;
+      state.current = null;
+      for (const n of tableWrap.querySelectorAll("tr.pm-cur")) n.classList.remove("pm-cur");
       for (const n of tableWrap.querySelectorAll("tr.pm-sel")) n.classList.remove("pm-sel");
       if (tr) tr.classList.add("pm-sel");
       updateButtons();
@@ -472,7 +477,7 @@ export function createParams(app, modals) {
       const collapsed = isCollapsed(o.key);
       const hasKids = o.kids > 0;
       const sel = { group: true, key: o.key };
-      const tr = el("tr", { class: `pm-group pm-l${o.level}${o.bold ? " pm-bold" : ""}${collapsed && hasKids ? " pm-collapsed" : ""}${isSelected(sel) ? " pm-sel" : ""}`, dataset: { group: o.key } });
+      const tr = el("tr", { class: `pm-group pm-l${o.level}${o.bold ? " pm-bold" : ""}${collapsed && hasKids ? " pm-collapsed" : ""}${isSelected(sel) ? " pm-sel" : !state.selected && state.current === o.key ? " pm-cur" : ""}`, dataset: { group: o.key } });
       if (o.featureId) tr.dataset.feature = o.featureId;
       const td = el("td", { colspan: "6" });
       const cell = el("div", { class: "pm-node", style: { paddingLeft: `${19 * o.level}px` } });

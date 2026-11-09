@@ -14,7 +14,8 @@ const FACES = [
   { name: "top", label: "TOP", n: [0, 0, 1], up: [0, 1, 0] },
   { name: "bottom", label: "BOTTOM", n: [0, 0, -1], up: [0, -1, 0] },
 ];
-const EDGE_W = 0.36; // width of edge/corner bands (in cube half-size units, cube spans -1..1)
+const EDGE_W = 0.36;
+const SHADOW_SIZE = 3.0; // ground shadow quad (cube units; the cube spans -1..1) // width of edge/corner bands (in cube half-size units, cube spans -1..1)
 const HOVER_COLOR = 0x6aa9e6;
 
 /** Zone name for a direction with components in {-1,0,1}: e.g. "front-right-top". */
@@ -63,19 +64,21 @@ function faceTexture(label, side) {
 }
 
 let shadowTex = null;
+/** Soft ground shadow: a blurred square a little larger than the cube footprint (ref 26). */
 function shadowTexture() {
   if (shadowTex) return shadowTex;
   const S = 128;
   const c = document.createElement("canvas");
   c.width = c.height = S;
   const g = c.getContext("2d");
-  const grd = g.createRadialGradient(S / 2, S / 2, S * 0.18, S / 2, S / 2, S / 2);
-  grd.addColorStop(0, "rgba(0,0,0,0.22)");
-  grd.addColorStop(0.62, "rgba(0,0,0,0.12)");
-  grd.addColorStop(1, "rgba(0,0,0,0)");
-  g.fillStyle = grd;
-  g.fillRect(0, 0, S, S);
+  const k = S / SHADOW_SIZE; // px per cube unit
+  const half = 1.06 * k;
+  g.filter = `blur(${Math.round(0.16 * k)}px)`;
+  g.fillStyle = "rgba(0,0,0,0.30)";
+  g.fillRect(S / 2 - half, S / 2 - half, half * 2, half * 2);
+  g.filter = "none";
   shadowTex = new THREE.CanvasTexture(c);
+  shadowTex.colorSpace = THREE.SRGBColorSpace;
   return shadowTex;
 }
 
@@ -184,9 +187,10 @@ export class ViewCube {
     const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(2.004, 2.004, 2.004)), new THREE.LineBasicMaterial({ color: 0xb4b4b4 }));
     edges.renderOrder = 3;
     this.cube.add(edges);
-    // soft contact shadow under the cube
-    const sh = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), new THREE.MeshBasicMaterial({ map: shadowTexture(), transparent: true, depthWrite: false }));
-    sh.position.set(0.06, -0.06, -1.03);
+    // soft grey ground shadow under the cube, pushed away from the light (shows beyond the
+    // bottom of the RIGHT face and faintly under FRONT in the home view, ref 26)
+    const sh = new THREE.Mesh(new THREE.PlaneGeometry(SHADOW_SIZE, SHADOW_SIZE), new THREE.MeshBasicMaterial({ map: shadowTexture(), transparent: true, depthWrite: false }));
+    sh.position.set(0.22, 0.1, -1.01);
     sh.renderOrder = -1;
     this.shadow = sh;
     this.cube.add(sh);
@@ -194,20 +198,24 @@ export class ViewCube {
 
   _buildTriad() {
     const t = new THREE.Group();
-    const L = 2.3, w = 0.05;
-    const o = new V3(-1.03, -1.03, -1.03);
+    // the lines run ON the cube's edges from the front-left-bottom corner (half of each bar is
+    // buried in the cube, the visible half straddles the silhouette): X along the bottom of FRONT
+    // ending just past its corner, Z up the front-left edge a little above the top (ref 26)
+    const w = 0.08;
+    const o = new V3(-1.004, -1.004, -1.004);
     const axes = [
-      { d: new V3(1, 0, 0), c: 0xff3b30, s: "X", col: "#ff3a3a" },
-      { d: new V3(0, 1, 0), c: 0x34c759, s: "Y", col: "#2fd34a" },
-      { d: new V3(0, 0, 1), c: 0x2f3cf5, s: "Z", col: "#3446ff" },
+      { d: new V3(1, 0, 0), c: 0xff3b30, s: "X", col: "#ff3a3a", L: 2.18 },
+      { d: new V3(0, 1, 0), c: 0x34c759, s: "Y", col: "#2fd34a", L: 2.18 },
+      { d: new V3(0, 0, 1), c: 0x2f3cf5, s: "Z", col: "#3446ff", L: 2.4 },
     ];
     for (const a of axes) {
+      const L = a.L;
       const geo = new THREE.BoxGeometry(a.d.x ? L : w, a.d.y ? L : w, a.d.z ? L : w);
       const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: a.c }));
       m.position.copy(o).addScaledVector(a.d, L / 2);
       t.add(m);
       const sp = textSprite(a.s, a.col);
-      sp.position.copy(o).addScaledVector(a.d, L + (a.s === "Z" ? 0.5 : 0.22));
+      sp.position.copy(o).addScaledVector(a.d, L + (a.s === "Z" ? 0.4 : 0.22));
       t.add(sp);
     }
     this.triad = t;

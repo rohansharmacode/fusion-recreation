@@ -169,7 +169,10 @@ export class LayoutGrid {
     };
     this.xAxis = axisLine([1, 0, 0], 0xff0000);
     this.yAxis = axisLine([0, 1, 0], 0x00e600);
-    this.axisOpacity = [0.4, 0.38];
+    // model / plane-pick view: faint lines (ref 01: X ~rgb(245,200,205), Y ~rgb(206,253,211) over
+    // white); sketch view: a little stronger, Y a thin light green ~rgb(149,251,141) (ref 07)
+    this.axisOpacity = [0.31, 0.25];
+    this.sketchAxisOpacity = [0.58, 0.42];
     this.axisScale = new THREE.Group();
     this.axisScale.add(this.xAxis, this.yAxis);
     this.axes.add(this.axisScale);
@@ -211,9 +214,9 @@ export class LayoutGrid {
     this.mode = mode === "sketch" ? "sketch" : "model";
     this.uniforms.uAlpha.value = this.mode === "sketch" ? this.sketchAlpha : this.modelAlpha;
     // the sketch's axes are drawn a little stronger than the layout grid's (reference captures)
-    const k = this.mode === "sketch" ? 1.45 : 1;
-    this.xAxis.material.opacity = Math.min(1, this.axisOpacity[0] * k);
-    this.yAxis.material.opacity = Math.min(1, this.axisOpacity[1] * k * 1.08);
+    const o = this.mode === "sketch" ? this.sketchAxisOpacity : this.axisOpacity;
+    this.xAxis.material.opacity = Math.min(1, o[0]);
+    this.yAxis.material.opacity = Math.min(1, o[1]);
   }
 
   /** Current snapping step (world units): the minor spacing (a fifth of the displayed level). */
@@ -346,10 +349,11 @@ export class LayoutGrid {
     this.setMode(this.mode);
   }
 
-  setAxisColors(x, y, opacity = [0.4, 0.38]) {
+  setAxisColors(x, y, opacity = [0.31, 0.25], sketchOpacity = null) {
     this.xAxis.material.color.set(x);
     this.yAxis.material.color.set(y);
     this.axisOpacity = Array.isArray(opacity) ? opacity : [opacity, opacity];
+    if (sketchOpacity != null) this.sketchAxisOpacity = Array.isArray(sketchOpacity) ? sketchOpacity : [sketchOpacity, sketchOpacity];
     this.setMode(this.mode);
   }
 

@@ -774,6 +774,188 @@ export function dimText(c, value) {
   return s;
 }
 
+// ---------------------------------------------------------------------------
+// automatic dimension placement: keep labels of dimensions added by the tools (typed Line length /
+// angle) clear of other labels and of the sketch geometry, like Fusion spaces them out
+// ---------------------------------------------------------------------------
+let measureCtx = null;
+function labelTextWidth(txt) {
+  try {
+    if (!measureCtx) measureCtx = document.createElement("canvas").getContext("2d");
+    const fam = (R.overlay && getComputedStyle(R.overlay).fontFamily) || "sans-serif";
+    measureCtx.font = `15px ${fam}`;
+    return measureCtx.measureText(txt).width + 4; // .sk-dim padding 0 2px
+  } catch {
+    return txt.length * 8 + 4;
+  }
+}
+/** Liang-Barsky: does screen segment a-b touch box r {x0,y0,x1,y1}? */
+function segHitsBox(a, b, r) {
+  let t0 = 0, t1 = 1;
+  const dx = b[0] - a[0], dy = b[1] - a[1];
+  const p = [-dx, dx, -dy, dy], q = [a[0] - r.x0, r.x1 - a[0], a[1] - r.y0, r.y1 - a[1]];
+  for (let i = 0; i < 4; i++) {
+    if (Math.abs(p[i]) < 1e-12) { if (q[i] < 0) return false; continue; }
+    const t = q[i] / p[i];
+    if (p[i] < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
+    else { if (t < t0) return false; if (t < t1) t1 = t; }
+  }
+  return true;
+}
+const cross2 = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+/** Proper crossing of screen segments a-b and c-d (touching / collinear does not count). */
+function segsCross(a, b, c, d) {
+  const e = 0.5;
+  const d1 = cross2(a, b, c), d2 = cross2(a, b, d), d3 = cross2(c, d, a), d4 = cross2(c, d, b);
+  return ((d1 > e && d2 < -e) || (d1 < -e && d2 > e)) && ((d3 > e && d4 < -e) || (d3 < -e && d4 > e));
+}
+const boxOverlap = (a, b) => {
+  const ox = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0), oy = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
+  return ox > 0 && oy > 0 ? ox * oy : 0;
+};
+
+/** Placement alternatives ({at, flip1?, flip2?} patches, best first) for a dimension's label. */
+function dimCandidates(sk, c, ps, side) {
+  const out = [];
+  if (c.type === "distance" || c.type === "pointLine") {
+    let A, B;
+    if (c.type === "distance" && c.refs.length === 1) { const cv = sk.curves[c.refs[0]]; A = P2(sk, cv.p1); B = P2(sk, cv.p2); }
+    else if (c.type === "distance") { A = P2(sk, c.refs[0]); B = P2(sk, c.refs[1]); }
+    else {
+      A = P2(sk, c.refs[0]);
+      const cv = sk.curves[c.refs[1]];
+      const a = P2(sk, cv.p1), b = P2(sk, cv.p2), lu = unit2(sub(b, a));
+      B = add2(a, mul2(lu, dot2(sub(A, a), lu)));
+    }
+    const type = c.type === "distance" ? c.dimType || "aligned" : "aligned";
+    let u, n;
+    if (type === "horizontal") { u = [1, 0]; n = [0, -1]; }
+    else if (type === "vertical") { u = [0, 1]; n = [1, 0]; }
+    else { u = len2(sub(B, A)) > 1e-9 ? unit2(sub(B, A)) : [1, 0]; n = perp2(u); }
+    let s0 = side && Math.abs(dot2(side, u)) < 1e-6 ? unit2(side) : c.at && dot2(c.at, n) < 0 ? mul2(n, -1) : n;
+    const half = Math.abs(dot2(sub(B, A), u)) / 2;
+    const tw = labelTextWidth(dimText(c, ST.app.S.measureDim(sk, c)));
+    const beyond = half + (tw / 2 + 14) * ps;
+    const at = (s, off, along = 0) => ({ at: add2(mul2(s, off * ps), mul2(u, along)) });
+    const sides = [s0, mul2(s0, -1)];
+    for (const off of [30, 48]) for (const s of sides) out.push(at(s, off));
+    for (const s of sides) for (const k of [1, -1]) out.push(at(s, 30, k * beyond));
+    for (const off of [66, 90]) for (const s of sides) out.push(at(s, off));
+    for (const s of sides) for (const k of [1, -1]) out.push(at(s, 48, k * beyond));
+  } else if (c.type === "angle") {
+    const l1 = sk.curves[c.refs[0]], l2 = sk.curves[c.refs[1]];
+    const u1 = unit2(mul2(sub(P2(sk, l1.p2), P2(sk, l1.p1)), c.flip1 ? -1 : 1));
+    const u2 = unit2(mul2(sub(P2(sk, l2.p2), P2(sk, l2.p1)), c.flip2 ? -1 : 1));
+    for (const r of [30, 44, 60, 80]) {
+      // the measured sector, then the vertically opposite one (both directions flipped: same angle)
+      for (const opp of [false, true]) {
+        const s = opp ? -1 : 1;
+        const a0 = Math.atan2(s * u1[1], s * u1[0]);
+        let sw = Math.atan2(s * u2[1], s * u2[0]) - a0;
+        while (sw > Math.PI) sw -= 2 * Math.PI;
+        while (sw < -Math.PI) sw += 2 * Math.PI;
+        for (const f of [0.5, 0.25, 0.75]) {
+          const t = a0 + sw * f;
+          out.push({ at: [Math.cos(t) * r * ps, Math.sin(t) * r * ps], flip1: opp ? !c.flip1 : !!c.flip1, flip2: opp ? !c.flip2 : !!c.flip2 });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Choose label positions for dimensions just added by a tool (mutates c.at / c.flip1 / c.flip2 in sk).
+ * items: [{c, side?, keep?}] -- c: the constraint object in sk; side: preferred side of a linear
+ * dimension (sketch vector); keep: an existing dimension whose current place stays unless it now
+ * collides (e.g. with a newly drawn segment). Items are placed in order; each avoids the others.
+ */
+export function arrangeDims(sk, plane, items) {
+  const v = vp();
+  if (!items.length || !v || !R.overlay) return;
+  const S = ST.app.S;
+  const proj = projector(plane);
+  const ps = mmPerPx(plane, ST.app.K.toLocal(plane, v.target));
+  const P = (p) => proj(p[0], p[1]);
+  const W = v.canvas.clientWidth || 1, H = v.canvas.clientHeight || 1;
+  const fresh = new Set(items.filter((it) => !it.keep).map((it) => it.c.id));
+  const valid = (c) => c.refs.every((r) => sk.points[r] || sk.curves[r]);
+  const info = (c) => {
+    let g;
+    try { g = dimGeom(sk, c, ps); } catch { return null; }
+    if (!g || !g.text) return null;
+    const pl = labelPlacement(proj, g, ps);
+    const w = labelTextWidth(dimText(c, g.value)), h = 17;
+    const rr = ((pl.rot || 0) * Math.PI) / 180;
+    const cs = Math.abs(Math.cos(rr)), sn = Math.abs(Math.sin(rr));
+    const bw = w * cs + h * sn, bh = w * sn + h * cs;
+    const box = { x0: pl.x - bw / 2, y0: pl.y - bh / 2, x1: pl.x + bw / 2, y1: pl.y + bh / 2 };
+    const segs = [];
+    for (const s of [...g.lines, ...g.ext]) for (let i = 0; i + 1 < s.length; i++) segs.push([P(s[i]), P(s[i + 1])]);
+    for (const a of g.arcs) {
+      const n = Math.max(6, Math.ceil(Math.abs(a.sw) / 0.15));
+      let prev = null;
+      for (let i = 0; i <= n; i++) { const t = a.a0 + (a.sw * i) / n; const q = P([a.c[0] + a.r * Math.cos(t), a.c[1] + a.r * Math.sin(t)]); if (prev) segs.push([prev, q]); prev = q; }
+    }
+    return { box, segs };
+  };
+  const boxes = []; // {cid, b, w}
+  const segs = []; // {cid, a, b, w}
+  const addObs = (cid, inf) => {
+    boxes.push({ cid, b: inf.box, w: 1 });
+    for (const s of inf.segs) segs.push({ cid, a: s[0], b: s[1], w: 0.35 });
+  };
+  for (const [id, cv] of Object.entries(sk.curves)) {
+    if (cv.type === "point") continue;
+    let pl;
+    try { pl = S.curvePolyline(sk, id, 48); } catch { continue; }
+    for (let i = 0; i + 1 < pl.length; i++) segs.push({ cid: null, a: P(pl[i]), b: P(pl[i + 1]), w: 1 });
+  }
+  for (const c of sk.constraints) {
+    if (!isDimType(c.type) || fresh.has(c.id) || !valid(c)) continue;
+    const inf = info(c);
+    if (inf) addObs(c.id, inf);
+  }
+  // the viewport's grid numbers share the label layer
+  try {
+    const o = R.overlay.getBoundingClientRect();
+    for (const el of v.labelLayer.querySelectorAll(".vp-grid-label")) {
+      const r = el.getBoundingClientRect();
+      if (r.width && r.height) boxes.push({ cid: "grid", b: { x0: r.left - o.left, y0: r.top - o.top, x1: r.right - o.left, y1: r.bottom - o.top }, w: 0.5 });
+    }
+  } catch { /* ignore */ }
+  for (const it of items) {
+    const c0 = it.c;
+    if (!valid(c0)) continue;
+    const own = c0.id;
+    const cands = dimCandidates(sk, c0, ps, it.side);
+    if (it.keep || !cands.length) cands.unshift({ at: c0.at, flip1: c0.flip1, flip2: c0.flip2 });
+    let best = null;
+    cands.forEach((cand, i) => {
+      const inf = info({ ...c0, ...cand });
+      if (!inf) return;
+      const b = inf.box;
+      let score = i * 0.5;
+      for (const o of boxes) if (o.cid !== own) score += boxOverlap(b, o.b) * 4 * o.w;
+      const pad = { x0: b.x0 - 1, y0: b.y0 - 1, x1: b.x1 + 1, y1: b.y1 + 1 };
+      for (const s of segs) if (s.cid !== own && segHitsBox(s.a, s.b, pad)) score += 60 * s.w;
+      for (const s of inf.segs) for (const o of boxes) if (o.cid !== own && o.cid !== "grid" && segHitsBox(s[0], s[1], o.b)) score += 25;
+      // its own arc / leaders cutting through sketch curves (and, less, other dimension lines)
+      for (const s of inf.segs) for (const o of segs) if (o.cid !== own && segsCross(s[0], s[1], o.a, o.b)) score += o.cid === null ? 20 : 3;
+      if (b.x0 < 0 || b.y0 < 0 || b.x1 > W || b.y1 > H) score += 200;
+      if (!best || score < best.score) best = { score, cand, inf };
+    });
+    if (!best) continue;
+    for (const [k, val] of Object.entries(best.cand)) {
+      if (val === undefined || (k !== "at" && val === false && c0[k] === undefined)) continue;
+      c0[k] = val;
+    }
+    for (let i = boxes.length - 1; i >= 0; i--) if (boxes[i].cid === own) boxes.splice(i, 1);
+    for (let i = segs.length - 1; i >= 0; i--) if (segs[i].cid === own) segs.splice(i, 1);
+    addObs(own, best.inf);
+  }
+}
+
 /** Temporary dimension shown while placing (Dimension tool). */
 export function setDimPreview(c) { R.dimPreview = c; updateOverlay(); }
 

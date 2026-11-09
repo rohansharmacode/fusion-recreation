@@ -654,12 +654,14 @@ export function init(app) {
     const n = specs.get(key);
     if (!n || !n.menu) return;
     lastKey = key;
-    // Fusion marks the right-clicked node (blue outline), pre-highlights it in the canvas and
-    // names it in the status bar; the selection itself is left alone.
+    // Fusion marks the right-clicked node (dotted outline) and names it in the status bar; the
+    // selection is left alone and the object stays unhighlighted in the canvas (ref 27: the body
+    // keeps its grey look), so the row-hover pre-highlight is dropped while the menu is open.
     ctxKey = key;
     const prevStatus = app.status || "";
     let statusSet = null;
-    if (n.ref && accepts(n.ref)) { hoverKey = refKey(n.ref); app.selection.setHover(n.ref); }
+    if (hoverKey && refKey(app.selection.hover) === hoverKey) app.selection.setHover(null);
+    hoverKey = null;
     if (n.ref && (n.ref.kind === "body" || n.ref.kind === "feature" || n.ref.kind === "cplane")) { statusSet = n.label; app.setStatus(n.label); }
     updateStates();
     // Fusion (ref 27) opens the menu just below-left of the cursor and keeps it anchored there even

@@ -115,7 +115,7 @@ dlg.manips.screenPoint(id) -> [x, y]   (canvas px) — handy for tests
 ## Manipulators
 Manip defs: `{id, type:'distance'|'angle'|'taper'|'point', value, text, onDrag(v, final), onText(str, final), hudAnchor}`
 (distance: `origin, dir, scale, min, max, fixedDir`; angle: `center, axis, ref, radius`; taper: `center, up, side`;
-point: `point, normal, onMove(p, final), box:false`). Drawn in `viewport.groups.overlay` (on top) at a
+point: `point, normal, onMove(p, final), box:false`; plane: `center, a, b` (planar square), `look:'ball'|'point'` (view-plane drag), `offPx`, `offDir`, `getStart()`, `onDelta(dv, final, start)`). Move/Copy's triad uses `look:'axis'` distance arrows (`color, len, gap`), plane handles and angle rings with `screenRadius, span, gripAt, color, lineWidth`; the triad sits at the moved centre so it follows the body. Drawn in `viewport.groups.overlay` (on top) at a
 constant screen size like Fusion's: a flat block arrow (white with a dark outline, blue with a white rim
 when active), a thin arc with a round grip, a blue point handle. Only the ACTIVE manipulator shows its HUD
 value box (`.dlg-hud`: dotted grip, underlined `input.dlg-manip-input[data-manip=<id>]`, ⋮ parameter menu)

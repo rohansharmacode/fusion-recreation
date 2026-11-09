@@ -263,11 +263,27 @@ export function createFiles(app, modals) {
     const r = store.getJSON(KEY_RECOVERY, null);
     return r && validDoc(r.doc) ? r : null;
   }
+  function scheduleRecovery() {
+    clearTimeout(recTimer);
+    recTimer = setTimeout(() => { if (app.dirty) recoverySave(true); }, 4000);
+  }
   // auto-recovery: write a recovery copy a few seconds after each change
   app.on("doc", (d) => {
     if (d && (d.saved || d.replaced)) return;
-    clearTimeout(recTimer);
-    recTimer = setTimeout(() => { if (app.dirty) recoverySave(true); }, 4000);
+    scheduleRecovery();
+  });
+
+  // ------------------------------------------------------------------ dirty state across undo / redo
+  // Undo and Redo change the design like any other edit: Fusion marks the document modified
+  // (title "*", closing asks to save) even when the step lands back on the saved state.
+  // New / Open / start-up also replace the document but reset the history first, so they are
+  // told apart by the empty undo + redo stacks (they set the dirty flag themselves).
+  app.on("doc", (d) => {
+    if (!d || !d.replaced) return;
+    const h = app.history;
+    if (!h.undoStack.length && !h.redoStack.length) return;
+    app.dirty = true;
+    scheduleRecovery();
   });
 
   // ------------------------------------------------------------------ open dialog

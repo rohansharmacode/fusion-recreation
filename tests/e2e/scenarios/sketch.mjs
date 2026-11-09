@@ -207,6 +207,77 @@ const scenario = defineScenario({
       await t.click('[data-qa-dims="1"]', { force: true });
     } else t.check("palette Dimensions checkbox found", false);
 
+    // ---------- Ctrl+Z / Ctrl+Y while the Line tool is active ----------
+    t.step("L: three clicks, Ctrl+Z removes the last segment and keeps drawing; Ctrl+Y restores it");
+    const nLines = async () => t.app(() => { const a = window.app; const f = a.feature(a.activeSketch); return Object.values(f.sk.curves).filter((c) => c.type === "line").length; });
+    const lineTop = async () => t.app(() => /DrawPolyline/.test((window.app.input.top() || {}).name || ""));
+    await t.blur();
+    await t.mouseToCanvas(0.5, 0.5);
+    await t.key("l");
+    const n0 = await nLines();
+    for (const w of [[40, -40, 0], [70, -40, 0], [70, -20, 0]]) {
+      const q = await t.canvasXY(w);
+      await t.page.mouse.move(q.x, q.y, { steps: 4 });
+      await t.canvasClick(q.x, q.y);
+      await t.settle(100);
+    }
+    t.check("setup: two segments drawn", (await nLines()) === n0 + 2, `${n0} -> ${await nLines()}`);
+    await t.key("Control+z");
+    await t.settle(150);
+    t.check("Ctrl+Z during Line removes the last segment", (await nLines()) === n0 + 1, `lines ${await nLines()} (expected ${n0 + 1})`);
+    t.check("the Line tool stays active after Ctrl+Z", await lineTop());
+    await t.key("Control+y");
+    await t.settle(150);
+    t.check("Ctrl+Y during Line puts the segment back", (await nLines()) === n0 + 2, `lines ${await nLines()} (expected ${n0 + 2})`);
+    await t.key("Control+z");
+    await t.settle(150);
+    const q3 = await t.canvasXY([90, -40, 0]);
+    await t.page.mouse.move(q3.x, q3.y, { steps: 4 });
+    await t.canvasClick(q3.x, q3.y);
+    await t.settle(150);
+    const cont = await t.app(() => {
+      const a = window.app; const f = a.feature(a.activeSketch); const st = a.sketchState(a.activeSketch);
+      const pts = st ? st.sk.points : f.sk.points;
+      const ls = Object.values(f.sk.curves).filter((c) => c.type === "line");
+      const l = ls[ls.length - 1];
+      return l ? [pts[l.p1].x, pts[l.p1].y] : null;
+    });
+    t.check("after Ctrl+Z the next click continues from the end of the remaining segment (70, -40)", !!cont && near(cont[0], 70, 0.5) && near(cont[1], -40, 0.5), JSON.stringify(cont));
+    await t.key("Escape");
+    await t.key("Escape");
+
+    // ---------- typed length + angle: dimension labels must not stack ----------
+    t.step("L with typed length, Tab, 90 on every segment: labels stay apart");
+    const dimIds = async () => t.app(() => [...document.querySelectorAll(".sk-overlay .sk-dim")].map((e) => e.dataset.cid));
+    const before = new Set(await dimIds());
+    await t.blur();
+    await t.mouseToCanvas(0.5, 0.5);
+    await t.key("l");
+    const goW = async (w) => { const q = await t.canvasXY(w); await t.page.mouse.move(q.x, q.y, { steps: 4 }); await t.frames(2); return q; };
+    const s0 = await goW([-90, 30, 0]);
+    await t.canvasClick(s0.x, s0.y);
+    await t.settle(100);
+    await goW([-50, 30, 0]);
+    await t.type("60"); await t.key("Enter"); await t.settle(120);
+    for (const [w, L] of [[[-30, 38, 0], "10"], [[-60, 40, 0], "50"], [[-80, 70, 0], "40"], [[-88, 80, 0], "10"], [[-90, 50, 0], "50"]]) {
+      await goW(w);
+      await t.type(L); await t.key("Tab"); await t.type("90"); await t.key("Enter"); await t.settle(150);
+    }
+    await t.key("Escape");
+    await t.page.mouse.move(5, 500);
+    await t.frames(4);
+    const lab = await t.app(() => [...document.querySelectorAll(".sk-overlay .sk-dim")].filter((e) => e.offsetParent).map((e) => { const r = e.getBoundingClientRect(); return { cid: e.dataset.cid, t: e.textContent, x0: r.left, y0: r.top, x1: r.right, y1: r.bottom }; }));
+    const added = lab.filter((l) => !before.has(l.cid));
+    t.check("typed L chain added 6 length + 5 angle dimensions", added.length === 11, added.map((l) => l.t).join(" "));
+    const clashes = [];
+    for (const a of added) for (const b of lab) {
+      if (a.cid === b.cid || (!before.has(b.cid) && b.cid < a.cid)) continue;
+      const ox = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0), oy = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
+      if (ox > 2 && oy > 2) clashes.push(`${a.t}/${b.t}`);
+    }
+    t.check("no dimension label overlaps another one", clashes.length === 0, clashes.join(", "));
+    await t.shot("typed-l-dims");
+
     // ---------- finish ----------
     t.step("Finish Sketch from the palette");
     const fin = await t.app(() => {

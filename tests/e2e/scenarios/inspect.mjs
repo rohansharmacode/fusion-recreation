@@ -46,6 +46,48 @@ const scenario = defineScenario({
     await t.settle(150);
     t.check("Esc closes MEASURE", !(await t.visible('.dlg[data-dialog="MeasureCommand"]')));
 
+    // ------------------------------------------------------------- construction plane over the model
+    t.step("a visible offset plane covering the model does not block Measure face picks (Top view)");
+    const cpId = await t.app((body) => {
+      const app = window.app;
+      const f = app.addFeature({ type: "cplane", mode: "offset", base: { kind: "face", body, p: [0, 0, 10], n: [0, 0, 1], plane: app.K.planeFromNormal([0, 0, 10], [0, 0, 1]) }, offset: "30 mm" });
+      return (app.featureResult(f.id) || {}).ok ? f.id : null;
+    }, box.body);
+    t.require("offset plane 30 mm above the top face (App API)", !!cpId);
+    await t.setView("top");
+    await t.cameraStable(2000);
+    await t.escapeAll();
+    await t.blur();
+    await t.mouseToCanvas(0.5, 0.85);
+    await t.key("i");
+    t.require("MEASURE dialog open", await t.waitFor('.dlg[data-dialog="MeasureCommand"]', { timeout: 2000 }));
+    const topC = await t.canvasXY([6, 3, 10]);
+    await t.canvasClick(topC.x, topC.y);
+    await t.settle(250);
+    const selA = await t.app(() => (window.app.ui.dialog.current.values.sel || []).map((r) => r.kind));
+    t.check("click on the top face through the plane selects the face", selA.length === 1 && selA[0] === "face", JSON.stringify(selA));
+    const edgeMid = await t.app((id) => { const c = window.app.viewport._vp.origin.cplanes.get(id); return c ? c.corners[0].clone().lerp(c.corners[1], 0.5).toArray() : null; }, cpId);
+    const oc = edgeMid && (await t.canvasXY(edgeMid));
+    if (oc) { await t.canvasClick(oc.x, oc.y); await t.settle(250); }
+    const selB = await t.app(() => (window.app.ui.dialog.current.values.sel || []).map((r) => r.kind));
+    const dPlane = await t.app(() => { const e = document.querySelector('.dlg [data-result="distance"] .insp-val'); return e && e.textContent; });
+    t.check("the plane stays pickable by its outline (face + plane: Distance 30.00 mm)", selB.join() === "face,cplane" && dPlane === "30.00 mm", `${JSON.stringify(selB)} ${dPlane}`);
+    await t.shot("measure-through-plane");
+    await t.key("Escape");
+    await t.settle(150);
+    t.step("plane-oriented picks (Offset Plane) still take the plane in front");
+    await t.app(() => { window.app.selection.clear(); window.app.commands.run("ConstructionPlaneOffsetFromPlaneCommand"); });
+    t.require("OFFSET PLANE dialog open", await t.waitFor('.dlg[data-dialog="ConstructionPlaneOffsetFromPlaneCommand"]', { timeout: 2000 }));
+    await t.canvasClick(topC.x, topC.y);
+    await t.settle(250);
+    const selP = await t.app(() => (window.app.ui.dialog.current.values.plane || []).map((r) => r.kind));
+    t.check("Offset Plane: click inside the plane over the model selects the plane", selP.join() === "cplane", JSON.stringify(selP));
+    await t.escapeAll();
+    await t.app((id) => window.app.deleteFeature(id), cpId);
+    await t.setView("home");
+    await t.app(() => window.app.viewport.fit({ animate: false }));
+    await t.cameraStable(2000);
+
     // ------------------------------------------------------------- center of mass
     t.step("Center of Mass from the INSPECT panel");
     const ran = await t.app(() => { window.app.commands.run("FusionCenterOfMassCommand"); return window.app.ui.dialog.isOpen("FusionCenterOfMassCommand"); });

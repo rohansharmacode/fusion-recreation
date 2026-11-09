@@ -467,6 +467,9 @@ const APPLY = {
     let ang = full ? 360 : fval(P, f, "angle");
     const parts = [];
     for (const g of profileGroups(st, f.profiles || [])) {
+      // like Fusion: the axis must lie in the profile plane (an axis along the plane normal sweeps
+      // the profile flat onto itself: a zero-volume "body")
+      if (Math.abs(V.dot(V.norm(ax.d), V.norm(g.sketch.plane.n))) > 1e-6) { K.del(parts); throw new Error("The axis must lie in the plane of the profile"); }
       const rev = (a) => K.revolveRegions(g.regions, g.sketch.regions.vertices, g.sketch.plane, ax.o, ax.d, a);
       if (f.dirType === "sym" && !full) {
         const s = rev(ang);
@@ -484,6 +487,9 @@ const APPLY = {
     }
     if (!parts.length) throw new Error("Select a profile");
     const tool = fuseTemp(parts);
+    let vol = 0;
+    try { vol = K.volumeOf(tool); } catch { vol = 0; }
+    if (!(vol > 1e-9)) { K.del(tool); throw new Error("The revolve has no volume; check the axis and the profile"); }
     st._tool = tool;
     return { affected: applyOp(st, f, tool, doc) };
   },
@@ -643,7 +649,9 @@ const APPLY = {
     const q1 = Math.max(1, Math.round(fval(P, f, "q1"))), d1 = fval(P, f, "d1");
     const q2 = f.dir2 ? Math.max(1, Math.round(fval(P, f, "q2"))) : 1;
     const d2 = f.dir2 ? fval(P, f, "d2") : 0;
-    const a1 = K.ORIGIN_AXES[f.dir1 || "X"], a2 = f.dir2 ? K.ORIGIN_AXES[f.dir2] : [0, 0, 0];
+    // a direction is an origin axis name ("X") or an axis ref (origin axis / sketch line / linear edge)
+    const dirOf = (d, flip) => V.mul(typeof d === "string" ? K.ORIGIN_AXES[d] : axisFromRef(st, d).d, flip ? -1 : 1);
+    const a1 = dirOf(f.dir1 || "X", f.flip1), a2 = f.dir2 ? dirOf(f.dir2, f.flip2) : [0, 0, 0];
     const sp1 = f.distType === "extent" && q1 > 1 ? d1 / (q1 - 1) : d1;
     const sp2 = f.distType === "extent" && q2 > 1 ? d2 / (q2 - 1) : d2;
     let k = 0;

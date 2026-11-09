@@ -136,6 +136,18 @@ export function isLinearEdge(state, ref) {
 }
 
 // ---------- bodies ----------
+/** Centre of the bounding box of bodies `ids` in `state` (null when none resolve). */
+export function bodiesCenter(state, ids) {
+  let mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+  for (const id of ids) {
+    const b = state.bodies.get(id);
+    const bb = b && b.shape && b.shape.boundingBox ? b.shape.boundingBox.bounds : null;
+    if (!bb) continue;
+    for (let i = 0; i < 3; i++) { mn[i] = Math.min(mn[i], bb[0][i]); mx[i] = Math.max(mx[i], bb[1][i]); }
+  }
+  if (!Number.isFinite(mn[0])) return null;
+  return V.mul(V.add(mn, mx), 0.5);
+}
 export function visibleBodies(app, state) {
   const out = [];
   for (const b of state.bodies.values()) if (app.doc.bodies[b.id]?.visible !== false) out.push(b);
@@ -187,6 +199,38 @@ export function pointInside(app, state, p, tol = 1e-6) {
     if (m && m.triangles && m.triangles.length && insideMesh(m, p)) return b.id;
   }
   return null;
+}
+
+/**
+ * Does the ray o + t*d (eps < t < maxT) pass through material of a visible body? True when it
+ * starts inside a body or crosses a body face (mesh triangles) beyond `eps`.
+ */
+export function rayHitsMaterial(app, state, o, d, maxT = Infinity, eps = 0.02) {
+  const u = V.norm(d);
+  if (pointInside(app, state, V.add(o, V.mul(u, eps)))) return true;
+  for (const b of visibleBodies(app, state)) {
+    const m = bodyMesh(app, b.shape);
+    if (!m || !m.triangles) continue;
+    const P = m.vertices, T = m.triangles;
+    for (let t = 0; t < T.length; t += 3) {
+      const a = T[t] * 3, bb = T[t + 1] * 3, c = T[t + 2] * 3;
+      const e1x = P[bb] - P[a], e1y = P[bb + 1] - P[a + 1], e1z = P[bb + 2] - P[a + 2];
+      const e2x = P[c] - P[a], e2y = P[c + 1] - P[a + 1], e2z = P[c + 2] - P[a + 2];
+      const hx = u[1] * e2z - u[2] * e2y, hy = u[2] * e2x - u[0] * e2z, hz = u[0] * e2y - u[1] * e2x;
+      const det = e1x * hx + e1y * hy + e1z * hz;
+      if (Math.abs(det) < 1e-12) continue;
+      const f = 1 / det;
+      const sx = o[0] - P[a], sy = o[1] - P[a + 1], sz = o[2] - P[a + 2];
+      const uu = f * (sx * hx + sy * hy + sz * hz);
+      if (uu < 0 || uu > 1) continue;
+      const qx = sy * e1z - sz * e1y, qy = sz * e1x - sx * e1z, qz = sx * e1y - sy * e1x;
+      const vv = f * (u[0] * qx + u[1] * qy + u[2] * qz);
+      if (vv < 0 || uu + vv > 1) continue;
+      const tt = f * (e2x * qx + e2y * qy + e2z * qz);
+      if (tt > eps && tt < maxT) return true;
+    }
+  }
+  return false;
 }
 
 /** Area (mm^2) of a sketch profile ref (outer loop minus holes). */
@@ -252,6 +296,17 @@ export function profilesAnchor(state, profiles) {
   }
   if (!k) return null;
   return { o: V.mul(acc, 1 / k), n, plane };
+}
+/** World interior point of every profile ref (one per profile; unresolved ones are skipped). */
+export function profilePoints(state, profiles) {
+  const out = [];
+  for (const pr of profiles || []) {
+    const pg = profileRegion(state, pr);
+    if (!pg) continue;
+    const ip = regionInteriorPoint(pg.region);
+    out.push(K.toWorld(pg.sketch.plane, ip[0], ip[1]));
+  }
+  return out;
 }
 /** All profiles of visible, evaluated sketches: [{sketch, key, c}] */
 export function visibleProfiles(app, state) {

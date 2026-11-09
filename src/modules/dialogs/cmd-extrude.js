@@ -43,6 +43,52 @@ function extrudeAutoOp(dlg) {
   if (op !== v.operation) dlg.set("operation", op, { noPreview: true });
 }
 
+/** World seed points of the selection (profile interiors / picked face points) + the extrude normal. */
+function extrudeSeeds(dlg) {
+  const a = extrudeAnchor(dlg);
+  if (!a) return null;
+  const sel = dlg.values.profiles || [];
+  const pts = U.profilePoints(dlg.baseState, sel.filter((r) => r.kind === "profile"));
+  for (const f of sel) if (f.kind === "face" && f.p) pts.push(f.p);
+  const off = dlg.values.startType === "offset" && !a.face ? dlg.num("startOffset") || 0 : 0;
+  return { n: a.n, pts: pts.map((p) => V.add(p, V.mul(a.n, off))) };
+}
+
+/**
+ * Extent All with Cut / Intersect: like Fusion, the extrude goes into the material (the side where a
+ * body is) unless the user flipped it themselves.
+ */
+function extrudeAutoFlip(dlg) {
+  const v = dlg.values;
+  if (dlg.touched.has("flip") || v.extent !== "all" || v.dirType !== "one") return;
+  if (v.operation !== "cut" && v.operation !== "intersect") return;
+  const s = extrudeSeeds(dlg);
+  if (!s || !s.pts.length) return;
+  const hits = (sgn) => s.pts.some((p) => U.rayHitsMaterial(dlg.app, dlg.baseState, p, V.mul(s.n, sgn)));
+  const cur = v.flip ? -1 : 1;
+  if (hits(cur)) return;
+  if (hits(-cur)) dlg.set("flip", !v.flip, { noPreview: true });
+}
+
+/** True when the previewed cut leaves every body as it was (nothing removed). */
+function cutRemovesNothing(dlg) {
+  const app = dlg.app;
+  const st = app.result && app.previewing ? app.result.state : null;
+  const base = dlg.baseState;
+  if (!st || !base || !base.bodies.size || base.bodies.size > 24) return false;
+  const R = app.K.R;
+  for (const [id, b0] of base.bodies) {
+    const b1 = st.bodies.get(id);
+    if (!b1) return false; // a body was cut away completely
+    if (b1.shape === b0.shape) continue;
+    try {
+      const v0 = R.measureVolume(b0.shape), v1 = R.measureVolume(b1.shape);
+      if (Math.abs(v0 - v1) > 1e-6 * Math.max(1, Math.abs(v0))) return false;
+    } catch { return false; }
+  }
+  return true;
+}
+
 export function openExtrude(app, opts = {}) {
   const editId = opts.editId || null;
   const f0 = editId ? app.feature(editId) : null;
@@ -100,15 +146,23 @@ export function openExtrude(app, opts = {}) {
           operation: f0.operation || "new",
         });
         dlg.touched.add("operation");
+        if (f0.extent === "all") dlg.touched.add("flip");
       } else if (!(opts.preselect || []).length) {
         const all = U.visibleProfiles(app, dlg.baseState);
         if (all.length === 1) dlg.values.profiles = all;
       }
       if (opts.values) Object.assign(dlg.values, opts.values);
     },
-    onOpen(dlg) { extrudeAutoOp(dlg); },
+    onOpen(dlg) { extrudeAutoOp(dlg); extrudeAutoFlip(dlg); },
     onChange(id, dlg) {
       if (["profiles", "distance", "dirType", "flip", "extent", "startType", "startOffset"].includes(id)) extrudeAutoOp(dlg);
+      if (["profiles", "dirType", "extent", "operation", "startType", "startOffset"].includes(id)) extrudeAutoFlip(dlg);
+    },
+    afterPreview(dlg) {
+      // Fusion flags a cut that removes nothing instead of silently adding a no-op feature
+      const f = dlg.feature, r = dlg.previewRes;
+      if (!f || f.operation !== "cut" || !r || r.ok === false || r.warning) return;
+      if (cutRemovesNothing(dlg)) dlg.message(f.extent === "all" && f.dirType === "one" ? "No target body found to cut or intersect. Use Flip to cut in the other direction." : "No target body found to cut or intersect.", "warning");
     },
     prompt(dlg) {
       if (!(dlg.values.profiles || []).length) return "Select sketch profiles or planar faces to extrude";

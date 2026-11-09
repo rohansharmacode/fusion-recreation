@@ -95,6 +95,23 @@ const scenario = defineScenario({
     await t.settle(150);
     const selK = await t.app(() => window.app.selection.items.map((r) => `${r.kind}:${r.body || r.id || ""}`));
     t.check("clicking the body row selects the body", selK.some((k) => k.startsWith("body:")), JSON.stringify(selK));
+
+    t.step("right-click the body row: context mark only, no canvas highlight (Fusion ref 27)");
+    await t.app(() => window.app.selection.clear());
+    await t.hover(`${bodySel} .br-label`);
+    await t.settle(100);
+    const hovered = await t.app(() => window.app.selection.hover && window.app.selection.hover.kind);
+    await t.click(`${bodySel} .br-label`, { button: "right" });
+    await t.settle(200);
+    const rc = await t.app((s) => ({ menu: (document.querySelector(".br-ctx")?.getBoundingClientRect().height || 0) > 0, ctx: document.querySelector(s).classList.contains("ctx"), hover: window.app.selection.hover, sel: window.app.selection.items.length, status: window.app.status }), bodySel);
+    t.check("row hover pre-highlights the body", hovered === "body", `hover=${hovered}`);
+    t.check("right-click opens the menu and marks the row", rc.menu && rc.ctx, JSON.stringify(rc));
+    t.check("right-click neither selects nor highlights the body in the canvas", rc.sel === 0 && !rc.hover, JSON.stringify(rc));
+    t.check("status bar names the right-clicked body", /Body1/.test(rc.status || ""), JSON.stringify(rc.status));
+    await t.escapeAll();
+    await t.click(bodySel);
+    await t.settle(100);
+
     t.step("V toggles visibility of the selection");
     await t.blur();
     await t.mouseToCanvas(0.6, 0.6);

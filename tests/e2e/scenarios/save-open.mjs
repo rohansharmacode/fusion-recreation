@@ -70,6 +70,22 @@ const scenario = defineScenario({
     t.check("something was written to localStorage", stored > 0, `localStorage keys=${stored}`);
     await t.shot("saved");
 
+    t.step("Ctrl+Z / Ctrl+Y after saving mark the design modified");
+    await t.blur();
+    await t.mouseToCanvas(0.5, 0.5);
+    await t.key("Control+z");
+    await t.settle(300);
+    const undone = await t.app(() => ({ n: window.app.doc.features.length, dirty: window.app.dirty, title: document.title }));
+    t.check("undo after save sets the dirty flag and the title asterisk", undone.n === 1 && undone.dirty === true && /\*/.test(undone.title), JSON.stringify(undone));
+    await t.key("Control+y");
+    await t.settle(300);
+    const redone = await t.app(() => ({ n: window.app.doc.features.length, dirty: window.app.dirty, title: document.title }));
+    t.check("redo keeps the design modified", redone.n === 2 && redone.dirty === true && /\*/.test(redone.title), JSON.stringify(redone));
+    await t.key("Control+s"); // already named: saves in place without a dialog
+    await t.settle(400);
+    const resaved = await t.app(() => ({ dirty: window.app.dirty, dlg: !!document.querySelector('#overlay input[type="text"]')?.offsetParent }));
+    t.check("Ctrl+S on a named design saves in place and clears the flag", resaved.dirty === false && !resaved.dlg, JSON.stringify(resaved));
+
     t.step("reload the page");
     await t.page.reload();
     const ready = await t.waitFor(() => window.app && window.app.isReady, { timeout: 90000 });

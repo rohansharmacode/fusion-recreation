@@ -446,16 +446,264 @@ export function chamferEdges(shape, edges, d) {
     return own3D(b.Shape(), "chamfer");
   } finally { del(b); }
 }
-/** Hollow `shape` removing `faces` (Face objects of it); thickness > 0 = walls inside (replicad shell). */
-export function shellFaces(shape, faces, thickness, tolerance = 1e-3) {
+/** Volume of a shape (temporaries released). */
+export function volumeOf(s) {
+  const O = OC();
+  const gp = new O.GProp_GProps();
+  try { O.BRepGProp.VolumeProperties(s.wrapped, gp, false, false, false); return gp.Mass(); } finally { del(gp); }
+}
+/** BRepCheck validity of a shape (false when the check itself fails). */
+export function isValidShape(s) {
+  let a = null;
+  try { a = new (OC().BRepCheck_Analyzer)(s.wrapped, true, false, false); return !!a.IsValid(); } catch { return false; } finally { del(a); }
+}
+/**
+ * A shell result is accepted only if it is a valid non-empty solid whose volume changed (an inside
+ * shell must lose material). BRepOffsetAPI_MakeThickSolid reports success and returns the input
+ * unchanged when it cannot handle a configuration (a removed face tangent to a fillet, hole tubes
+ * meeting the walls): that must count as a failure, not as a shell.
+ */
+function shellPlausible(s, v0, inside) {
+  if (!s || isEmptyShape(s) || !R.isShape3D(s)) return false;
+  let v;
+  try { v = volumeOf(s); } catch { return false; }
+  if (!(v > 1e-9) || Math.abs(v - v0) <= 1e-7 * Math.max(1, v0)) return false;
+  if (inside && v >= v0) return false;
+  return isValidShape(s);
+}
+function thickSolid(shape, faces, offset, tolerance, inter) {
   const O = OC();
   const list = new O.NCollection_List_TopoDS_Shape();
   const b = new O.BRepOffsetAPI_MakeThickSolid();
   try {
     for (const f of faces) list.Append(f.wrapped);
-    b.MakeThickSolidByJoin(shape.wrapped, list, -thickness, tolerance, O.BRepOffset_Mode.BRepOffset_Skin, false, false, O.GeomAbs_JoinType.GeomAbs_Arc, false);
+    b.MakeThickSolidByJoin(shape.wrapped, list, offset, tolerance, O.BRepOffset_Mode.BRepOffset_Skin, inter, false, O.GeomAbs_JoinType.GeomAbs_Arc, false);
     return own3D(b.Shape(), "shell");
   } finally { del(b, list); }
+}
+/** Closed offset of a whole solid by d (< 0: eroded inwards, > 0: grown), arc joins, as a solid. */
+function offsetSolidOnce(shape, d, tolerance, inter) {
+  const O = OC();
+  const b = new O.BRepOffsetAPI_MakeOffsetShape();
+  let fix = null;
+  try {
+    b.PerformByJoin(shape.wrapped, d, tolerance, O.BRepOffset_Mode.BRepOffset_Skin, inter, false, O.GeomAbs_JoinType.GeomAbs_Arc, false);
+    if (!b.IsDone()) throw new Error("offset failed");
+    let raw = b.Shape();
+    if (raw.IsNull()) { del(raw); throw new Error("offset failed"); }
+    if (raw.ShapeType() === O.TopAbs_ShapeEnum.TopAbs_SHELL) {
+      fix = new O.ShapeFix_Solid();
+      let solid;
+      try { solid = fix.SolidFromShell(O.TopoDS.Shell(raw)); } finally { del(raw); }
+      raw = solid;
+    }
+    return own3D(raw, "offset");
+  } finally { del(b, fix); }
+}
+/** offsetSolidOnce with neighbour intersections first, then all offset faces intersected; checked by volume. */
+function offsetSolid(shape, d, tolerance = 1e-3) {
+  const v0 = volumeOf(shape);
+  for (const inter of [false, true]) {
+    let s = null;
+    try { s = offsetSolidOnce(shape, d, tolerance, inter); } catch { s = null; }
+    let v = NaN;
+    try { v = s ? volumeOf(s) : NaN; } catch { v = NaN; }
+    if (s && v > 1e-9 && (d < 0 ? v < v0 : v > v0)) return s;
+    del(s);
+  }
+  throw new Error("offset failed");
+}
+/**
+ * Through/blind holes of a solid: concave cylinders and cones (outward normal towards the axis),
+ * merged per axis line. Each is {a, ao, h0, h1, r0, r1}: axis, axial range and radius at both ends.
+ */
+function holeVoids(shape) {
+  const O = OC();
+  const T = topoOf(shape);
+  const out = [];
+  const faces = facesOf(shape);
+  try {
+    T.faces.forEach((fi0, i) => {
+      let fi = fi0;
+      if (fi.type !== "CYLINDRE" && fi.type !== "CONE") return;
+      let ad = null;
+      try {
+        ad = new O.BRepAdaptor_Surface(faces[i].wrapped, false);
+        fi = { ...fi0 };
+        const uv = O.BRepTools.UVBounds(faces[i].wrapped, 0, 0, 0, 0);
+        if (!fi.a || !fi.ao) {
+          // no gp_Cone binding: the axis from an iso-v circle of the surface (centre + normal)
+          const vm = (uv.VMin + uv.VMax) / 2, du = (uv.UMax - uv.UMin) / 3;
+          const [p0, p1, p2] = [0, 1, 2].map((k) => pt3(ad.Value(uv.UMin + k * du, vm)));
+          const ab = V.sub(p1, p0), ac = V.sub(p2, p0);
+          const nn = V.cross(ab, ac);
+          const n2 = V.dot(nn, nn);
+          if (n2 < 1e-18) return;
+          const t1 = V.mul(V.cross(nn, ab), V.dot(ac, ac)), t2 = V.mul(V.cross(ac, nn), V.dot(ab, ab));
+          fi.ao = V.add(p0, V.mul(V.add(t1, t2), 1 / (2 * n2)));
+          fi.a = V.norm(nn);
+        }
+        const rel = V.sub(fi.c, fi.ao);
+        const radial = V.sub(rel, V.mul(fi.a, V.dot(rel, fi.a)));
+        if (V.len(radial) < 1e-9 || V.dot(fi.n, radial) >= 0) return; // convex: a boss, not a hole
+        const um = (uv.UMin + uv.UMax) / 2;
+        const ends = [uv.VMin, uv.VMax].map((v) => {
+          const p = pt3(ad.Value(um, v));
+          const q = V.sub(p, fi.ao);
+          const h = V.dot(q, fi.a);
+          return { h, r: V.len(V.sub(q, V.mul(fi.a, h))) };
+        });
+        ends.sort((x, y) => x.h - y.h);
+        let [e0, e1] = ends;
+        if (e1.h - e0.h < 1e-9) return;
+        // same hole split into several faces (seams, booleans): merge cylinders on one axis line
+        const g = fi.type === "CYLINDRE" && out.find((o) => o.cyl && Math.abs(o.r0 - fi.r) < 1e-7 && Math.abs(Math.abs(V.dot(o.a, fi.a)) - 1) < 1e-9 &&
+          V.len(V.sub(V.sub(fi.ao, o.ao), V.mul(o.a, V.dot(V.sub(fi.ao, o.ao), o.a)))) < 1e-6);
+        if (g) {
+          for (const e of ends) {
+            const h = V.dot(V.sub(V.add(fi.ao, V.mul(fi.a, e.h)), g.ao), g.a);
+            g.h0 = Math.min(g.h0, h); g.h1 = Math.max(g.h1, h);
+          }
+          return;
+        }
+        if (fi.type === "CYLINDRE" && Number.isFinite(fi.r)) { e0 = { ...e0, r: fi.r }; e1 = { ...e1, r: fi.r }; }
+        out.push({ a: fi.a, ao: fi.ao, h0: e0.h, h1: e1.h, r0: e0.r, r1: e1.r, cyl: fi.type === "CYLINDRE" });
+      } catch { /* not usable */ } finally { del(ad); }
+    });
+  } finally { del(faces); }
+  return out;
+}
+/** Solid of revolution of a hole void (cylinder or cone frustum) between axial h0..h1 with radii r0, r1. */
+function voidSolid(a, ao, h0, h1, r0, r1) {
+  return revolveProfile(a, ao, [[h0, 0], [h1, 0], [h1, r1], [h0, r0]]);
+}
+/** Solid of revolution of a closed (h, ρ) profile about the axis (ao, a). */
+function revolveProfile(a, ao, prof) {
+  const w = V.norm(Math.abs(a[0]) < 0.9 ? V.cross(a, [1, 0, 0]) : V.cross(a, [0, 1, 0]));
+  const at = ([h, r]) => V.add(V.add(ao, V.mul(a, h)), V.mul(w, Math.max(0, r)));
+  const f = polygonFace(prof.map(at));
+  try { return revolveFace(f, ao, a, 360); } finally { del(f); }
+}
+/**
+ * The hole void grown by T (its dilation, i.e. everything within T of it): a body of revolution
+ * whose meridian profile is the void's trapezoid offset by T with round corners (polygonal arcs),
+ * clipped at the axis.
+ */
+function grownVoidSolid(h, T) {
+  let P = [[h.h0, 0], [h.h1, 0], [h.h1, h.r1], [h.h0, h.r0]].filter((q, i, arr) => i === 0 || Math.hypot(q[0] - arr[i - 1][0], q[1] - arr[i - 1][1]) > 1e-9);
+  if (Math.hypot(P[0][0] - P[P.length - 1][0], P[0][1] - P[P.length - 1][1]) <= 1e-9) P.pop();
+  const n = P.length;
+  const nrm = P.map((p, i) => { const q = P[(i + 1) % n]; const dx = q[0] - p[0], dy = q[1] - p[1], l = Math.hypot(dx, dy); return [dy / l, -dx / l]; });
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const n0 = nrm[(i - 1 + n) % n], n1 = nrm[i];
+    let a0 = Math.atan2(n0[1], n0[0]), a1 = Math.atan2(n1[1], n1[0]);
+    while (a1 < a0 - 1e-12) a1 += 2 * Math.PI;
+    const k = Math.max(1, Math.ceil((a1 - a0) / (Math.PI / 8)));
+    for (let j = 0; j <= k; j++) { const t = a0 + ((a1 - a0) * j) / k; out.push([P[i][0] + T * Math.cos(t), P[i][1] + T * Math.sin(t)]); }
+  }
+  // keep ρ >= 0 (Sutherland–Hodgman against the axis)
+  const clip = [];
+  for (let i = 0; i < out.length; i++) {
+    const p = out[i], q = out[(i + 1) % out.length];
+    if (p[1] >= 0) clip.push(p);
+    if ((p[1] >= 0) !== (q[1] >= 0)) { const t = p[1] / (p[1] - q[1]); clip.push([p[0] + (q[0] - p[0]) * t, 0]); }
+  }
+  return revolveProfile(h.a, h.ao, clip);
+}
+/** Planar faces of `body` lying on the plane (n, d) that touch `ref` (a face). Caller deletes them. */
+function coplanarFacesTouching(body, n, d, ref) {
+  const T = topoOf(body);
+  const idx = [];
+  T.faces.forEach((fi, i) => { if (fi.type === "PLANE" && V.dot(fi.n, n) > 1 - 1e-9 && Math.abs(fi.d - d) < 1e-6) idx.push(i); });
+  const fs = facesAt(body, idx);
+  const out = [];
+  for (const f of fs) {
+    let dist = Infinity;
+    try { dist = shapeDistance(f, ref); } catch { /* keep */ }
+    if (dist < 1e-6) out.push(f); else del(f);
+  }
+  return out;
+}
+/**
+ * Shell by booleans, for what MakeThickSolid cannot do (removed faces tangent to kept fillets,
+ * hole tubes meeting the walls). Inside (t > 0): the walls are S − cavity with
+ *   cavity = (erode(A, t) ∪ openings) − ∪ grow(hole_i, t),   A = S with its holes filled,
+ * because erosion distributes over S = A − ∪hole_i. Openings: the eroded removed face extruded back
+ * up to the removed face (planar removed faces). Outside (t < 0): (grow(S) − slabs) − S.
+ */
+function shellByBooleans(shape, faces, t) {
+  const inside = t > 0;
+  const T = Math.abs(t);
+  const rem = faces.map((f) => faceGeom(f));
+  if (rem.some((g) => g.type !== "PLANE" || g.d === undefined)) throw new Error("Shell failed — try a smaller thickness");
+  const tmp = [];
+  try {
+    let A = shape;
+    const grown = [];
+    if (inside) {
+      for (const h of holeVoids(shape)) {
+        const vs = voidSolid(h.a, h.ao, h.h0, h.h1, h.r0, h.r1);
+        tmp.push(vs);
+        let fused = null;
+        try { fused = fuse(A, vs); } catch { continue; }
+        // a real hole is empty space: filling it adds its whole volume (a concave fillet does not)
+        const dv = volumeOf(fused) - volumeOf(A) - volumeOf(vs);
+        if (Math.abs(dv) > 1e-6 * Math.max(1, volumeOf(vs))) { del(fused); continue; }
+        tmp.push(fused);
+        A = fused;
+        const gv = grownVoidSolid(h, T);
+        tmp.push(gv);
+        grown.push(gv);
+      }
+    }
+    const off = offsetSolid(A, inside ? -T : T);
+    tmp.push(off);
+    const vOff = volumeOf(off), vA = volumeOf(A);
+    if (!(vOff > 1e-9) || (inside ? vOff >= vA : vOff <= vA)) throw new Error("offset failed");
+    // openings: the offset copy of every removed face, extruded back onto the removed face
+    const slabs = [];
+    for (let i = 0; i < faces.length; i++) {
+      const g = rem[i];
+      const sh = V.mul(g.n, inside ? -T : T);
+      const moved = translated(faces[i], sh);
+      tmp.push(moved);
+      for (const ef of coplanarFacesTouching(off, g.n, g.d + (inside ? -T : T), moved)) {
+        try { const sl = prism(ef, V.mul(sh, -1)); tmp.push(sl); slabs.push(sl); } finally { del(ef); }
+      }
+    }
+    if (!slabs.length) throw new Error("no opening");
+    let body = off;
+    if (inside) {
+      for (const s of slabs) { const n = fuse(body, s); tmp.push(n); body = n; }
+      for (const gsol of grown) { const n = cut(body, gsol); tmp.push(n); body = n; }
+      return cut(shape, body);
+    }
+    for (const s of slabs) { const n = cut(body, s); tmp.push(n); body = n; }
+    return cut(body, shape);
+  } finally {
+    for (const x of tmp) if (x !== shape) del(x);
+  }
+}
+/**
+ * Hollow `shape` removing `faces` (Face objects of it); thickness > 0 = walls inside (replicad shell).
+ * OCCT's thick solid first (plain, then intersecting all offset faces), then the boolean shell; a
+ * result that did not actually hollow the body is never returned.
+ */
+export function shellFaces(shape, faces, thickness, tolerance = 1e-3) {
+  const inside = thickness > 0;
+  const v0 = volumeOf(shape);
+  for (const inter of [false, true]) {
+    let s = null;
+    try { s = thickSolid(shape, faces, -thickness, tolerance, inter); } catch { s = null; }
+    if (s && shellPlausible(s, v0, inside)) return s;
+    del(s);
+  }
+  let s = null;
+  try { s = shellByBooleans(shape, faces, thickness); } catch { s = null; }
+  if (s && shellPlausible(s, v0, inside)) return s;
+  del(s);
+  throw new Error("Shell failed — try a smaller thickness");
 }
 /** Draft `faces` (Face objects of `shape`) by angle (deg) about the neutral plane pl {o, n}. */
 export function draftFaces(shape, faces, angleDeg, pl) {

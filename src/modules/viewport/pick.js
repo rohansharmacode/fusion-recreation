@@ -266,19 +266,33 @@ export class Picker {
       }
     }
 
-    // --- construction planes ---
+    // --- construction planes: translucent fill (area) + outline (curve, <=5px, not behind a body) ---
     if (org && want("cplane") && vp.groups.construction.visible) {
       for (const [id, c] of org.cplanes) {
         const { o, n, x: px, y: py } = c.plane;
         const den = n.dot(R.d);
-        if (Math.abs(den) < 1e-9) continue;
-        const t = o.clone().sub(R.o).dot(n) / den;
-        if (t <= 0) continue;
-        const P = R.o.clone().addScaledVector(R.d, t);
-        const rel = P.clone().sub(o);
-        const u = rel.dot(px), v = rel.dot(py);
-        const [u0, v0, u1, v1] = c.rect;
-        if (u >= u0 && u <= u1 && v >= v0 && v <= v1) hits.push({ ref: { kind: "cplane", id }, point: P.toArray(), depth: t, screenDist: 0, type: "area" });
+        if (Math.abs(den) > 1e-9) {
+          const t = o.clone().sub(R.o).dot(n) / den;
+          if (t > 0) {
+            const P = R.o.clone().addScaledVector(R.d, t);
+            const rel = P.clone().sub(o);
+            const u = rel.dot(px), v = rel.dot(py);
+            const [u0, v0, u1, v1] = c.rect;
+            if (u >= u0 && u <= u1 && v >= v0 && v <= v1) hits.push({ ref: { kind: "cplane", id }, point: P.toArray(), depth: t, screenDist: 0, type: "area" });
+          }
+        }
+        const cs = c.corners || [];
+        let best = null;
+        for (let i = 0; i < cs.length; i++) {
+          const A = cs[i], B = cs[(i + 1) % cs.length];
+          const sa = this.project(A.toArray(), [0, 0, 0, 1]), sb = this.project(B.toArray(), [0, 0, 0, 1]);
+          if (!sa[3] || !sb[3]) continue;
+          const r = segDist2(x, y, sa[0], sa[1], sb[0], sb[1]);
+          if (r.d2 <= EDGE_PX * EDGE_PX && (!best || r.d2 < best.d2)) best = { d2: r.d2, P: A.clone().lerp(B, r.t) };
+        }
+        if (best && !(occlusionOn && this._occluded(best.P, meshes))) {
+          hits.push({ ref: { kind: "cplane", id }, point: best.P.toArray(), depth: best.P.clone().sub(R.o).dot(R.d), screenDist: Math.sqrt(best.d2), type: "curve" });
+        }
       }
     }
 
@@ -294,9 +308,31 @@ export class Picker {
     if (kinds) out = out.filter((h) => kinds.has(h.ref.kind));
     if (opts.filter) out = out.filter((h) => { try { return opts.filter(h.ref); } catch { return false; } });
     const tolAt = (h) => (h.point ? rig.pixelSize(new V3(...h.point)) * 2 : 1e-6) + 1e-9;
+    // A construction plane's translucent fill must not hide the model behind it while the user is
+    // selecting model geometry (default select, Measure: anything that also takes edges): there the
+    // plane yields to an accepted face/body further along the ray (it stays pickable by its outline,
+    // where the model is not behind it, and in the browser). Plane-oriented picks (Create Sketch,
+    // Offset Plane, Mirror plane: planes + planar faces, no edges) keep the nearest-first order.
+    const yielded = new Set();
+    const solids = out.filter((h) => h.type === "area" && (h.ref.kind === "face" || h.ref.kind === "body"));
+    if (solids.length && out.some((h) => h.type === "area" && h.ref.kind === "cplane")) {
+      const s0 = solids[0];
+      let generic = !kinds || kinds.has("edge");
+      if (generic && opts.filter) {
+        try { generic = !!opts.filter({ kind: "edge", body: s0.ref.body, index: 0, p: s0.point }); } catch { generic = false; }
+      }
+      if (generic) {
+        for (const h of out) {
+          if (h.type !== "area" || h.ref.kind !== "cplane") continue;
+          if (solids.some((s) => s.depth > h.depth + Math.max(tolAt(s), tolAt(h)))) yielded.add(h);
+        }
+      }
+    }
     out.sort((a, b) => {
       const ra = RANK[a.type] ?? 2, rb = RANK[b.type] ?? 2;
       if (ra !== rb) return ra - rb;
+      const ya = yielded.has(a) ? 1 : 0, yb = yielded.has(b) ? 1 : 0;
+      if (ya !== yb) return ya - yb;
       if (ra < 2) return (a.screenDist ?? 0) - (b.screenDist ?? 0) || (a.depth ?? 0) - (b.depth ?? 0);
       const da = a.depth ?? Infinity, db = b.depth ?? Infinity;
       if (Math.abs(da - db) <= Math.max(tolAt(a), tolAt(b))) {

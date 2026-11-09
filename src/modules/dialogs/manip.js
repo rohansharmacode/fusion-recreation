@@ -2,6 +2,9 @@
 //  * distance: a flat screen-facing block arrow (white with a dark outline; blue with a white rim
 //    while it is the active one), dragged along its 3D line;
 //  * angle / taper: a thin arc with a round grip lying in the rotation plane, dragged around the axis.
+//  * Move/Copy triad parts: long axis-coloured arrows (distance type, look:"axis"), planar square
+//    handles and a free-move ball (type "plane"), axis-coloured rotation ring segments (angle type
+//    with screenRadius / span / gripAt / color).
 // Only the ACTIVE manipulator shows its value box (the HUD: an underlined input with a grip on the
 // left and a ⋮ menu on the right). Tab / Shift+Tab move the HUD to the next / previous manipulator.
 // Everything lives in app.viewport.groups.overlay and keeps a constant screen size.
@@ -34,6 +37,12 @@ function offsetPoly(pts, d) {
     out.push([c[0] + m[0] * k, c[1] + m[1] * k]);
   }
   return out;
+}
+function rayPlane(ray, p, n) {
+  const den = V.dot(ray.d, n);
+  if (Math.abs(den) < 1e-6) return null;
+  const t = V.dot(V.sub(p, ray.o), n) / den;
+  return V.add(ray.o, V.mul(ray.d, t));
 }
 function norm2(v) { const l = Math.hypot(v[0], v[1]) || 1; return [v[0] / l, v[1] / l]; }
 function shapeGeo(pts) { return new THREE.ShapeGeometry(new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)))); }
@@ -77,6 +86,46 @@ function pointObject() {
   return g;
 }
 
+function lighter(hex, f = 0.35) { return new THREE.Color(hex).lerp(new THREE.Color(0xffffff), f).getHex(); }
+
+/** Triad axis arrow along local +Y (units: px): thin shaft from `gap` to the cone, cone head at `len`. */
+function axisArrowObject(color, len, gap) {
+  const g = new THREE.Group();
+  const head = 15, shaftLen = Math.max(1, len - head - gap);
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(1.25, 1.25, shaftLen, 10), basicMat(color));
+  shaft.position.y = gap + shaftLen / 2;
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(5.2, head, 20), basicMat(color));
+  cone.position.y = len - head / 2;
+  shaft.renderOrder = 1001; cone.renderOrder = 1001;
+  g.add(shaft, cone);
+  g.userData = { parts: [shaft, cone] };
+  return g;
+}
+
+/** Planar handle: a small translucent square with a darker rim, lying in its plane (local XY). */
+function squareObject(color) {
+  const g = new THREE.Group();
+  const S = 11;
+  const rim = new THREE.Mesh(new THREE.PlaneGeometry(S + 2, S + 2), basicMat(color));
+  const fill = new THREE.Mesh(new THREE.PlaneGeometry(S, S), basicMat(lighter(color, 0.45)));
+  rim.material.opacity = 0.9; fill.material.opacity = 0.7;
+  rim.renderOrder = 1001; fill.renderOrder = 1002; fill.position.z = 0.01;
+  g.add(rim, fill);
+  g.userData = { parts: [rim, fill], fill };
+  return g;
+}
+
+/** Free-move handle: a white ball with a dark rim at the triad centre (screen facing). */
+function ballObject() {
+  const g = new THREE.Group();
+  const outline = new THREE.Mesh(new THREE.CircleGeometry(7.6, 32), basicMat(OUTLINE));
+  const body = new THREE.Mesh(new THREE.CircleGeometry(6.4, 32), basicMat(WHITE));
+  outline.renderOrder = 1003; body.renderOrder = 1004; body.position.z = 0.005;
+  g.add(outline, body);
+  g.userData = { outline, body, core: body };
+  return g;
+}
+
 export class Manipulators {
   constructor(app, dlg) {
     this.app = app;
@@ -110,14 +159,15 @@ export class Manipulators {
       const ok = d.type === "angle" ? d.center && d.axis && d.ref && d.radius > 0
         : d.type === "taper" ? d.center && d.up && d.side
           : d.type === "point" ? d.point && d.normal
-            : d.origin && d.dir;
+            : d.type === "plane" ? d.center && (d.look === "ball" || d.look === "point" || (d.a && d.b))
+              : d.origin && d.dir;
       if (!ok) continue;
       seen.add(d.id);
       order.push(d.id);
       let it = this.items.get(d.id);
       if (it && it.type !== d.type) { this._dispose(it); this.items.delete(d.id); it = null; }
       if (!it) { it = this._create(d); this.items.set(d.id, it); }
-      if (this.drag && this.drag.item === it) it.def = { ...d, value: it.def.value, text: it.def.text };
+      if (this.drag && this.drag.item === it) it.def = { ...d, value: it.def.value, text: it.def.text, origin: it.def.origin ?? d.origin };
       else it.def = { ...d };
       if (it.box && document.activeElement !== it.box) {
         it.box.value = it.def.text ?? "";
@@ -135,15 +185,21 @@ export class Manipulators {
 
   _create(d) {
     const it = { def: d, type: d.type, box: null, hud: null };
-    if (d.type === "distance") {
+    if (d.type === "distance" && d.look === "axis") {
+      it.obj = axisArrowObject(d.color ?? BLUE, d.len || 90, d.gap || 12);
+      this.group.add(it.obj);
+    } else if (d.type === "distance") {
       it.obj = arrowObject();
+      this.group.add(it.obj);
+    } else if (d.type === "plane") {
+      it.obj = d.look === "ball" ? ballObject() : d.look === "point" ? pointObject() : squareObject(d.color ?? BLUE);
       this.group.add(it.obj);
     } else if (d.type === "point") {
       it.obj = pointObject();
       this.group.add(it.obj);
     } else {
       it.grip = gripObject();
-      const mat = new LineMaterial({ color: 0xffffff, linewidth: 1.3, vertexColors: true, depthTest: false, depthWrite: false, transparent: true });
+      const mat = new LineMaterial({ color: 0xffffff, linewidth: d.lineWidth || 1.3, vertexColors: true, depthTest: false, depthWrite: false, transparent: true });
       const c = this.app.viewport && this.app.viewport.canvas;
       mat.resolution.set((c && c.clientWidth) || 1, (c && c.clientHeight) || 1);
       this.lineMats.push(mat);
@@ -284,7 +340,20 @@ export class Manipulators {
     const k = V.norm(d.axis), u = V.norm(d.ref);
     const w = V.cross(k, u);
     const v = d.value;
-    return { c: d.center, u, w, r: d.radius, a0: Math.min(0, v), a1: Math.max(0, v) };
+    const r = d.screenRadius ? d.screenRadius * this._px(d.center) : d.radius;
+    if (d.span !== undefined) { const g = (d.gripAt || 0) + v; return { c: d.center, u, w, r, a0: g - d.span, a1: g + d.span }; }
+    return { c: d.center, u, w, r, a0: Math.min(0, v), a1: Math.max(0, v) };
+  }
+  /** Angle (deg) of the grip on its circle. */
+  _gripAngle(it) { return (it.def.type === "angle" ? it.def.gripAt || 0 : 0) + it.def.value; }
+  /** World position of a planar / free-move handle (kept a constant screen distance from the centre). */
+  _planePoint(it) {
+    const d = it.def;
+    if (!d.offPx) return d.center;
+    const ps = this._px(d.center);
+    if (d.offDir) return V.add(d.center, V.mul(V.norm(d.offDir), d.offPx * ps));
+    if (d.look === "ball" || d.look === "point") return d.center;
+    return V.add(d.center, V.mul(V.add(V.norm(d.a), V.norm(d.b)), d.offPx * ps));
   }
   _onCircle(cr, deg) {
     const t = (deg * Math.PI) / 180;
@@ -294,7 +363,8 @@ export class Manipulators {
   _base(it) {
     if (it.type === "distance") return this._arrow(it).base;
     if (it.type === "point") return it.def.point;
-    return this._onCircle(this._circle(it), it.def.value);
+    if (it.type === "plane") return this._planePoint(it);
+    return this._onCircle(this._circle(it), this._gripAngle(it));
   }
 
   layout(force = false) {
@@ -307,7 +377,36 @@ export class Manipulators {
     for (const it of this.items.values()) {
       const isActive = this.active === it.def.id;
       const hot = this.hover === it || (this.drag && this.drag.item === it);
-      if (it.type === "point") {
+      if (it.type === "plane") {
+        const o = it.obj;
+        const p = this._planePoint(it);
+        const ps = this._px(p);
+        o.position.set(...p);
+        o.scale.setScalar(ps);
+        if (it.def.look === "ball") {
+          o.quaternion.copy(cam.quaternion);
+          o.userData.body.material.color.setHex(hot ? BLUE_HOVER : WHITE);
+        } else if (it.def.look === "point") {
+          o.quaternion.copy(cam.quaternion);
+          o.userData.core.material.color.setHex(hot ? BLUE_HOVER : BLUE);
+        } else {
+          const a = V.norm(it.def.a), b = V.norm(it.def.b), n = V.cross(a, b);
+          o.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(...a), new THREE.Vector3(...b), new THREE.Vector3(...n)));
+          o.userData.fill.material.color.setHex(hot ? 0xffe680 : lighter(it.def.color ?? BLUE, 0.45));
+        }
+        it.screen = { s0: vp.toScreen(p) };
+      } else if (it.type === "distance" && it.def.look === "axis") {
+        const { base, dir } = this._arrow(it);
+        const ps = this._px(base);
+        const o = it.obj;
+        o.position.set(...base);
+        o.scale.setScalar(ps);
+        o.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(...V.norm(dir)));
+        const col = hot ? 0xffd21f : it.def.color ?? BLUE;
+        for (const m of o.userData.parts) m.material.color.setHex(col);
+        const len = it.def.len || 90, gap = it.def.gap || 12;
+        it.screen = { s0: vp.toScreen(base), seg: [vp.toScreen(V.add(base, V.mul(dir, gap * ps))), vp.toScreen(V.add(base, V.mul(dir, len * ps)))] };
+      } else if (it.type === "point") {
         const o = it.obj;
         const ps = this._px(it.def.point);
         o.position.set(...it.def.point);
@@ -335,7 +434,7 @@ export class Manipulators {
         const pts = [], cols = [];
         const N = 48;
         const fadeEnd = it.type === "taper";
-        const dark = isActive ? new THREE.Color(0x2b6cb8) : new THREE.Color(0x2a2a2a);
+        const dark = it.def.color !== undefined ? new THREE.Color(hot ? 0xffd21f : it.def.color) : isActive ? new THREE.Color(0x2b6cb8) : new THREE.Color(0x2a2a2a);
         for (let i = 0; i <= N; i++) {
           const a = cr.a0 + ((cr.a1 - cr.a0) * i) / N;
           pts.push(...this._onCircle(cr, a));
@@ -349,7 +448,7 @@ export class Manipulators {
         it.arc.geometry.setColors(cols);
         it.arc.computeLineDistances();
         it.arc.visible = cr.a1 - cr.a0 > 0.5;
-        const gp = this._onCircle(cr, it.def.value);
+        const gp = this._onCircle(cr, this._gripAngle(it));
         const ps = this._px(gp);
         const g = it.grip;
         g.position.set(...gp);
@@ -361,8 +460,13 @@ export class Manipulators {
         const nn = facing < 0.25 ? V.add(V.mul(nrm, 0.25), V.mul(camDir.toArray(), -0.97)) : nrm; // never fully edge-on
         g.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...V.norm(nn)));
         const u = g.userData;
-        u.body.material.color.setHex(isActive ? (hot ? BLUE_HOVER : BLUE) : hot ? WHITE_HOVER : WHITE);
-        u.dot.material.color.setHex(isActive ? WHITE : OUTLINE);
+        if (it.def.color !== undefined) {
+          u.body.material.color.setHex(hot ? 0xffd21f : it.def.color);
+          u.dot.material.color.setHex(WHITE);
+        } else {
+          u.body.material.color.setHex(isActive ? (hot ? BLUE_HOVER : BLUE) : hot ? WHITE_HOVER : WHITE);
+          u.dot.material.color.setHex(isActive ? WHITE : OUTLINE);
+        }
         it.screen = { s0: vp.toScreen(gp) };
         if (it.ticks) {
           const kq = V.norm(nn);
@@ -421,7 +525,13 @@ export class Manipulators {
     for (const it of this.items.values()) {
       if (!it.screen) continue;
       let d;
-      if (it.type === "distance") {
+      if (it.screen.seg) {
+        const [a, b] = it.screen.seg;
+        const dx = b[0] - a[0], dy = b[1] - a[1];
+        const L2 = dx * dx + dy * dy || 1e-9;
+        const t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / L2));
+        d = Math.hypot(x - (a[0] + dx * t), y - (a[1] + dy * t)) - (t > 0.75 ? 6 : 3);
+      } else if (it.type === "distance") {
         const { s0, ang } = it.screen;
         const tx = s0[0] + Math.cos(ang) * ARROW_LEN, ty = s0[1] - Math.sin(ang) * ARROW_LEN;
         const dx = tx - s0[0], dy = ty - s0[1];
@@ -464,6 +574,12 @@ export class Manipulators {
     if (it.box) this.active = it.def.id;
     if (it.type === "point") {
       this.drag = { item: it };
+    } else if (it.type === "plane") {
+      const p = this._planePoint(it);
+      const n = this._dragNormal(it);
+      const h0 = rayPlane(ctx.ray, p, n);
+      if (!h0) return false;
+      this.drag = { item: it, h0, n, start: it.def.getStart ? it.def.getStart() : null, dv: [0, 0, 0] };
     } else if (it.type !== "distance") {
       const a0 = this._angleAt(it, ctx.ray);
       if (a0 === null) return false;
@@ -488,7 +604,22 @@ export class Manipulators {
     this.layout(true);
   }
 
+  /** Plane a planar / free-move handle is dragged in (the view plane for the free-move ball). */
+  _dragNormal(it) {
+    if (it.def.look === "ball" || it.def.look === "point" || !it.def.a) return this.app.viewport.camera.getWorldDirection(new THREE.Vector3()).toArray();
+    return V.norm(V.cross(it.def.a, it.def.b));
+  }
+
   move(ev, ctx) {
+    if (this.drag && this.drag.item.type === "plane") {
+      const it = this.drag.item;
+      const h = rayPlane(ctx.ray, this.drag.h0, this.drag.n);
+      if (!h) return true;
+      this.drag.dv = V.sub(h, this.drag.h0);
+      if (it.def.onDelta) it.def.onDelta(this.drag.dv, false, this.drag.start);
+      this.layout(true);
+      return true;
+    }
     if (this.drag && this.drag.item.type === "point") {
       const it = this.drag.item;
       const n = V.norm(it.def.normal);
@@ -541,7 +672,13 @@ export class Manipulators {
   up() {
     if (!this.drag) return false;
     const it = this.drag.item;
+    const dr = this.drag;
     this.drag = null;
+    if (it.type === "plane") {
+      if (it.def.onDelta) it.def.onDelta(dr.dv, true, dr.start);
+      this.layout(true);
+      return true;
+    }
     if (it.type === "point") {
       if (it.def.onMove) it.def.onMove(it.def.point, true);
       this.layout(true);
@@ -597,6 +734,7 @@ export class Manipulators {
   screenPoint(id) {
     const it = this.items.get(id);
     if (!it || !it.screen) return null;
+    if (it.screen.seg) { const [a, b] = it.screen.seg; return [a[0] + (b[0] - a[0]) * 0.8, a[1] + (b[1] - a[1]) * 0.8]; }
     if (it.type !== "distance") return [it.screen.s0[0], it.screen.s0[1]];
     const { s0, ang } = it.screen;
     return [s0[0] + Math.cos(ang) * ARROW_LEN * 0.55, s0[1] - Math.sin(ang) * ARROW_LEN * 0.55];

@@ -3,7 +3,7 @@
 import { ST, vp, activeData, mutateSketch, projector, mmPerPx, emitLocal } from "./ctx.js";
 import { snapAt } from "./snap.js";
 import * as HUD from "./hud.js";
-import { setToolPreview, clearToolPreview, setSnapMark, setHudDims, clearHudDims } from "./render.js";
+import { setToolPreview, clearToolPreview, setSnapMark, setHudDims, clearHudDims, arrangeDims } from "./render.js";
 
 const TAU = Math.PI * 2;
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1]];
@@ -34,6 +34,14 @@ export function arcFromTo(c, a, b, ccw) {
 // tool lifecycle
 // ---------------------------------------------------------------------------
 export function currentTool() { return ST.tool; }
+/** Run the application's Undo / Redo command (falls back to the raw history without the menus module). */
+export function runHistory(kind) {
+  const A = ST.app;
+  const id = kind === "redo" ? "Redo" : "Undo";
+  if (A.commands && A.commands.get(id)) { A.commands.run(id); return; }
+  if (kind === "redo") { if (A.history.canRedo()) A.history.redo(); }
+  else if (A.history.canUndo()) A.history.undo();
+}
 export function endTool() {
   const t = ST.tool;
   if (!t) return;
@@ -68,7 +76,11 @@ export class Tool {
         return true;
       },
       onDoubleClick(ev, ctx) { if (self.dbl) self.dbl(ctx); return true; },
-      onKeyDown(ev) { return self.key ? self.key(ev) === true : false; },
+      onKeyDown(ev) {
+        const hk = HUD.historyKind(ev);
+        if (hk) { self.historyStep(hk); return true; }
+        return self.key ? self.key(ev) === true : false;
+      },
       onCancel() { self.escape(); return true; },
     };
     // a failing tool must never leave the canvas stuck: report and keep going
@@ -100,6 +112,9 @@ export class Tool {
   }
   escape() { endTool(); }
   reset() {}
+  /** Ctrl+Z / Ctrl+Y while the tool runs: undo / redo one step and keep the tool (the in-progress
+   * pick is dropped by the document-replaced handler). */
+  historyStep(kind) { runHistory(kind); }
   refreshPrompt() { if (this.prompt) HUD.promptShow(this.prompt()); }
   /** Re-run the move logic at the last cursor position (after commits / typing). */
   refresh() { if (this.lastCtx) this.move(this.lastCtx, this.lastEv); }
@@ -255,8 +270,8 @@ const RECT_DEFS = {
       const ps = pxToMm(b);
       const sx = Math.sign(b[0] - a[0]) || 1, sy = Math.sign(b[1] - a[1]) || 1;
       // the dimensions land where the HUD showed them: on the sides through the first corner
-      if (T.h && T.h.ok) addDim(sk, doc, "distance", [r.lines[3]], T.h.expr, { dimType: "aligned", at: [-sx * HUD_OFF * ps, 0] });
       if (T.w && T.w.ok) addDim(sk, doc, "distance", [r.lines[0]], T.w.expr, { dimType: "aligned", at: [0, -sy * HUD_OFF * ps] });
+      if (T.h && T.h.ok) addDim(sk, doc, "distance", [r.lines[3]], T.h.expr, { dimType: "aligned", at: [-sx * HUD_OFF * ps, 0] });
       return r;
     },
   },
@@ -293,8 +308,8 @@ const RECT_DEFS = {
       S.addConstraint(sk, "midpoint", [ic, d2]);
       const ps = pxToMm(b);
       const sx = Math.sign(dx) || 1, sy = Math.sign(dy) || 1;
-      if (T.h && T.h.ok) addDim(sk, doc, "distance", [r.lines[3]], T.h.expr, { dimType: "aligned", at: [-sx * HUD_OFF * ps, 0] });
       if (T.w && T.w.ok) addDim(sk, doc, "distance", [r.lines[0]], T.w.expr, { dimType: "aligned", at: [0, -sy * HUD_OFF * ps] });
+      if (T.h && T.h.ok) addDim(sk, doc, "distance", [r.lines[3]], T.h.expr, { dimType: "aligned", at: [-sx * HUD_OFF * ps, 0] });
       return r;
     },
   },
@@ -739,9 +754,45 @@ export function makeSeqTool(id, label) {
 // close on the start point, auto horizontal/vertical, length + angle boxes.
 // ---------------------------------------------------------------------------
 export class LineTool extends Tool {
-  constructor() { super("DrawPolyline", "Line"); this.chain = null; this.start0 = null; this.arc = null; }
+  constructor() { super("DrawPolyline", "Line"); this.chain = null; this.start0 = null; this.arc = null; this.steps = []; this.redoSteps = []; this.autoDims = new Set(); }
   prompt() { return this.chain || this.start0 ? "Specify next point" : "Specify first point"; }
   reset() { this.chain = null; this.start0 = null; this.arc = null; this.armed = false; HUD.hudHide(); clearToolPreview(); clearHudDims(); setSnapMark(null); this.refreshPrompt(); }
+  /** Drawing state before / after a committed segment (restored by Ctrl+Z / Ctrl+Y). */
+  snapshot() { return { chain: this.chain ? { ...this.chain } : null, start0: this.start0 }; }
+  recordStep(label, before) {
+    this.steps.push({ label, before, after: this.snapshot(), depth: ST.app.history.undoStack.length });
+    this.redoSteps = [];
+  }
+  restoreState(s) {
+    this.chain = s.chain ? { ...s.chain } : null;
+    this.start0 = s.start0 || null;
+    this.arc = false;
+    this.armed = false;
+    if (this.chain || this.start0) this.showHud();
+    else { HUD.hudHide(); clearHudDims(); clearToolPreview(); }
+    this.refreshPrompt();
+    this.refresh();
+  }
+  /** Fusion: Ctrl+Z during Line removes the last segment and keeps drawing from its start; Ctrl+Y puts it back. */
+  historyStep(kind) {
+    const H = ST.app.history;
+    const lastLabel = (st) => (st.length ? st[st.length - 1].label : null);
+    if (kind === "undo") {
+      const top = this.steps[this.steps.length - 1];
+      const own = !!top && H.undoStack.length === top.depth && lastLabel(H.undoStack) === top.label;
+      runHistory("undo");
+      if (ST.tool !== this) return;
+      if (own && H.undoStack.length === top.depth - 1) { this.steps.pop(); this.redoSteps.push(top); this.restoreState(top.before); }
+      else { this.steps = []; this.redoSteps = []; }
+    } else {
+      const top = this.redoSteps[this.redoSteps.length - 1];
+      const own = !!top && H.undoStack.length === top.depth - 1 && lastLabel(H.redoStack) === top.label;
+      runHistory("redo");
+      if (ST.tool !== this) return;
+      if (own && H.undoStack.length === top.depth) { this.redoSteps.pop(); this.steps.push(top); this.restoreState(top.after); }
+      else { this.steps = []; this.redoSteps = []; }
+    }
+  }
   data() { return activeData(); }
   fromPoint() {
     const d = this.data();
@@ -915,8 +966,10 @@ export class LineTool extends Tool {
   commitLine(r) {
     const S = ST.app.S;
     const self = this;
+    const before = this.snapshot();
     let closed = false;
     const res = mutateSketch("Line", (sk, f, doc) => {
+      const placed = [];
       const a = self.chain ? self.chain.last : rp(sk, self.start0);
       const endSnap = r.typed ? null : r.snap;
       let b;
@@ -930,31 +983,49 @@ export class LineTool extends Tool {
         const ps = pxToMm(r.E);
         // the dimension stays where the HUD showed it (30 px on the upper side of the line)
         const side = self.hudN && Math.abs(dot(self.hudN, r.dir)) < 1e-6 ? self.hudN : perp(r.dir);
-        addDim(sk, doc, "distance", [id], r.T.len.expr, { dimType: "aligned", at: mul(side, 30 * ps) });
+        placed.push({ c: addDim(sk, doc, "distance", [id], r.T.len.expr, { dimType: "aligned", at: mul(side, 30 * ps) }), side });
       }
       if (r.T.ang && r.T.ang.ok) {
         const prevId = self.chain && self.chain.lastCurve;
         const pv = prevId && sk.curves[prevId];
-        if (pv && pv.type === "line") addDim(sk, doc, "angle", [prevId, id], r.T.ang.expr, { flip1: pv.p2 === a, flip2: false });
+        if (pv && pv.type === "line") placed.push({ c: addDim(sk, doc, "angle", [prevId, id], r.T.ang.expr, { flip1: pv.p2 === a, flip2: false }) });
         else {
           const th = ((r.T.ang.value % 360) + 360) % 360;
           if (Math.abs(th % 180) < 1e-6) S.addConstraint(sk, "horizontal", [id]);
           else if (Math.abs((th % 180) - 90) < 1e-6) S.addConstraint(sk, "vertical", [id]);
         }
       }
+      self.arrange(sk, placed);
       const first = self.chain ? self.chain.first : a;
       closed = b === first;
       return { a, b, id, first };
     });
     if (!res) return;
-    if (closed) { this.chain = null; this.start0 = null; HUD.hudHide(); clearHudDims(); this.refreshPrompt(); return; }
-    this.chain = { first: res.first, last: res.b, lastCurve: res.id };
-    this.start0 = null;
-    this.showHud();
+    if (closed) { this.chain = null; this.start0 = null; HUD.hudHide(); clearHudDims(); this.refreshPrompt(); }
+    else {
+      this.chain = { first: res.first, last: res.b, lastCurve: res.id };
+      this.start0 = null;
+      this.showHud();
+    }
+    this.recordStep("Line", before);
+  }
+  /** Space out the labels of the dimensions this tool typed (new ones, and earlier ones a new segment now covers). */
+  arrange(sk, placed) {
+    const d = this.data();
+    if (!d) return;
+    const items = [...placed];
+    for (const cid of this.autoDims) {
+      if (placed.some((it) => it.c.id === cid)) continue;
+      const c = sk.constraints.find((x) => x.id === cid);
+      if (c) items.push({ c, keep: true });
+    }
+    try { arrangeDims(sk, d.plane, items); } catch (e) { console.error(e); }
+    for (const it of placed) this.autoDims.add(it.c.id);
   }
   commitArc(r, A) {
     const S = ST.app.S;
     const self = this;
+    const before = this.snapshot();
     let closed = false;
     const res = mutateSketch("Arc", (sk) => {
       const a = self.chain.last;
@@ -969,9 +1040,12 @@ export class LineTool extends Tool {
       return { b, id };
     });
     if (!res) return;
-    if (closed) { this.chain = null; HUD.hudHide(); clearHudDims(); this.refreshPrompt(); return; }
-    this.chain = { first: this.chain.first, last: res.b, lastCurve: res.id };
-    this.showHud();
+    if (closed) { this.chain = null; HUD.hudHide(); clearHudDims(); this.refreshPrompt(); }
+    else {
+      this.chain = { first: this.chain.first, last: res.b, lastCurve: res.id };
+      this.showHud();
+    }
+    this.recordStep("Arc", before);
   }
   enter() {
     const vals = HUD.hudValues();

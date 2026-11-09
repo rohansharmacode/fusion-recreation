@@ -1,6 +1,7 @@
 // Box / Cylinder / Sphere / Torus, Mirror, Rectangular & Circular Pattern, Loft, Sweep.
 import * as U from "./util.js";
 import * as K from "../../kernel.js";
+import { g } from "./glyphs.js";
 import { OPERATIONS, PATTERN_TYPES, profileRefsOf, profileSelRefs, toBodyRef, profileStatus } from "./common.js";
 
 const V = U.V;
@@ -166,11 +167,46 @@ export function openMirror(app, opts = {}) {
 }
 
 // ------------------------------------------------------------------ Patterns
-const AXIS_OPTS = [{ value: "X", label: "X Axis" }, { value: "Y", label: "Y Axis" }, { value: "Z", label: "Z Axis" }];
+const dirFilter = (r, dlg) => (r.kind === "sketchCurve" ? U.sketchLineFilter(dlg.baseState)(r) : r.kind === "edge" ? U.isLinearEdge(dlg.baseState, r) : true);
+
+/** Flip toggle placed after a Directions selection (Fusion's flip button). */
+const flipButton = (field) => (dlg, re) => {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "dlg-hbtn dlg-flip";
+  b.title = "Flip";
+  b.dataset.input = field;
+  b.style.marginLeft = "6px";
+  b.innerHTML = g("flipDir");
+  b.addEventListener("click", () => dlg.set(field, !dlg.values[field], { user: true }));
+  const up = re.update;
+  re.update = (...a) => { if (up) up(...a); b.classList.toggle("on", !!dlg.values[field]); };
+  b.classList.toggle("on", !!dlg.values[field]);
+  return b;
+};
+
+/** Stored direction (axis name string or axis ref) -> selection ref. */
+function dirSelRef(d, state) {
+  if (!d) return null;
+  if (typeof d === "string") return { kind: "originAxis", name: d };
+  return U.refFromAxis(d, state);
+}
+
+/** Unit world direction of a Directions selection (flipped when asked). */
+function patternDir(dlg, row, flip) {
+  const ln = U.axisLine((dlg.values[row] || [])[0], dlg.baseState);
+  if (!ln) return null;
+  return V.mul(V.norm(ln.d), dlg.values[flip] ? -1 : 1);
+}
 
 export function openRectPattern(app, opts = {}) {
   const editId = opts.editId || null;
   const f0 = editId ? app.feature(editId) : null;
+  const dirRow = (id, flip, optional) => ({
+    id, type: "selection", label: "Directions", kinds: ["originAxis", "sketchCurve", "edge"], max: 1, min: optional ? 0 : 1,
+    prompt: "Select an edge, axis or sketch line to define the direction", filter: dirFilter, extra: flipButton(flip),
+    tooltip: "Select a linear edge, construction axis or sketch line to define the pattern direction.",
+  });
   return app.ui.dialog.open({
     id: "PatternRectangular",
     title: "Rectangular Pattern",
@@ -183,27 +219,76 @@ export function openRectPattern(app, opts = {}) {
       { id: "bodies", type: "selection", label: "Objects", kinds: ["body", "face"], mapRef: toBodyRef, prompt: "Select bodies to pattern" },
       { id: "distType", type: "dropdown", label: "Distribution", options: [{ value: "extent", label: "Extent", icon: "extentWhole" }, { value: "spacing", label: "Spacing", icon: "extentSpacing" }], default: "spacing" },
       { id: "g1", type: "group", label: "Direction 1", rows: [
-        { id: "dir1", type: "dropdown", label: "Axis", options: AXIS_OPTS, default: "X" },
+        dirRow("dir1", "flip1", false),
         { id: "q1", type: "value", label: "Quantity", kind: "none", default: "3", integer: true, min: 1 },
         { id: "d1", type: "value", label: "Distance", kind: "length", default: "20.00 mm" },
       ] },
       { id: "g2", type: "group", label: "Direction 2", rows: [
-        { id: "dir2", type: "dropdown", label: "Axis", options: [{ value: "", label: "None" }, ...AXIS_OPTS], default: "" },
-        { id: "q2", type: "value", label: "Quantity", kind: "none", default: "1", integer: true, min: 1, visible: (v) => !!v.dir2 },
-        { id: "d2", type: "value", label: "Distance", kind: "length", default: "20.00 mm", visible: (v) => !!v.dir2 },
+        dirRow("dir2", "flip2", true),
+        { id: "q2", type: "value", label: "Quantity", kind: "none", default: "1", integer: true, min: 1, visible: (v) => (v.dir2 || []).length > 0 },
+        { id: "d2", type: "value", label: "Distance", kind: "length", default: "20.00 mm", visible: (v) => (v.dir2 || []).length > 0 },
       ] },
     ],
     init(dlg) {
+      dlg.values.flip1 = false;
+      dlg.values.flip2 = false;
       if (!f0) return;
-      Object.assign(dlg.values, { bodies: (f0.bodies || []).map((b) => ({ kind: "body", body: b })), distType: f0.distType || "spacing", dir1: f0.dir1 || "X", dir2: f0.dir2 || "" });
+      const st = dlg.baseState;
+      Object.assign(dlg.values, {
+        bodies: (f0.bodies || []).map((b) => ({ kind: "body", body: b })),
+        distType: f0.distType || "spacing",
+        dir1: [dirSelRef(f0.dir1 || "X", st)].filter(Boolean),
+        dir2: [dirSelRef(f0.dir2, st)].filter(Boolean),
+        flip1: !!f0.flip1,
+        flip2: !!f0.flip2,
+      });
       for (const k of ["q1", "d1", "q2", "d2"]) if (f0[k] !== undefined) dlg.values[k] = String(f0[k]);
     },
     build(v) {
       const bodies = (v.bodies || []).map((r) => r.body);
-      if (!bodies.length) return null;
-      const f = { type: "rpattern", bodies, dir1: v.dir1, q1: v.q1, d1: v.d1, distType: v.distType };
-      if (v.dir2) { f.dir2 = v.dir2; f.q2 = v.q2; f.d2 = v.d2; }
+      const dir1 = U.axisFromRef((v.dir1 || [])[0]);
+      if (!bodies.length || !dir1) return null;
+      const f = { type: "rpattern", bodies, dir1, q1: v.q1, d1: v.d1, distType: v.distType };
+      if (v.flip1) f.flip1 = true;
+      const dir2 = U.axisFromRef((v.dir2 || [])[0]);
+      if (dir2) { f.dir2 = dir2; f.q2 = v.q2; f.d2 = v.d2; if (v.flip2) f.flip2 = true; }
       return f;
+    },
+    manipulators(dlg) {
+      const v = dlg.values;
+      const c = U.bodiesCenter(dlg.baseState, (v.bodies || []).map((r) => r.body));
+      if (!c) return [];
+      const out = [];
+      for (const [row, flip, q, d] of [["dir1", "flip1", "q1", "d1"], ["dir2", "flip2", "q2", "d2"]]) {
+        const dir = patternDir(dlg, row, flip);
+        if (!dir) continue;
+        const n = Math.max(1, Math.round(dlg.num(q) || 1));
+        const dist = dlg.num(d);
+        const scale = v.distType === "spacing" ? Math.max(1, n - 1) : 1;
+        // distance arrow at the far end of the pattern
+        const m = dlg.valueManip(d, { origin: c, dir, scale });
+        if (m) out.push(m);
+        // quantity handle just past the arrow: drag outwards / inwards to add / remove instances
+        if (!Number.isFinite(dist)) continue;
+        const end = V.add(c, V.mul(dir, dist * scale));
+        const sgn = dist < 0 ? -1 : 1;
+        const vp = dlg.app.viewport;
+        const px = (vp && vp.pixelSize && vp.pixelSize(end)) || 0.1;
+        const spacing = v.distType === "spacing" ? Math.abs(dist) : n > 1 ? Math.abs(dist) / (n - 1) : Math.abs(dist);
+        const step = Math.max(spacing, 28 * px);
+        out.push({
+          id: q, type: "plane", look: "point", value: n, center: end, offDir: V.mul(dir, sgn), offPx: 46,
+          field: q, kind: "none", text: v[q],
+          getStart: () => [Math.max(1, Math.round(dlg.num(q) || 1))],
+          onDelta: (dv, final, st) => {
+            const k = Math.max(1, (st ? st[0] : n) + Math.round((V.dot(dv, dir) * sgn) / step));
+            dlg.set(q, String(k), { user: true, delay: final ? 0 : 60, throttle: !final });
+            if (final) dlg.previewNow();
+          },
+          onText: (s, final) => dlg.set(q, s, { user: true, delay: final ? 0 : 250 }),
+        });
+      }
+      return out;
     },
   });
 }

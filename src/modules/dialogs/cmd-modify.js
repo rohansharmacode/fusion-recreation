@@ -239,16 +239,62 @@ export function openCombine(app, opts = {}) {
 }
 
 // ------------------------------------------------------------------ Move / Copy
-function bodiesCenter(state, ids) {
-  let mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
-  for (const id of ids) {
-    const b = state.bodies.get(id);
-    const bb = b && b.shape && b.shape.boundingBox ? b.shape.boundingBox.bounds : null;
-    if (!bb) continue;
-    for (let i = 0; i < 3; i++) { mn[i] = Math.min(mn[i], bb[0][i]); mx[i] = Math.max(mx[i], bb[1][i]); }
+const bodiesCenter = U.bodiesCenter;
+
+// Fusion's Move/Copy triad: axis-coloured X/Y/Z arrows, planar square handles between the axes,
+// rotation ring segments and a free-move ball, all at the moved bodies' centre (they follow the move).
+const AXIS_COL = [0xd8372c, 0x45a72c, 0x2d6fd6];
+const AXES = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+const T_FIELDS = ["tx", "ty", "tz"], R_FIELDS = ["rx", "ry", "rz"];
+
+function moveTriad(dlg) {
+  const v = dlg.values;
+  const ids = (v.bodies || []).map((r) => r.body);
+  const pivot = bodiesCenter(dlg.baseState, ids);
+  if (!pivot) return [];
+  const t = T_FIELDS.map((k) => (v.moveType === "rotate" ? 0 : dlg.num(k)));
+  if (t.some((x) => !Number.isFinite(x))) return [];
+  const c = V.add(pivot, t); // the model rotates about the pivot, then translates
+  const vp = dlg.app.viewport;
+  const out = [];
+  if (v.moveType !== "rotate") {
+    T_FIELDS.forEach((k, i) => {
+      const m = dlg.valueManip(k, { origin: c, dir: AXES[i], fixedDir: true });
+      if (!m) return;
+      m.origin = V.sub(c, V.mul(AXES[i], m.value)); // arrow base = current centre
+      Object.assign(m, { look: "axis", color: AXIS_COL[i], len: 120, gap: 11 });
+      out.push(m);
+    });
+    // drag in a plane (two fields) or in the view plane (free move: all three)
+    const planeDrag = (fields) => ({
+      getStart: () => fields.map((k) => dlg.num(k) || 0),
+      onDelta: (dv, final, start) => {
+        const step = U.niceStep(2 * ((vp && vp.pixelSize && vp.pixelSize(c)) || 0.1));
+        fields.forEach((k, j) => {
+          const ax = AXES[T_FIELDS.indexOf(k)];
+          const val = Math.round(((start ? start[j] : 0) + V.dot(dv, ax)) / step) * step;
+          dlg.set(k, U.fmt(+val.toFixed(6), "length"), { user: true, delay: final ? 0 : 40, throttle: !final });
+        });
+        if (final) dlg.previewNow();
+      },
+    });
+    const planes = [["pxy", 0, 1, 2], ["pyz", 1, 2, 0], ["pxz", 0, 2, 1]];
+    for (const [id, a, b, nrm] of planes) {
+      out.push({ id, type: "plane", value: 0, center: c, a: AXES[a], b: AXES[b], offPx: 32, color: AXIS_COL[nrm], box: false, ...planeDrag([T_FIELDS[a], T_FIELDS[b]]) });
+    }
+    if (v.moveType === "free") out.push({ id: "free", type: "plane", look: "ball", value: 0, center: c, box: false, ...planeDrag(T_FIELDS) });
   }
-  if (!Number.isFinite(mn[0])) return null;
-  return V.mul(V.add(mn, mx), 0.5);
+  if (v.moveType !== "translate") {
+    // ring segment about each axis, its grip between the two other axes
+    const refs = [[0, 1, 0], [0, 0, 1], [1, 0, 0]];
+    R_FIELDS.forEach((k, i) => {
+      const m = dlg.angleManip(k, { center: c, axis: AXES[i], ref: refs[i], radius: 1, min: -360, max: 360 });
+      if (!m) return;
+      Object.assign(m, { screenRadius: 80, span: 22, gripAt: 45, color: AXIS_COL[i], lineWidth: 2.4 });
+      out.push(m);
+    });
+  }
+  return out;
 }
 
 export function openMove(app, opts = {}) {
@@ -291,13 +337,7 @@ export function openMove(app, opts = {}) {
       for (const k of ["rx", "ry", "rz"]) f[k] = v.moveType === "translate" ? "0.0 deg" : v[k];
       return f;
     },
-    manipulators(dlg) {
-      if (dlg.values.moveType === "rotate") return [];
-      const ids = (dlg.values.bodies || []).map((r) => r.body);
-      const c = bodiesCenter(dlg.baseState, ids);
-      if (!c) return [];
-      return [["tx", [1, 0, 0]], ["ty", [0, 1, 0]], ["tz", [0, 0, 1]]].map(([k, d]) => dlg.valueManip(k, { origin: c, dir: d, fixedDir: true, hudAnchor: c })).filter(Boolean);
-    },
+    manipulators: moveTriad,
   });
 }
 

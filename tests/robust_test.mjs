@@ -420,6 +420,87 @@ function V3dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
   check("pattern / move / mirror / combine compute", !okAll(r).length && near(vol(r, "b2"), 8000) && near(bbox(r, "b3").min[2], 5, 1e-6) && near(vol(r, "b1"), 16000, 1e-3) && !r.state.bodies.has("b4"), { e: okAll(r), v1: vol(r, "b1") });
 }
 
+// ---------- QA r3: shell next to fillets / chamfers / holes, revolve axis ----------
+// The L bracket (60x10 + 10x40 legs, 8 mm). OCCT's MakeThickSolid returns its input unchanged when
+// the removed face is tangent to a fillet (the shell was "ok" with the volume untouched) and throws
+// when hole tubes meet the inner walls; the kernel now checks the result and falls back to a
+// boolean shell (eroded body with filled holes, openings, grown holes).
+function lBracketDoc({ fillet = false, chamfer = false, holes = [], blind = null } = {}) {
+  const doc = M.newDoc("L");
+  const sk = S.newSketch();
+  const P = [[0, 0], [60, 0], [60, 10], [10, 10], [10, 50], [0, 50]].map((q) => S.addPoint(sk, q[0], q[1]));
+  P.forEach((p, i) => S.addLine(sk, p, P[(i + 1) % P.length]));
+  doc.features.push({ id: "s1", type: "sketch", name: "Sketch1", plane: { ...K.ORIGIN_PLANES.XY }, planeRef: { kind: "origin", name: "XY" }, sk, visible: true });
+  doc.marker = 1;
+  const reg = new M.Evaluator().run(doc).state.sketches.get("s1").regions.regions[0];
+  add(doc, { id: "e1", type: "extrude", name: "Extrude1", profiles: [{ sketch: "s1", key: reg.key, c: [5, 5] }], distance: "8 mm", operation: "new", newBody: "b1" });
+  if (fillet) add(doc, { id: "fl", type: "fillet", name: "Fillet1", edges: [{ body: "b1", p: [60, 5, 8] }, { body: "b1", p: [5, 50, 8] }], radius: "3 mm", tangentChain: true });
+  if (chamfer) add(doc, { id: "ch", type: "chamfer", name: "Chamfer1", edges: [{ body: "b1", p: [30, 0, 8] }], distance: "1 mm", tangentChain: true });
+  if (holes.length) {
+    const sk2 = S.newSketch();
+    for (const [x, y, d] of holes) S.addCircle(sk2, S.addPoint(sk2, x, y), d / 2);
+    const pl = { o: [0, 0, 8], x: [1, 0, 0], n: [0, 0, 1] };
+    add(doc, { id: "s2", type: "sketch", name: "Sketch2", plane: pl, planeRef: { kind: "face", body: "b1", p: [20, 5, 8], n: [0, 0, 1], plane: pl }, sk: sk2, visible: true });
+    const regs = new M.Evaluator().run(doc).state.sketches.get("s2").regions.regions;
+    add(doc, { id: "cut", type: "extrude", name: "Extrude2", profiles: regs.map((g) => ({ sketch: "s2", key: g.key })), distance: "10 mm", extent: "all", flip: true, operation: "cut" });
+  }
+  if (blind) add(doc, { id: "h", type: "hole", name: "Hole1", placement: "face", points: [blind], normal: [0, 0, 1], faceRef: { body: "b1", p: blind, n: [0, 0, 1] }, diameter: "3 mm", depth: "5 mm", drillPoint: "angle", tipAngle: "118 deg", holeType: "simple", operation: "cut" });
+  return doc;
+}
+const shellOf = (doc, t, o = {}) => {
+  add(doc, { id: "sh", type: "shell", name: "Shell1", faces: [{ body: "b1", p: o.p || [20, 5, 8], n: o.n || [0, 0, 1] }], bodies: [], thickness: `${t} mm`, direction: o.dir || "inside" });
+  return new M.Evaluator().run(finish(doc));
+};
+{
+  let r = shellOf(lBracketDoc(), 2);
+  check("r3 shell: plain L bracket, top removed, 2 mm = 4538.85 (unchanged path)", !okAll(r).length && near(vol(r), 4538.85, 0.01), { e: okAll(r), v: vol(r) });
+  r = shellOf(lBracketDoc({ fillet: true }), 2);
+  check("r3 shell: top face next to two 3 mm fillets hollows the body (7961.37 -> 4526.80)", !okAll(r).length && near(vol(r), 4526.80, 0.02), { e: okAll(r), v: vol(r) });
+  check("r3 shell: filleted bracket is open at the top (point below the old top face is outside)", !inside(r, [30, 5, 7]) && inside(r, [30, 1, 7]) && inside(r, [30, 5, 1]));
+  r = shellOf(lBracketDoc({ fillet: true }), 1);
+  check("r3 shell: filleted bracket at 1 mm computes and loses material", !okAll(r).length && vol(r) > 1000 && vol(r) < 4000, { e: okAll(r), v: vol(r) });
+  r = shellOf(lBracketDoc({ fillet: true, chamfer: true }), 2);
+  check("r3 shell: fillet + chamfer bracket (7928.28) shells to 4493.70", !okAll(r).length && near(vol(r), 4493.70, 0.02), { e: okAll(r), v: vol(r) });
+  r = shellOf(lBracketDoc({ fillet: true }), 2, { dir: "outside" });
+  check("r3 shell: outside shell of the filleted bracket computes (walls added outside)", !okAll(r).length && vol(r) > 5000 && !inside(r, [30, 5, 4]), { e: okAll(r), v: vol(r) });
+  // hole tubes tangent to the inner walls (r + 2t = half the 10 mm leg) and crossing them
+  r = shellOf(lBracketDoc({ holes: [[40, 5, 2], [5, 30, 2]] }), 2);
+  check("r3 shell: two Ø2 holes, 2 mm (tubes tangent to the walls) = 4827.88", !okAll(r).length && near(vol(r), 4827.88, 0.05), { e: okAll(r), v: vol(r) });
+  check("r3 shell: hole tube kept around the hole, hole stays open", inside(r, [42.5, 5, 6]) && !inside(r, [40, 5, 4]) && !inside(r, [45, 5, 6]));
+  r = shellOf(lBracketDoc({ holes: [[40, 5, 6], [5, 30, 6]] }), 1);
+  check("r3 shell: two Ø6 holes, default 1 mm = 2761.83", !okAll(r).length && near(vol(r), 2761.83, 0.05), { e: okAll(r), v: vol(r) });
+  r = shellOf(lBracketDoc({ holes: [[40, 6, 2]] }), 2);
+  check("r3 shell: Ø2 hole at (40,6), 2 mm (tube crosses the wall) = 4664.78", !okAll(r).length && near(vol(r), 4664.78, 0.05), { e: okAll(r), v: vol(r) });
+  r = shellOf(lBracketDoc({ holes: [[30, 7, 4], [5, 20, 3]] }), 1.5);
+  check("r3 shell: Ø4 + Ø3 holes off-centre, 1.5 mm computes", !okAll(r).length && vol(r) > 3000 && vol(r) < 5000, { e: okAll(r), v: vol(r) });
+  r = shellOf(lBracketDoc({ blind: [40, 5, 8] }), 2, { p: [20, 5, 0], n: [0, 0, -1] });
+  check("r3 shell: blind drilled hole (cone tip), bottom face removed, computes", !okAll(r).length && vol(r) > 4538.85 && vol(r) < 4800 && inside(r, [42.8, 5, 4.5]), { e: okAll(r), v: vol(r) });
+  // a shell that cannot be made must be an error, never an "ok" feature with the body unchanged
+  r = shellOf(lBracketDoc(), 6);
+  check("r3 shell: 6 mm in a 10 mm leg fails visibly (error, body unchanged)", r.results.sh && r.results.sh.ok === false && /shell failed/i.test(r.results.sh.error) && near(vol(r), 8000, 1e-3), r.results.sh);
+}
+{
+  // revolve about an axis along the profile plane normal: a flat zero-volume "body" before the fix
+  const doc = M.newDoc("rev");
+  const sk = S.newSketch();
+  const P = [[10, 0], [30, 0], [30, 5], [15, 5], [15, 20], [10, 20]].map((q) => S.addPoint(sk, q[0], q[1]));
+  P.forEach((p, i) => S.addLine(sk, p, P[(i + 1) % P.length]));
+  doc.features.push({ id: "s1", type: "sketch", name: "Sketch1", plane: { ...K.ORIGIN_PLANES.XZ }, planeRef: { kind: "origin", name: "XZ" }, sk, visible: true });
+  doc.marker = 1;
+  const reg = new M.Evaluator().run(doc).state.sketches.get("s1").regions.regions[0];
+  const rv = add(doc, { id: "rv", type: "revolve", name: "Revolve1", profiles: [{ sketch: "s1", key: reg.key }], axis: { kind: "origin", name: "Y" }, revType: "full", angle: "360 deg", operation: "new", newBody: "b1" });
+  finish(doc);
+  let r = new M.Evaluator().run(doc);
+  check("r3 revolve: axis normal to the profile plane is an error, no zero-volume body", r.results.rv.ok === false && /axis must lie in the plane/i.test(r.results.rv.error) && !r.state.bodies.has("b1"), r.results.rv);
+  rv.axis = { kind: "origin", name: "Z" };
+  r = new M.Evaluator().run(doc);
+  const AREA = 20 * 5 + 5 * 15, CX = (20 * 5 * 20 + 5 * 15 * 12.5) / AREA; // Pappus
+  check("r3 revolve: same profile about the Z axis (in the plane) = 2π·x̄·A", !okAll(r).length && near(vol(r), 2 * Math.PI * CX * AREA, 0.01), { e: okAll(r), v: vol(r), want: 2 * Math.PI * CX * AREA });
+  rv.revType = "angle"; rv.angle = "180 deg";
+  r = new M.Evaluator().run(finish(doc));
+  check("r3 revolve: 180 deg about Z = half", !okAll(r).length && near(vol(r), Math.PI * CX * AREA, 0.01), { e: okAll(r), v: vol(r) });
+}
+
 // ---------- wasm memory: repeated previews must not grow the heap ----------
 // Before the fix every evaluation pinned its whole result body for the session (replicad never
 // deletes the raw handle of an operation result, nor the explorer items behind shape.faces/edges):

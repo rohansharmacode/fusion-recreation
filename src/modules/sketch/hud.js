@@ -15,6 +15,15 @@ function fmt(kind, v) {
 }
 void fmtLen;
 
+/** 'undo' for Ctrl+Z, 'redo' for Ctrl+Y / Ctrl+Shift+Z, else null. */
+export function historyKind(ev) {
+  if (!ev || !(ev.ctrlKey || ev.metaKey) || ev.altKey) return null;
+  const k = String(ev.key || "").toLowerCase();
+  if (k === "z") return ev.shiftKey ? "redo" : "undo";
+  if (k === "y" && !ev.shiftKey) return "redo";
+  return null;
+}
+
 /** fields: [{id, kind:'length'|'angle'|'count', label?}]. Replaces any open boxes. */
 export function hudShow(fields, { onEnter, onChange } = {}) {
   hudHide();
@@ -44,6 +53,15 @@ export function hudShow(fields, { onEnter, onChange } = {}) {
       if (H.onChange) H.onChange(field.id);
     });
     input.addEventListener("keydown", (ev) => {
+      // Ctrl+Z / Ctrl+Y while a tool's value box has the focus: undo / redo the tool's last step
+      // (Fusion: Ctrl+Z during Line removes the last segment and keeps drawing)
+      const hk = historyKind(ev);
+      if (hk && ST.tool && typeof ST.tool.historyStep === "function") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        ST.tool.historyStep(hk);
+        return;
+      }
       if (ev.key === "Tab") {
         ev.preventDefault();
         ev.stopPropagation();

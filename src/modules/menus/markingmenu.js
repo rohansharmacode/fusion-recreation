@@ -11,6 +11,10 @@
 //   OK Return, Cancel Esc, Pan, Zoom, Constrained Orbit, Set/Reset Orbit Center, the selection's
 //   commands in the XML's order, Remove | Show All | Unisolate, Workspace ▸ | the environment's
 //   Shortcuts (Design: Extrude E, Fillet F, Insert Component; Sketch: Line L, 2-Point Rectangle R, …).
+// The sketch environment uses the same eight buttons (FusionSketchEnvironment BaseMenu is identical;
+// Finish Sketch is N of the Sketch tier); its overflow lists the sketch commands for the selection
+// and, with nothing selected, the Sketch Palette Show/Hide Profile, Dimension, Projected and
+// Construction Geometries rows.
 //
 // Interaction: the item in the pointer's direction is highlighted (classic marking menu);
 // click runs it. Right-press-drag ("flick") toward an item and release runs it without waiting.
@@ -208,6 +212,18 @@ const OVERFLOW_MODEL = [
   ["FusionFindInTimeline", (c) => c.n === 1 && c.feats.length === 1],
 ];
 
+// Sketch Palette display options offered in the sketch overflow ("Object Visibility" group of
+// FusionSketchEnvironment: ShowProfile/HideProfile, ShowDimension/HideDimension,
+// Show/HideProjectedGeometries, Show/HideConstructionGeometries; labels from NaFusionUI10).
+// Each row reads Show … or Hide … from the palette option's current state and flips it.
+const paletteToggle = (opt, noun) => ({ palette: opt, show: `Show ${noun}`, hide: `Hide ${noun}`, when: (c) => c.n === 0 });
+const PALETTE_TOGGLES = [
+  paletteToggle("showProfile", "Profile"),
+  paletteToggle("showDims", "Dimension"),
+  paletteToggle("showProjected", "Projected Geometries"),
+  paletteToggle("showConstruction", "Construction Geometries"),
+];
+
 // Sketch environment overflow (FusionSketchEnvironment): sketch-specific entries.
 const OVERFLOW_SKETCH = [
   ...NAV,
@@ -232,6 +248,7 @@ const OVERFLOW_SKETCH = [
   "-",
   ["LookAtCommand", (c) => c.n > 0],
   "-",
+  ...PALETTE_TOGGLES,
   ["ShowAllComponentsCmd", (c) => c.n === 0],
   ["ShowAllBodiesCmd", (c) => c.n > 0 && c.hiddenBodies],
   "-",
@@ -304,6 +321,7 @@ export function createMarkingMenu(app, opts = {}) {
     const out = [];
     for (const e of spec) {
       if (e === "-") { if (out.length && out[out.length - 1] !== "-") out.push("-"); continue; }
+      if (e.palette) { const row = paletteRow(e, ctx); if (row) out.push(row); continue; }
       const [ids, when] = e;
       const cand = (Array.isArray(ids) ? ids : [ids]).map(resolveId);
       const id = cand.find((x) => { const d = def(x); return d && !d.stub; });
@@ -318,6 +336,29 @@ export function createMarkingMenu(app, opts = {}) {
     while (out.length && out[out.length - 1] === "-") out.pop();
     while (out.length && out[0] === "-") out.shift();
     return out;
+  }
+
+  // Sketch Palette option row (Show/Hide Profile, …) for the active sketch
+  function paletteRow(e, ctx) {
+    const sk = app.ui.sketch;
+    const opts = sk && sk.options;
+    if (ctx.mode !== "sketch" || !opts || !(e.palette in opts)) return null;
+    let ok = false;
+    try { ok = !!e.when(ctx); } catch { ok = false; }
+    if (!ok) return null;
+    const on = opts[e.palette] !== false;
+    return { label: on ? e.hide : e.show, icon: false, enabled: true, dataset: { mm: `palette-${e.palette}`, state: on ? "shown" : "hidden" }, run: () => setPaletteOpt(e.palette, !on) };
+  }
+  function setPaletteOpt(opt, value) {
+    // go through the palette's own checkbox so the sketch module saves and redraws as usual
+    const cb = document.querySelector(`.sk-palette input[data-opt="${opt}"]`);
+    if (cb) {
+      cb.checked = !!value;
+      cb.dispatchEvent(new Event("change", { bubbles: true }));
+      return;
+    }
+    const opts = app.ui.sketch && app.ui.sketch.options;
+    if (opts) { opts[opt] = !!value; if (app.viewport) app.viewport.requestRender(); }
   }
 
   function workspaceItems() {

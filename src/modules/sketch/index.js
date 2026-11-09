@@ -10,7 +10,7 @@ import { initEnv, startCreateSketch, cancelPlanePick, planePickActive, enterSket
 import { endTool, makeDrawTool } from "./tools.js";
 import { DimensionTool, initDimension, closeEdit } from "./dimension.js";
 import { CONSTRAINTS, runConstraint, runFix } from "./constraints.js";
-import { TrimTool, ExtendTool, OffsetTool, FilletTool, MirrorTool, ProjectTool, toggleConstruction, projectRefs } from "./modify.js";
+import { TrimTool, ExtendTool, OffsetTool, FilletTool, ChamferTool, MirrorTool, ProjectTool, toggleConstruction, projectRefs } from "./modify.js";
 
 const inSketch = (app) => app.mode === "sketch";
 
@@ -18,6 +18,7 @@ const inSketch = (app) => app.mode === "sketch";
 // matching Fusion's PlaneSelectionInput for these commands).
 const DRAW = [
   ["DrawPolyline", "Line", "L", "Creates lines and arcs. Select a start and end point to define a line segment. Click and drag the end point of a segment to define an arc."],
+  ["SketchMidpointLine", "Midpoint Line", null, "Draws a line outwards from its midpoint."],
   ["ShapeRectangleTwoPoint", "2-Point Rectangle", "R", "Creates a rectangle defined by two diagonal corner points."],
   ["ShapeRectangleThreePoint", "3-Point Rectangle", null, "Creates a rectangle from three points: two corners of one edge and the height."],
   ["ShapeRectangleCenter", "Center Rectangle", null, "Creates a rectangle from a center point and a corner."],
@@ -81,6 +82,9 @@ function registerCommands(app) {
   sketchTool("ExtendSketchCmd", "Extend", null, "Extends a curve to the nearest intersecting curve.", () => new ExtendTool().start());
   sketchTool("Offset", "Offset", "O", "Creates a copy of the selected curves at a specified distance.", () => new OffsetTool().start());
   sketchTool("FilletSketchCmd", "Fillet", null, "Rounds the corner between two lines with a tangent arc.", () => new FilletTool().start());
+  sketchTool("ChamferSketchEqualDistance", "Equal Distance Chamfer", null, "Cuts a sketch corner with the same distance on both sides.", () => new ChamferTool("equal").start());
+  sketchTool("ChamferSketchDistanceDistance", "Two Distance Chamfer", null, "Cuts a sketch corner with a different distance on each side.", () => new ChamferTool("dd").start());
+  sketchTool("ChamferSketchDistanceAngle", "Distance and Angle Chamfer", null, "Cuts a sketch corner using one distance and an angle.", () => new ChamferTool("da").start());
   sketchTool("MirrorSketchCommand", "Mirror", null, "Mirrors sketch geometry about a line.", () => new MirrorTool().start());
   sketchTool("ProjectNewCmd", "Project", "P", "Projects edges and faces of bodies onto the sketch plane.", () => {
     const pre = app.selection.items.filter((r) => r.kind === "edge" || r.kind === "face" || r.kind === "body");

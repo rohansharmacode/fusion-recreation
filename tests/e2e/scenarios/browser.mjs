@@ -144,6 +144,37 @@ const scenario = defineScenario({
         t.check("body renamed to Plate", (await t.app((id) => window.app.doc.bodies[id].name, b.body)) === "Plate");
       }
     }
+
+    t.step("Sketches folder eye follows its sketches and can show them all (both auto-hidden, like after Extrude)");
+    await t.escapeAll();
+    const sk = await t.app(() => {
+      const { S, K } = window.app;
+      const mk = (plane, name, fn) => { const s = S.newSketch(); fn(s); return window.app.addFeature({ type: "sketch", plane: K.ORIGIN_PLANES[plane], planeRef: { kind: "origin", name: plane }, sk: s }).id; };
+      const a = mk("XY", "a", (s) => S.addRect2pt(s, [60, 0], [80, 10]));
+      const c = mk("XZ", "b", (s) => S.addCircle(s, S.addPoint(s, 0, 30), 5));
+      window.app.mutate("Hide", (doc) => { for (const f of doc.features) if (f.id === a || f.id === c) f.visible = false; });
+      return [a, c];
+    });
+    await t.settle(200);
+    const folderSel = '#browser-host [data-node="sketches:root"]';
+    await ensureNode(t, `#browser-host [data-node="sketch:${sk[0]}"]`, folderSel);
+    const skVis = () => t.app((ids) => ids.map((id) => window.app.feature(id).visible !== false), sk);
+    const folderTitle = () => t.app((s) => document.querySelector(`${s} > .br-eye`)?.title, folderSel);
+    t.check("folder eye is closed (title Show) when every sketch is hidden", (await folderTitle()) === "Show", await folderTitle());
+    await t.click(`${folderSel} > .br-eye`);
+    await t.settle(200);
+    let v = await skVis();
+    t.check("clicking the closed folder eye shows every sketch", v.every(Boolean), JSON.stringify(v));
+    t.check("folder eye then reads Hide", (await folderTitle()) === "Hide", await folderTitle());
+    await t.shot("sketches-shown");
+    await t.click(`${folderSel} > .br-eye`);
+    await t.settle(200);
+    v = await skVis();
+    t.check("clicking it again hides every sketch", v.every((x) => !x) && (await folderTitle()) === "Show", JSON.stringify(v));
+    await t.click(`${folderSel} > .br-eye`);
+    await t.settle(200);
+    v = await skVis();
+    t.check("third click shows them all again", v.every(Boolean), JSON.stringify(v));
     await t.shot("final");
   },
 });

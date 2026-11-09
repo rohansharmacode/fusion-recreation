@@ -77,9 +77,40 @@ export class ExtendTool extends Tool {
     const d = activeData();
     const w = S.cloneSketch(d.sk);
     if (!S.extendAt(w, t.id, t.q)) { ST.app.toast("There is no curve to extend to.", "warning", 2000); return; }
-    mutateSketch("Extend", (sk) => S.extendAt(sk, t.id, t.q));
+    mutateSketch("Extend", (sk) => extendAndConstrain(sk, t.id, t.q));
     this.move(ctx);
   }
+}
+
+/**
+ * Extend curve id at the end nearest q and, like Fusion, tie the new end to the curve it reached
+ * (coincident with that curve's end point when it lands on one, else on-curve), so the extension
+ * holds when the sketch is dragged or re-solved.
+ */
+export function extendAndConstrain(sk, id, q) {
+  const S = ST.app.S;
+  const cv = sk.curves[id];
+  if (!cv) return false;
+  const pos = (pid) => (sk.points[pid] ? [sk.points[pid].x, sk.points[pid].y] : null);
+  const before = { p1: cv.p1, p2: cv.p2, a: pos(cv.p1), b: pos(cv.p2) };
+  if (!S.extendAt(sk, id, q)) return false;
+  const moved = (k, at) => cv[k] !== before[k] || Math.hypot(pos(cv[k])[0] - at[0], pos(cv[k])[1] - at[1]) > 1e-9;
+  const end = moved("p2", before.b) ? cv.p2 : moved("p1", before.a) ? cv.p1 : null;
+  if (!end) return true;
+  const E = pos(end);
+  const tol = 1e-6 * Math.max(1, Math.hypot(E[0], E[1]));
+  let best = null;
+  for (const [oid, o] of Object.entries(sk.curves)) {
+    if (oid === id || o.type === "point") continue;
+    const n = S.nearestOnCurve(sk, oid, E);
+    if (n && n.d <= tol && (!best || n.d < best.d)) best = { id: oid, d: n.d };
+  }
+  if (!best) return true;
+  const o = sk.curves[best.id];
+  const endPt = (o.type === "line" || o.type === "arc" ? [o.p1, o.p2] : []).find((p) => p !== end && sk.points[p] && Math.hypot(sk.points[p].x - E[0], sk.points[p].y - E[1]) <= tol);
+  if (endPt) S.addConstraint(sk, "coincident", [end, endPt]);
+  else S.addConstraint(sk, "onCurve", [end, best.id]);
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,11 +263,13 @@ export class FilletTool extends Tool {
     const lines = S.curvesUsingPoint(d.sk, corner).filter((c) => d.sk.curves[c].type === "line");
     const lens = lines.map((l) => { const c = d.sk.curves[l]; return Math.hypot(d.sk.points[c.p1].x - d.sk.points[c.p2].x, d.sk.points[c.p1].y - d.sk.points[c.p2].y); });
     this.defR = this.lastR || +(Math.min(...lens) * 0.2).toPrecision(2);
+    this.firstLine = h.ref.kind === "sketchCurve" ? this.first : null;
     ST.app.selection.set(lines.map((l) => ({ kind: "sketchCurve", sketch: ST.sketchId, curve: l })));
-    HUD.hudShow([{ id: "r", kind: "length", label: "Fillet radius" }], { onEnter: () => this.commit(), onChange: () => this.preview() });
+    this.openHud();
     this.refreshPrompt();
     this.preview();
   }
+  openHud() { HUD.hudShow([{ id: "r", kind: "length", label: "Fillet radius" }], { onEnter: () => this.commit(), onChange: () => this.preview() }); }
   commit() {
     const S = ST.app.S;
     const r = this.radius();
@@ -265,6 +298,114 @@ export class FilletTool extends Tool {
   }
   key(ev) { if (ev.key === "Enter" && this.corner) { this.commit(); return true; } return false; }
   escape() { if (this.corner || this.first) { this.corner = null; this.first = null; HUD.hudHide(); clearToolPreview(); ST.app.selection.clear(); this.refreshPrompt(); return; } super.escape(); }
+}
+
+// ---------------------------------------------------------------------------
+// Sketch Chamfer (Equal Distance / Two Distance / Distance and Angle): select a corner point or the
+// two lines sharing it, type the value(s), Enter. The corner is cut with a new line.
+// ---------------------------------------------------------------------------
+/**
+ * Cut corner pid (shared by exactly two lines) with a line set back d1 along the first line and d2 along
+ * the second. Returns {line, l1, l2} or null when the set-backs do not fit.
+ */
+export function chamferCorner(sk, pid, d1, d2, firstLine) {
+  const S = ST.app.S;
+  let lines = S.curvesUsingPoint(sk, pid).filter((id) => sk.curves[id].type === "line");
+  if (lines.length !== 2) return null;
+  if (firstLine && lines[1] === firstLine) lines = [lines[1], lines[0]];
+  const [l1, l2] = lines;
+  const P = (id) => [sk.points[id].x, sk.points[id].y];
+  const V = P(pid);
+  const other = (l) => (sk.curves[l].p1 === pid ? sk.curves[l].p2 : sk.curves[l].p1);
+  const A = P(other(l1)), B = P(other(l2));
+  const lu = Math.hypot(A[0] - V[0], A[1] - V[1]), lw = Math.hypot(B[0] - V[0], B[1] - V[1]);
+  if (!(d1 > 1e-9 && d2 > 1e-9) || d1 >= lu - 1e-9 || d2 >= lw - 1e-9) return null;
+  const T1 = [V[0] + ((A[0] - V[0]) / lu) * d1, V[1] + ((A[1] - V[1]) / lu) * d1];
+  const T2 = [V[0] + ((B[0] - V[0]) / lw) * d2, V[1] + ((B[1] - V[1]) / lw) * d2];
+  const t1 = S.addPoint(sk, T1[0], T1[1]), t2 = S.addPoint(sk, T2[0], T2[1]);
+  const rep = (l, np) => { if (sk.curves[l].p1 === pid) sk.curves[l].p1 = np; else sk.curves[l].p2 = np; };
+  rep(l1, t1);
+  rep(l2, t2);
+  const line = S.addLine(sk, t1, t2, !!(sk.curves[l1].cons && sk.curves[l2].cons));
+  // constraints on the removed corner point go with it (as Sketch Fillet does)
+  sk.constraints = sk.constraints.filter((c) => !c.refs.includes(pid));
+  S.removeEntities(sk, []);
+  return { line, l1, l2 };
+}
+
+const CHAMFER = {
+  equal: { id: "ChamferSketchEqualDistance", label: "Equal Distance Chamfer", fields: [["d", "length", "Distance"]] },
+  dd: { id: "ChamferSketchDistanceDistance", label: "Two Distance Chamfer", fields: [["d", "length", "Distance 1"], ["d2", "length", "Distance 2"]] },
+  da: { id: "ChamferSketchDistanceAngle", label: "Distance and Angle Chamfer", fields: [["d", "length", "Distance"], ["a", "angle", "Angle"]] },
+};
+
+export class ChamferTool extends FilletTool {
+  constructor(mode = "equal") {
+    super();
+    const m = CHAMFER[mode] || CHAMFER.equal;
+    this.mode = CHAMFER[mode] ? mode : "equal";
+    this.id = m.id;
+    this.label = m.label;
+  }
+  prompt() { return this.corner ? "Specify chamfer distance" : this.first ? "Select second line" : "Select first line or a corner point"; }
+  openHud() {
+    HUD.hudShow(CHAMFER[this.mode].fields.map(([id, kind, label]) => ({ id, kind, label })), { onEnter: () => this.commit(), onChange: () => this.preview() });
+  }
+  /** The two set-backs [d1, d2] for the current HUD values (null when they don't make a chamfer). */
+  setbacks(sk) {
+    const T = HUD.hudValues();
+    const d = T.d && T.d.ok ? T.d.value : this.defR;
+    if (this.mode === "equal") return [d, d];
+    if (this.mode === "dd") return [d, T.d2 && T.d2.ok ? T.d2.value : d];
+    // distance and angle: the chamfer line leaves the first line at the angle; law of sines for the second set-back
+    const a = (T.a && T.a.ok ? T.a.value : 45) * (Math.PI / 180);
+    const S = ST.app.S;
+    let lines = S.curvesUsingPoint(sk, this.corner).filter((id) => sk.curves[id].type === "line");
+    if (lines.length !== 2) return null;
+    if (this.firstLine && lines[1] === this.firstLine) lines = [lines[1], lines[0]];
+    const V = sk.points[this.corner];
+    const dirTo = (l) => { const c = sk.curves[l]; const o = sk.points[c.p1 === this.corner ? c.p2 : c.p1]; const L = Math.hypot(o.x - V.x, o.y - V.y) || 1; return [(o.x - V.x) / L, (o.y - V.y) / L]; };
+    const u = dirTo(lines[0]), w = dirTo(lines[1]);
+    const th = Math.acos(Math.max(-1, Math.min(1, u[0] * w[0] + u[1] * w[1])));
+    const s3 = Math.sin(Math.PI - a - th);
+    if (!(a > 0) || a + th >= Math.PI - 1e-6 || s3 <= 1e-9) return null;
+    return [d, (d * Math.sin(a)) / s3];
+  }
+  preview() {
+    const S = ST.app.S;
+    const d = activeData();
+    const sb = this.setbacks(d.sk);
+    const w = S.cloneSketch(d.sk);
+    const res = sb ? chamferCorner(w, this.corner, sb[0], sb[1], this.firstLine) : null;
+    setToolPreview(res ? { polys: [S.curvePolyline(w, res.line, 2)] } : null);
+    const P = d.sk.points[this.corner];
+    if (P) {
+      const s = projector(d.plane)(P.x, P.y);
+      HUD.hudSet("d", sb ? sb[0] : this.defR, [s[0] + 44, s[1] - 30]);
+      if (this.mode === "dd") HUD.hudSet("d2", sb ? sb[1] : this.defR, [s[0] + 44, s[1] + 2]);
+      if (this.mode === "da") HUD.hudSet("a", 45, [s[0] + 44, s[1] + 2]);
+    }
+  }
+  commit() {
+    const sk0 = activeData().sk;
+    const sb = this.setbacks(sk0);
+    const corner = this.corner, firstLine = this.firstLine;
+    try {
+      mutateSketch(this.label, (sk) => {
+        const res = sb && chamferCorner(sk, corner, sb[0], sb[1], firstLine);
+        if (!res) throw new Error("The chamfer distance is too large for these lines");
+        return res.line;
+      });
+    } catch (e) { ST.app.toast(`Chamfer: ${e.message || e}`, "error", 2400); return; }
+    this.lastR = sb[0];
+    this.corner = null;
+    this.first = null;
+    this.firstLine = null;
+    HUD.hudHide();
+    clearToolPreview();
+    ST.app.selection.clear();
+    this.refreshPrompt();
+  }
 }
 
 // ---------------------------------------------------------------------------

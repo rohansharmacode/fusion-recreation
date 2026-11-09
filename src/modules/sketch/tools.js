@@ -731,7 +731,52 @@ const POINT_DEF = {
   },
 };
 
-export const SEQ_DEFS = { ...RECT_DEFS, ...CIRCLE_DEFS, ...ARC_DEFS, ...POLY_DEFS, ...SLOT_DEFS, ...POINT_DEF };
+/** Midpoint Line: the first click is the midpoint, the second an end; within 2 degrees it is kept horizontal / vertical. */
+const MIDLINE_DEF = {
+  SketchMidpointLine: {
+    clicks: 2,
+    undo: "Midpoint Line",
+    prompts: ["Place midpoint", "Place end point"],
+    hud: (stage) => (stage === 1 ? [hudLen("len", "Length")] : null),
+    geom(stage, P, cur, T) {
+      if (stage === 0) return { points: [cur.uv] };
+      const m = P[0].uv;
+      let v = sub(cur.uv, m);
+      let half = len(v);
+      let dir = half > 1e-12 ? mul(v, 1 / half) : [1, 0];
+      let hv = null;
+      const ang = ((Math.atan2(dir[1], dir[0]) / D2R) % 180 + 180) % 180;
+      if (!cur.pointId && (ang < 2 || ang > 178)) { hv = "horizontal"; dir = [Math.sign(dir[0]) || 1, 0]; half = Math.abs(v[0]); }
+      else if (!cur.pointId && Math.abs(ang - 90) < 2) { hv = "vertical"; dir = [0, Math.sign(dir[1]) || 1]; half = Math.abs(v[1]); }
+      let typed = false;
+      if (T.len && T.len.ok) { half = T.len.value / 2; typed = true; }
+      const e = add(m, mul(dir, half)), s = sub(m, mul(dir, half));
+      const n = perp(dir);
+      return { point: e, typedPoint: typed || !!hv, hv, s, e, glyph: hv, lines: [[s, e]], invalid: half < 1e-6, hudDims: [{ kind: "linear", id: "len", value: 2 * half, A: s, B: e, n: n[1] < 0 ? mul(n, -1) : n, off: 30 }, { kind: "cross", at: m, size: 6 }] };
+    },
+    commit(sk, P, T, g, doc) {
+      const S = ST.app.S;
+      // the midpoint: an existing point it snapped to, else a new sketch point (a bare point that no
+      // curve uses would be dropped as an orphan by later edits, taking the midpoint constraint with it)
+      const sn = P[0].snap;
+      let im;
+      if (sn && sn.pointId && sk.points[sn.pointId]) im = sn.pointId;
+      else { im = rp(sk, P[0]); S.addSketchPoint(sk, im); }
+      const is = S.addPoint(sk, g.s[0], g.s[1]);
+      const ie = P[1].snap && !g.typedPoint ? rp(sk, P[1]) : S.addPoint(sk, g.e[0], g.e[1]);
+      const id = S.addLine(sk, is, ie, cons());
+      S.addConstraint(sk, "midpoint", [im, id]);
+      if (g.hv) S.addConstraint(sk, g.hv, [id]);
+      if (T.len && T.len.ok) {
+        const n = perp(unit(sub(g.e, g.s)));
+        addDim(sk, doc, "distance", [id], T.len.expr, { dimType: "aligned", at: mul(n[1] < 0 ? mul(n, -1) : n, 30 * pxToMm(g.e)) });
+      }
+      return id;
+    },
+  },
+};
+
+export const SEQ_DEFS = { ...RECT_DEFS, ...CIRCLE_DEFS, ...ARC_DEFS, ...POLY_DEFS, ...SLOT_DEFS, ...POINT_DEF, ...MIDLINE_DEF };
 
 /** SeqTool that remembers typed values of earlier stages (tool.typedAt[stage]). */
 class SeqToolMem extends SeqTool {
@@ -993,6 +1038,14 @@ export class LineTool extends Tool {
           const th = ((r.T.ang.value % 360) + 360) % 360;
           if (Math.abs(th % 180) < 1e-6) S.addConstraint(sk, "horizontal", [id]);
           else if (Math.abs((th % 180) - 90) < 1e-6) S.addConstraint(sk, "vertical", [id]);
+          else if (r.T.ang.value > 0 && r.T.ang.value < 180) {
+            // first segment: the typed angle becomes an angular dimension to the sketch X axis (one-ref
+            // angle), measured from the horizontal on the side the HUD showed it
+            const cx = Math.max(-1, Math.min(1, r.dir[0]));
+            const tv = Math.abs(r.T.ang.value);
+            const toPlusX = Math.abs(Math.acos(cx) / D2R - tv) <= Math.abs(Math.acos(-cx) / D2R - tv);
+            placed.push({ c: addDim(sk, doc, "angle", [id], r.T.ang.expr, { flip1: false, flip2: !toPlusX }) });
+          }
         }
       }
       self.arrange(sk, placed);

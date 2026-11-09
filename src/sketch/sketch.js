@@ -1,5 +1,5 @@
 // Sketch data model and editing operations.
-import { solveSketch, curvePoints } from "./solver.js";
+import { solveSketch, curvePoints, degenerateCurves } from "./solver.js";
 import { computeRegions, curveGeom, intersect } from "./regions.js";
 
 export function newSketch() {
@@ -190,7 +190,8 @@ export function measureDim(sk, c) {
     case "diameter": return 2 * Math.abs(sk.curves[c.refs[0]].r);
     case "radius": return Math.abs(sk.curves[c.refs[0]].r);
     case "angle": {
-      const [a, b] = L(c.refs[0]), [d, e] = L(c.refs[1]);
+      // one ref: the angle between the line and the sketch X axis (typed angle of a first Line segment)
+      const [a, b] = L(c.refs[0]), [d, e] = c.refs.length === 1 ? [[0, 0], [1, 0]] : L(c.refs[1]);
       const s1 = c.flip1 ? -1 : 1, s2 = c.flip2 ? -1 : 1;
       const u = [s1 * (b[0] - a[0]), s1 * (b[1] - a[1])], w = [s2 * (e[0] - d[0]), s2 * (e[1] - d[1])];
       return (Math.abs(Math.atan2(u[0] * w[1] - u[1] * w[0], u[0] * w[0] + u[1] * w[1])) * 180) / Math.PI;
@@ -574,10 +575,13 @@ export function dragSolve(sk, params, grabs) {
   const sub = subSketch(sk, grabs.map((g) => g.ref));
   const hard = sub.constraints;
   sub.constraints = hard.concat(grabs.map((g, i) => ({ id: `__grab${i}`, type: "grab", refs: [g.ref], x: g.x, y: g.y, t: g.t, w: g.w })));
-  solveSketch(sub, values, { dof: false, maxIter: 40, writeOnFail: true });
+  const degBefore = degenerateCurves(sub);
+  solveSketch(sub, values, { dof: false, maxIter: 40, writeOnFail: true, staged: false });
   sub.constraints = hard;
-  const r = solveSketch(sub, values, { dof: false, maxIter: 80 });
+  const r = solveSketch(sub, values, { dof: false, maxIter: 80, staged: false });
   if (!r.ok) return false;
+  // never drag a line down to zero length / a circle to zero radius
+  if ([...degenerateCurves(sub)].some((id) => !degBefore.has(id))) return false;
   for (const [id, p] of Object.entries(sub.points)) if (sk.points[id] && !sk.points[id].fixed) { sk.points[id].x = p.x; sk.points[id].y = p.y; }
   for (const [id, cv] of Object.entries(sub.curves)) if (cv.r !== undefined && sk.curves[id]) sk.curves[id].r = cv.r;
   return true;
@@ -593,7 +597,7 @@ export function tryConstraints(sk, params, cons) {
   const test = cloneSketch(sk);
   for (const c of cons) test.constraints.push(c);
   const s1 = solve(test, params);
-  if (!s1.ok) return { ok: false, reason: "conflict" };
+  if (!s1.ok) return { ok: false, reason: "conflict", ...(s1.degenerate ? { degenerate: s1.degenerate } : {}) };
   if (s0.ok && s0.nullity !== undefined && s1.nullity !== undefined && s1.nullity >= s0.nullity) return { ok: false, reason: "redundant", sk: test, status: s1 };
   return { ok: true, sk: test, status: s1 };
 }

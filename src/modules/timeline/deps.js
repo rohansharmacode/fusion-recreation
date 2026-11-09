@@ -22,7 +22,7 @@ export function refsOf(f) {
     if (o == null || depth > 8) return;
     if (Array.isArray(o)) {
       if (key === "bodies" || key === "tools") { for (const x of o) if (typeof x === "string") r.bodies.add(x); return; }
-      if (key === "edges") { for (const x of o) addGeo("edge", x); return; }
+      if (key === "edges" || key === "refEdges") { for (const x of o) addGeo("edge", x); return; }
       if (key === "faces") { for (const x of o) addGeo("face", x); return; }
       for (const x of o) walk(x, key, depth + 1);
       return;
@@ -33,6 +33,7 @@ export function refsOf(f) {
     }
     if (typeof o.sketch === "string") r.sketches.add(o.sketch);
     if (o.kind === "cplane" && typeof o.id === "string") r.cplanes.add(o.id);
+    if (key === "faceRef" && !o.kind) { addGeo("face", o); return; } // hole placed on a face
     if (o.kind === "face" && typeof o.body === "string") addGeo("face", o);
     if (o.kind === "edge" && typeof o.body === "string") addGeo("edge", o);
     for (const [k, v] of Object.entries(o)) {
@@ -56,7 +57,7 @@ export function bodyCreators(doc) {
   }
   return m;
 }
-function creatorOf(creators, doc, bodyId) {
+export function creatorOf(creators, doc, bodyId) {
   if (creators.has(bodyId)) return creators.get(bodyId);
   const m = /^(.+)_\d+$/.exec(bodyId || ""); // pattern instances "f7_3"
   if (m && doc.features.some((f) => f.id === m[1])) return m[1];

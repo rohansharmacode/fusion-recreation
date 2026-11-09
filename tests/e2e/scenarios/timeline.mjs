@@ -118,6 +118,68 @@ const scenario = defineScenario({
       const ord = await t.app(() => window.app.doc.features.map((f) => f.id));
       t.check("independent features can be reordered by drag", ord[1] === a.id, `order=${ord.join(",")}`);
     }
+
+    // ---- a 7-feature part: Sketch1, Extrude1, Fillet1, Sketch2 (on Extrude1's top face),
+    // Extrude2 (cut), Hole1 (on the top face), Rectangular Pattern1 (of Body1)
+    t.step("setup: 7-feature part (App API)");
+    await t.escapeAll();
+    const part = await t.app(() => {
+      const a = window.app;
+      a.newDocument("Suppress part");
+      const sk = a.S.newSketch();
+      const P = [[0, 0], [60, 0], [60, 40], [0, 40]].map((q) => a.S.addPoint(sk, q[0], q[1]));
+      P.forEach((p, i) => a.S.addLine(sk, p, P[(i + 1) % P.length]));
+      const s1 = a.addFeature({ type: "sketch", plane: { o: [0, 0, 0], x: [1, 0, 0], n: [0, 0, 1] }, planeRef: { kind: "origin", name: "XY" }, sk, visible: true });
+      const e1 = a.addFeature({ type: "extrude", profiles: [{ sketch: s1.id, key: a.sketchState(s1.id).regions.regions[0].key, c: [5, 5] }], distance: "10 mm", operation: "new" });
+      const body = e1.newBody;
+      a.addFeature({ type: "fillet", edges: [{ body, p: [60, 20, 10] }], radius: "2 mm", tangentChain: true });
+      const sk2 = a.S.newSketch();
+      a.S.addCircle(sk2, a.S.addPoint(sk2, 20, 20), 5);
+      const pl = { o: [0, 0, 10], x: [1, 0, 0], n: [0, 0, 1] };
+      const s2 = a.addFeature({ type: "sketch", plane: pl, planeRef: { kind: "face", body, p: [20, 5, 10], n: [0, 0, 1], plane: pl }, sk: sk2, visible: false });
+      a.addFeature({ type: "extrude", profiles: a.sketchState(s2.id).regions.regions.map((r) => ({ sketch: s2.id, key: r.key })), distance: "5 mm", flip: true, operation: "cut" });
+      a.addFeature({ type: "hole", placement: "face", holeType: "simple", drillPoint: "angle", extent: "distance", diameter: "6 mm", depth: "5 mm", tipAngle: "118 deg", operation: "cut", flip: false, points: [[45, 20, 10]], normal: [0, 0, 1], faceRef: { body, p: [45, 20, 10], n: [0, 0, 1] } });
+      a.addFeature({ type: "rpattern", bodies: [body], dir1: "X", q1: "2", d1: "80 mm", distType: "spacing" });
+      return { e1: e1.id, ids: a.doc.features.map((f) => f.id), ok: a.doc.features.every((f) => (a.featureResult(f.id) || {}).ok) };
+    });
+    t.require("7 features computed", part.ids.length === 7 && part.ok, JSON.stringify(part));
+    await t.settle(300);
+    const ctxOn = async (id, re) => {
+      const r = await t.box(`#timeline [data-feature="${id}"]`);
+      await t.page.mouse.click(r.x + r.width / 2, r.y + r.height / 2, { button: "right" });
+      await t.settle(250);
+      const found = await t.app((src) => { const rx = new RegExp(src); const e = [...document.querySelectorAll("#overlay *")].find((x) => x.offsetParent && x.children.length === 0 && rx.test(x.innerText.trim())); if (e) { e.setAttribute("data-qa-ctx", "1"); return true; } return false; }, re);
+      if (found) { await t.click('[data-qa-ctx="1"]'); await t.app(() => document.querySelector('[data-qa-ctx="1"]')?.removeAttribute("data-qa-ctx")); }
+      return found;
+    };
+
+    t.step("Delete Extrude1: the dependents confirmation is modal (shortcuts blocked)");
+    t.require("Delete item clickable", await ctxOn(part.e1, "^Delete$"));
+    await t.settle(300);
+    t.require("delete confirmation open (.br-modal)", await t.visible(".br-modal"));
+    await t.page.keyboard.press("Control+z"); await t.settle(300);
+    s = await t.state();
+    t.check("Ctrl+Z under the modal does not undo", s.marker === 7 && s.features.length === 7, `marker=${s.marker} features=${s.features.length}`);
+    await t.page.keyboard.press("e"); await t.settle(300);
+    t.check("E under the modal opens no Extrude dialog", await t.app(() => !window.app.activeCommand && !document.querySelector('.dlg[data-dialog="Extrude"]')));
+    t.check("modal still open after the shortcuts", await t.visible(".br-modal"));
+    await t.shot("delete-modal-blocks");
+    await t.page.keyboard.press("Escape"); await t.settle(250);
+    t.check("Esc cancels the modal and keeps all features", !(await t.visible(".br-modal")) && (await t.state()).features.length === 7);
+    await t.page.keyboard.press("Control+z"); await t.settle(300);
+    t.check("shortcuts work again after the modal closed (Ctrl+Z undoes)", (await t.state()).features.length === 6, `features=${(await t.state()).features.length}`);
+    await t.page.keyboard.press("Control+y"); await t.settle(300);
+
+    t.step("Suppress Extrude1: every dependent is implicitly suppressed alike");
+    t.require("Suppress item clickable", await ctxOn(part.e1, "^Suppress( Features)?$"));
+    await t.settle(400);
+    const look7 = await t.app((ids) => ids.map((id) => { const e = document.querySelector(`#timeline [data-feature="${id}"]`); return { name: e.getAttribute("aria-label"), implicit: e.classList.contains("implicit"), error: e.classList.contains("error"), warning: e.classList.contains("warning") }; }), part.ids);
+    const deps7 = look7.slice(2);
+    t.check("Fillet1, Sketch2, Extrude2, Hole1, Rectangular Pattern1 all implicitly suppressed", deps7.every((x) => x.implicit), JSON.stringify(deps7));
+    t.check("no error / warning badges on the dependents", deps7.every((x) => !x.error && !x.warning), JSON.stringify(deps7));
+    t.check("Sketch1 is unaffected", !look7[0].implicit && !look7[0].error, JSON.stringify(look7[0]));
+    await t.shot("suppress-dependents-uniform");
+    await t.escapeAll();
   },
 });
 

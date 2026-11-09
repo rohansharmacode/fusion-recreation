@@ -278,6 +278,124 @@ const scenario = defineScenario({
     t.check("no dimension label overlaps another one", clashes.length === 0, clashes.join(", "));
     await t.shot("typed-l-dims");
 
+    // ---------- solver: no zero-length edges, minimal change keeps sizes ----------
+    t.step("Coincident on both ends of one edge is refused; Tangent keeps the circle's radius");
+    await t.key("Escape");
+    const geo = await t.app(() => {
+      const a = window.app;
+      let out;
+      a.mutate("QA solver geometry", (doc) => {
+        const f = doc.features.find((x) => x.id === a.activeSketch);
+        const r = a.S.addRect2pt(f.sk, [60, 45], [90, 65]);
+        const c = a.S.addPoint(f.sk, 75, 80);
+        out = { lines: r.lines, center: c, circle: a.S.addCircle(f.sk, c, 5) };
+      });
+      const f = a.feature(a.activeSketch);
+      const e = f.sk.curves[out.lines[0]];
+      return { ...out, p1: e.p1, p2: e.p2, n: f.sk.constraints.length };
+    });
+    const solverState = () => t.app((g) => {
+      const a = window.app; const f = a.feature(a.activeSketch); const st = a.sketchState(a.activeSketch);
+      const pts = st ? st.sk.points : f.sk.points;
+      const L = (id) => { const c = f.sk.curves[id]; return Math.hypot(pts[c.p2].x - pts[c.p1].x, pts[c.p2].y - pts[c.p1].y); };
+      return { n: f.sk.constraints.length, types: f.sk.constraints.map((c) => c.type), lens: g.lines.map(L), r: f.sk.curves[g.circle].r, c: [pts[g.center].x, pts[g.center].y], topY: pts[f.sk.curves[g.lines[2]].p1].y, ok: st ? st.status.ok : null };
+    }, geo);
+    await t.app((g) => { const a = window.app; a.selection.set([{ kind: "sketchPoint", sketch: a.activeSketch, point: g.p1 }, { kind: "sketchPoint", sketch: a.activeSketch, point: g.p2 }]); a.commands.run("ConstraintCoincident"); }, geo);
+    await t.settle(250);
+    let sv = await solverState();
+    const warnTxt = await t.overlayText();
+    t.check("Coincident on the two ends of one rectangle edge is refused", sv.n === geo.n, sv.types.slice(-3).join(","));
+    t.check("no rectangle edge collapsed to zero length", sv.lens.every((l) => l > 1), sv.lens.map((l) => fmt(l, 2)).join(" "));
+    t.check("the refusal is reported (conflict warning)", /unable|conflict/i.test(warnTxt), warnTxt.replace(/\s+/g, " ").slice(0, 120));
+    await t.key("Escape");
+    await t.settle(150);
+    await t.app((g) => { const a = window.app; a.selection.set([{ kind: "sketchCurve", sketch: a.activeSketch, curve: g.circle }, { kind: "sketchCurve", sketch: a.activeSketch, curve: g.lines[2] }]); a.commands.run("ConstraintTangent"); }, geo);
+    await t.settle(250);
+    sv = await solverState();
+    t.check("Tangent circle -> line was applied", sv.types.includes("tangent") && sv.ok === true, sv.types.slice(-2).join(","));
+    t.check("Tangent keeps the circle's radius (r = 5)", near(sv.r, 5, 1e-6), `r=${fmt(sv.r, 4)}`);
+    t.check("Tangent keeps the first pick (circle centre stays at 75, 80)", near(sv.c[0], 75, 1e-6) && near(sv.c[1], 80, 1e-6), JSON.stringify(sv.c.map((v) => +v.toFixed(4))));
+    t.check("the line (second pick) moved up to touch the circle (y = 75)", near(sv.topY, 75, 1e-6), `y=${fmt(sv.topY, 4)}`);
+    await t.shot("solver-minimal-change");
+    await t.key("Escape");
+
+    // helpers for the checks below (sketch coordinates == world XY on this sketch; grid snap is on, so
+    // clicks use multiples of 10 mm, clear of the geometry above)
+    const skNow = () => t.app(() => { const a = window.app; const st = a.sketchState(a.activeSketch); return JSON.parse(JSON.stringify({ curves: st.sk.curves, points: st.sk.points, constraints: st.sk.constraints })); });
+    const at = async (u, v) => t.canvasXY([u, v, 0]);
+    const clickW = async (u, v) => { const q = await at(u, v); await t.canvasClick(q.x, q.y); await t.settle(80); };
+    const lineAt = (s, a, b, tol = 0.05) => Object.entries(s.curves).find(([, c]) => {
+      if (c.type !== "line") return false;
+      const p = [s.points[c.p1], s.points[c.p2]];
+      const m = (P, Q) => Math.hypot(P.x - Q[0], P.y - Q[1]) <= tol;
+      return (m(p[0], a) && m(p[1], b)) || (m(p[0], b) && m(p[1], a));
+    });
+
+    // ---------- first Line segment: the typed angle is kept as a dimension ----------
+    t.step("L: click, type 25 Tab 45 Enter (no mouse move): the angle becomes a dimension");
+    await t.blur();
+    await t.key("l");
+    await clickW(100, -80);
+    await t.type("25"); await t.key("Tab"); await t.type("45"); await t.key("Enter"); await t.settle(150);
+    await t.key("Escape"); await t.key("Escape");
+    let s = await skNow();
+    const angLine = lineAt(s, [100, -80], [100 + 25 * Math.SQRT1_2, -80 + 25 * Math.SQRT1_2]);
+    t.check("typed 25 / 45 deg gives a 25 mm line at 45 degrees", !!angLine, JSON.stringify(Object.values(s.curves).slice(-2)));
+    const angDim = angLine && s.constraints.find((c) => c.type === "angle" && c.refs.includes(angLine[0]));
+    t.check("the typed first-segment angle is recorded as an angle dimension (45 deg)", !!angDim && /^45(\.0+)?\s*deg$/.test(angDim.expr || ""), JSON.stringify(s.constraints.filter((c) => angLine && c.refs.includes(angLine[0]))));
+
+    // ---------- Extend: the extended end stays on the target curve ----------
+    t.step("Extend a short vertical line up to a horizontal line: the new end is constrained to it");
+    await t.key("l"); await clickW(90, 90); await clickW(130, 90); await t.key("Escape"); await t.key("Escape");
+    await t.key("l"); await clickW(100, 60); await clickW(100, 80); await t.key("Escape"); await t.key("Escape");
+    s = await skNow();
+    const hLine = lineAt(s, [90, 90], [130, 90]), vLine = lineAt(s, [100, 60], [100, 80]);
+    t.check("setup: horizontal and vertical lines drawn", !!hLine && !!vLine);
+    await t.app(() => window.app.commands.run("ExtendSketchCmd"));
+    await clickW(100, 77);
+    await t.key("Escape");
+    s = await skNow();
+    const vc = vLine && s.curves[vLine[0]];
+    const top = vc && [vc.p1, vc.p2].find((p) => Math.abs(s.points[p].y - 90) < 1e-6);
+    t.check("Extend reaches the horizontal line (100, 80 -> 100, 90)", !!top && Math.abs(s.points[top].x - 100) < 1e-6, vc && JSON.stringify([s.points[vc.p1], s.points[vc.p2]]));
+    const extCon = top && hLine && s.constraints.find((c) => (c.type === "onCurve" && c.refs[0] === top && c.refs[1] === hLine[0]) || (c.type === "coincident" && c.refs.includes(top)));
+    t.check("the extended end gets a coincident / on-curve constraint to the target line", !!extCon, JSON.stringify(s.constraints.filter((c) => top && c.refs.includes(top))));
+
+    // ---------- Midpoint Line and Equal Distance Chamfer (formerly stubs) ----------
+    t.step("Midpoint Line: click the midpoint, then an end");
+    await t.app(() => window.app.commands.run("SketchMidpointLine"));
+    await clickW(120, -50); await clickW(140, -50); await t.key("Escape");
+    s = await skNow();
+    const mLine = lineAt(s, [100, -50], [140, -50]);
+    t.check("Midpoint Line draws a line centred on the first click", !!mLine, JSON.stringify(Object.values(s.curves).slice(-2)));
+    t.check("Midpoint Line adds a midpoint constraint", !!mLine && s.constraints.some((c) => c.type === "midpoint" && c.refs[1] === mLine[0]));
+    t.step("Equal Distance Chamfer on a rectangle corner, then select the profile");
+    await t.key("r"); await clickW(100, 10); await clickW(140, 40); await t.key("Escape"); await t.key("Escape");
+    await t.app(() => window.app.commands.run("ChamferSketchEqualDistance"));
+    await clickW(140, 40);
+    await t.type("5"); await t.key("Enter"); await t.settle(150);
+    await t.key("Escape"); await t.key("Escape");
+    s = await skNow();
+    t.check("Equal Distance Chamfer cuts the corner with a 5 mm set-back line", !!lineAt(s, [135, 40], [140, 35]), JSON.stringify(Object.values(s.curves).slice(-3)));
+    t.check("the chamfered rectangle is still one closed profile", await t.app(() => window.app.sketchState(window.app.activeSketch).regions.regions.some((r) => Math.abs(Math.abs(r.area) - (40 * 30 - 12.5)) < 0.5)));
+
+    // ---------- selected profile: Fusion's blue, boundary drawn darker ----------
+    await clickW(110, 32);
+    await t.page.mouse.move(5, 500);
+    await t.frames(4);
+    const selKinds = await t.app(() => window.app.selection.items.map((r) => r.kind));
+    t.check("clicking inside the rectangle selects its profile", selKinds.includes("profile"), JSON.stringify(selKinds));
+    const fillPt = await at(110, 32);
+    const fill = await t.colorAt(fillPt.x, fillPt.y, 1);
+    t.check("selected profile fill matches Fusion capture 13 (≈ rgb(55,139,253) on the white canvas)", Math.abs(fill[0] - 55) <= 18 && Math.abs(fill[1] - 139) <= 18 && fill[2] >= 235, hexOf(fill));
+    const edgePt = await at(110, 10);
+    const col = await t.pixels(edgePt.x, edgePt.y - 4, 1, 9);
+    let darkest = null;
+    for (let j = 0; j < col.h; j++) { const c = col.px(0, j); if (!darkest || luma3(c) < luma3(darkest)) darkest = c; }
+    t.check("selected profile boundary is drawn in a darker blue (sketch curves stay readable on the fill)", !!darkest && darkest[2] > darkest[0] + 90 && luma3(darkest) < 115, darkest && hexOf(darkest));
+    await t.shot("profile-selected");
+    await t.key("Escape");
+
     // ---------- finish ----------
     t.step("Finish Sketch from the palette");
     const fin = await t.app(() => {

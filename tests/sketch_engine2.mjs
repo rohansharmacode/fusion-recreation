@@ -132,6 +132,77 @@ const params = new ParamTable();
   ok(comp.curves.has(r1.lines[0]) && !comp.curves.has(r2.lines[0]), "componentOf stops at fixed points");
 }
 
+// degenerate geometry is refused: Coincident on both end points of one rectangle edge
+{
+  const sk = S.newSketch();
+  const r = S.addRect2pt(sk, [-30, -20], [30, 20]);
+  S.solve(sk, params);
+  const e = sk.curves[r.lines[0]];
+  const t = S.tryConstraints(sk, params, [{ id: "__t0", type: "coincident", refs: [e.p1, e.p2] }]);
+  ok(!t.ok && t.reason === "conflict", "coincident on the two ends of one edge is refused (no zero-length line)");
+  const sk2 = S.cloneSketch(sk);
+  S.addConstraint(sk2, "coincident", [e.p1, e.p2]);
+  const st = S.solve(sk2, params);
+  ok(!st.ok && st.degenerate && st.degenerate.includes(r.lines[0]), "solve reports the collapsed curve as degenerate");
+  ok(near(Math.hypot(sk2.points[e.p2].x - sk2.points[e.p1].x, sk2.points[e.p2].y - sk2.points[e.p1].y), 60, 1e-6), "a degenerate solution is not written back");
+}
+// minimal change: sizes are kept and the first selection stays in place (Fusion)
+{
+  const sk = S.newSketch();
+  const a = S.addPoint(sk, -100, 20), b = S.addPoint(sk, 0, 20);
+  const l = S.addLine(sk, a, b); S.addConstraint(sk, "horizontal", [l]);
+  const c = S.addPoint(sk, -50, 60); const ci = S.addCircle(sk, c, 10);
+  const t = S.tryConstraints(sk, params, [{ id: "__t0", type: "tangent", refs: [ci, l] }]);
+  ok(t.ok && near(t.sk.curves[ci].r, 10, 1e-6) && near(t.sk.points[c].x, -50, 1e-6) && near(t.sk.points[c].y, 60, 1e-6), "tangent circle->line keeps the radius and the circle");
+  ok(t.ok && near(t.sk.points[a].y, 50, 1e-6) && near(t.sk.points[b].y, 50, 1e-6) && near(t.sk.points[a].x, -100, 1e-6), "tangent moves the line (second pick) onto the circle");
+  // the document path: constraint added, then the model's solve reproduces the same result
+  S.addConstraint(sk, "tangent", [ci, l]);
+  const st = S.solve(sk, params);
+  ok(st.ok && near(sk.curves[ci].r, 10, 1e-6) && near(sk.points[a].y, 50, 1e-6), "solve() after adding the tangent gives the same minimal change");
+}
+{
+  const sk = S.newSketch();
+  const c1 = S.addPoint(sk, 0, 10), c2 = S.addPoint(sk, 40, 10);
+  const A = S.addCircle(sk, c1, 10), B = S.addCircle(sk, c2, 5);
+  const t = S.tryConstraints(sk, params, [{ id: "__t0", type: "concentric", refs: [A, B] }]);
+  ok(t.ok && near(t.sk.points[c1].x, 0, 1e-6) && near(t.sk.points[c2].x, 0, 1e-6) && near(t.sk.curves[A].r, 10, 1e-6) && near(t.sk.curves[B].r, 5, 1e-6), "concentric moves only the second circle, radii kept");
+}
+{
+  const sk = S.newSketch();
+  const ax1 = S.addPoint(sk, 0, -50), ax2 = S.addPoint(sk, 0, 50); const ax = S.addLine(sk, ax1, ax2, true);
+  const a1 = S.addPoint(sk, -30, -20), a2 = S.addPoint(sk, -20, 20); S.addLine(sk, a1, a2);
+  const b1 = S.addPoint(sk, 50, -10), b2 = S.addPoint(sk, 30, 30); S.addLine(sk, b1, b2);
+  const t = S.tryConstraints(sk, params, [{ id: "__t0", type: "symmetric", refs: [a1, b1, ax] }, { id: "__t1", type: "symmetric", refs: [a2, b2, ax] }]);
+  const P = (id) => [t.sk.points[id].x, t.sk.points[id].y];
+  ok(t.ok && near(P(ax1)[0], 0, 1e-6) && near(P(ax2)[0], 0, 1e-6) && near(P(a1)[0], -30, 1e-6) && near(P(a1)[1], -20, 1e-6), "symmetry keeps the axis and the first line");
+  ok(t.ok && near(P(b1)[0], 30, 1e-6) && near(P(b1)[1], -20, 1e-6) && near(P(b2)[0], 20, 1e-6) && near(P(b2)[1], 20, 1e-6), "symmetry mirrors the second line");
+}
+{
+  const sk = S.newSketch();
+  const v = S.addPoint(sk, 10, 10), e1 = S.addPoint(sk, 60, 10), e2 = S.addPoint(sk, 40, 50);
+  const L1 = S.addLine(sk, v, e1), L2 = S.addLine(sk, v, e2);
+  const t = S.tryConstraints(sk, params, [{ id: "__t0", type: "angle", refs: [L1, L2], expr: "90 deg" }]);
+  const P = (id) => [t.sk.points[id].x, t.sk.points[id].y];
+  ok(t.ok && near(P(v)[0], 10, 1e-6) && near(P(v)[1], 10, 1e-6) && near(P(e1)[0], 60, 1e-6), "angle dimension keeps the shared vertex and the first line");
+  ok(t.ok && near(Math.hypot(P(e2)[0] - 10, P(e2)[1] - 10), 50, 1e-4) && near(P(e2)[0], 10, 1e-4), "angle dimension rotates the second line about the vertex (length kept)");
+}
+{
+  // a radius dimension still resizes; a circle that cannot move still grows to reach a fixed line
+  const sk = S.newSketch();
+  const c = S.addPoint(sk, 0, 0); const ci = S.addCircle(sk, c, 10);
+  const k = S.addConstraint(sk, "diameter", [ci], { expr: "20" });
+  S.solve(sk, params);
+  k.expr = "30";
+  const st = S.solve(sk, params);
+  ok(st.ok && near(sk.curves[ci].r, 15, 1e-6) && near(sk.points[c].x, 0, 1e-6), "diameter edit resizes in place");
+  const sk2 = S.newSketch();
+  const q1 = S.addPoint(sk2, -50, 30), q2 = S.addPoint(sk2, 50, 30); const ln = S.addLine(sk2, q1, q2);
+  S.addConstraint(sk2, "fix", [ln]);
+  const ci2 = S.addCircle(sk2, "o", 10);
+  const t2 = S.tryConstraints(sk2, params, [{ id: "__t0", type: "tangent", refs: [ln, ci2] }]);
+  ok(t2.ok && near(t2.sk.curves[ci2].r, 30, 1e-6), "tangent to a fixed line from a fixed centre falls back to resizing");
+}
+
 // performance: many independent shapes (degrees-of-freedom analysis runs per block)
 {
   const sk = S.newSketch();

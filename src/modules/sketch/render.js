@@ -23,13 +23,17 @@ export const COLORS = {
   preview: "#8c8c8c", // rubber band while drawing (thin grey)
   profile: "#0596d6", // SketchProfileColor; unselected profiles are not shaded (interior stays canvas white, captures 09/10/12)
   profileHover: "#1f7bff",
-  profileSel: "#1f7bff",
+  // selected profile: Fusion capture 13 shows rgb(55,139,253) on the white canvas with the grid / axes only
+  // faintly through it and the profile boundary drawn in a darker blue rgb(26,85,203). #056efc at 80 %
+  // gives the same colour on white while leaving the axes, grid and curves below readable.
+  profileSel: "#056efc",
+  profileEdge: "#1a55cb",
   gridMinor: "#dde2e8",
   gridMajor: "#c3cad3",
 };
 // Fusion draws sketch curves 1 px wide (captures 09/10: one crisp rgb(67,164,232) pixel across an edge)
 const W = { base: 1, inactive: 1, hi: 2.2, preview: 1 };
-const PROFILE_ALPHA = { base: 0, hover: 0.28, sel: 0.88 };
+const PROFILE_ALPHA = { base: 0, hover: 0.28, sel: 0.8 };
 
 const R = {
   root: null, // THREE.Group in groups.sketches
@@ -182,7 +186,7 @@ export function rebuild() {
         const mesh = profileMesh(r);
         if (!mesh) continue;
         mesh.renderOrder = 1;
-        mesh.userData = { ref: { kind: "profile", sketch: f.id, key: r.key } };
+        mesh.userData = { ref: { kind: "profile", sketch: f.id, key: r.key }, loops: [r.outer.poly, ...r.holes.map((hl) => hl.poly)] };
         g.add(mesh);
         R.profiles.set(refKey(mesh.userData.ref), mesh);
       }
@@ -336,6 +340,26 @@ export function restyle() {
   for (const [k, m] of R.profiles) {
     const mat = sel.has(k) ? profileMat("sel") : hov.has(k) ? profileMat("hover") : profileMat("base");
     if (m.material !== mat) m.material = mat;
+    // a selected profile shows its boundary in a darker blue on top of the fill (Fusion capture 13)
+    let edge = m.userData.edge;
+    if (sel.has(k) && !edge && m.userData.loops) {
+      const pos = [];
+      for (const pl of m.userData.loops) {
+        if (!pl || pl.length < 2) continue;
+        segmentsFromPolyline(pl, pos);
+        const a = pl[0], b = pl[pl.length - 1];
+        if (Math.hypot(a[0] - b[0], a[1] - b[1]) > 1e-9) pos.push(b[0], b[1], 0, a[0], a[1], 0);
+      }
+      if (pos.length) {
+        const geo = new LineSegmentsGeometry();
+        geo.setPositions(pos);
+        edge = new LineSegments2(geo, lineMat(COLORS.profileEdge, 2));
+        edge.renderOrder = 4;
+        m.add(edge);
+        m.userData.edge = edge;
+      }
+    }
+    if (edge) edge.visible = sel.has(k);
   }
   const tmp = new THREE.Color();
   for (const p of R.points.values()) {
@@ -588,6 +612,15 @@ const GLYPH_TITLE = {
 };
 
 const P2 = (sk, id) => [sk.points[id].x, sk.points[id].y];
+/** End points of the two lines of an angle dimension; a one-ref angle is measured to the sketch X axis
+ * (a virtual horizontal line through the line's start point, flagged axis). */
+function angleEnds(sk, c) {
+  const l1 = sk.curves[c.refs[0]];
+  const a = P2(sk, l1.p1), b = P2(sk, l1.p2);
+  if (c.refs.length === 1) return { a, b, d: a, e: [a[0] + 1, a[1]], axis: true };
+  const l2 = sk.curves[c.refs[1]];
+  return { a, b, d: P2(sk, l2.p1), e: P2(sk, l2.p2), axis: false };
+}
 const sub = (a, b) => [a[0] - b[0], a[1] - b[1]];
 const add2 = (a, b) => [a[0] + b[0], a[1] + b[1]];
 const mul2 = (a, s) => [a[0] * s, a[1] * s];
@@ -723,13 +756,13 @@ export function dimGeom(sk, c, ps) {
     }
     res.text = L;
   } else if (c.type === "angle") {
-    const l1 = sk.curves[c.refs[0]], l2 = sk.curves[c.refs[1]];
-    const a = P2(sk, l1.p1), b = P2(sk, l1.p2), d = P2(sk, l2.p1), e = P2(sk, l2.p2);
+    const { a, b, d, e, axis } = angleEnds(sk, c);
     const s1 = c.flip1 ? -1 : 1, s2 = c.flip2 ? -1 : 1;
     const u1 = unit2(mul2(sub(b, a), s1)), u2 = unit2(mul2(sub(e, d), s2));
     const den = (a[0] - b[0]) * (d[1] - e[1]) - (a[1] - b[1]) * (d[0] - e[0]);
     let X;
-    if (Math.abs(den) < 1e-12) X = mul2(add2(a, d), 0.5);
+    if (axis) X = a; // angle to the X axis: measured at the line's start point
+    else if (Math.abs(den) < 1e-12) X = mul2(add2(a, d), 0.5);
     else {
       const t = ((a[0] - d[0]) * (d[1] - e[1]) - (a[1] - d[1]) * (d[0] - e[0])) / den;
       X = [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])];
@@ -755,7 +788,7 @@ export function dimGeom(sk, c, ps) {
       if (reach > Math.max(0, tq) + gap) res.ext.push([add2(p, mul2(uu, Math.max(0, tq) + gap)), add2(p, mul2(uu, reach + over))]);
     };
     extTo(X, s1 > 0 ? b : a, u1, e0);
-    extTo(X, s2 > 0 ? e : d, u2, e1);
+    extTo(X, axis ? X : s2 > 0 ? e : d, u2, e1); // X axis: a horizontal reference line from the vertex
     res.text = L;
   }
   return res;
@@ -843,12 +876,12 @@ function dimCandidates(sk, c, ps, side) {
     for (const off of [66, 90]) for (const s of sides) out.push(at(s, off));
     for (const s of sides) for (const k of [1, -1]) out.push(at(s, 48, k * beyond));
   } else if (c.type === "angle") {
-    const l1 = sk.curves[c.refs[0]], l2 = sk.curves[c.refs[1]];
-    const u1 = unit2(mul2(sub(P2(sk, l1.p2), P2(sk, l1.p1)), c.flip1 ? -1 : 1));
-    const u2 = unit2(mul2(sub(P2(sk, l2.p2), P2(sk, l2.p1)), c.flip2 ? -1 : 1));
+    const { a, b, d, e, axis } = angleEnds(sk, c);
+    const u1 = unit2(mul2(sub(b, a), c.flip1 ? -1 : 1));
+    const u2 = unit2(mul2(sub(e, d), c.flip2 ? -1 : 1));
     for (const r of [30, 44, 60, 80]) {
       // the measured sector, then the vertically opposite one (both directions flipped: same angle)
-      for (const opp of [false, true]) {
+      for (const opp of axis ? [false] : [false, true]) { // X-axis angle: only the sector beside the line
         const s = opp ? -1 : 1;
         const a0 = Math.atan2(s * u1[1], s * u1[0]);
         let sw = Math.atan2(s * u2[1], s * u2[0]) - a0;

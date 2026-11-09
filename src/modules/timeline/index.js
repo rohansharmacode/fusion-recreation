@@ -9,7 +9,7 @@ import "./style.css";
 import { refKey } from "../../app/core.js";
 import { el, esc, store, glyph, featureGlyph, showMenu, hideMenu, showTip, hideTip, inlineEdit, runCmd, friendlyError, notAvailable } from "../browser/ui.js";
 import { findInWindow, installFeatureHighlight, installStatus, setContextHighlight } from "../browser/scene.js";
-import { canMove, explicitDeps, bodyCreators, profileSketches, creatorFeature } from "./deps.js";
+import { canMove, explicitDeps, bodyCreators, profileSketches, creatorFeature, refsOf, creatorOf, bodiesTouched } from "./deps.js";
 import { setSuppressed, rollTo, deleteFeatures, deleteAfterMarker, renameFeature } from "./actions.js";
 
 const KEY_SWATCH = "fusionrec.timeline.swatches";
@@ -70,14 +70,60 @@ export function init(app) {
   }
 
   // ------------------------------------------------------------------ status of each feature
+  // Bodies each feature created / joined / cut the last time it computed. Boolean participants
+  // are implicit (whatever bodies existed), and once an upstream feature is suppressed the
+  // evaluator no longer reports them, so dependents are recognised from this memory.
+  const lastTouched = new Map();
+  function rememberTouched() {
+    if (app.previewing) return;
+    const res = results();
+    for (const f of features()) {
+      const r = res[f.id];
+      if (!r || r.ok !== true || r.rolled || r.suppressed || f.suppressed || r.warning) continue;
+      const t = bodiesTouched(app.doc, res, f);
+      if (t.size) lastTouched.set(f.id, t);
+    }
+  }
+
+  /**
+   * The suppressed (or implicitly suppressed) earlier feature that makes `f` drop out, or null.
+   * Every kind of dependent is treated alike: a feature whose input body only a suppressed feature
+   * created, or that fails / warns while it uses something a suppressed feature produced or
+   * modified (sketch on its face, profile, edge, face, hole face, cut/join target, pattern body),
+   * is shown implicitly suppressed instead of with an error badge.
+   */
+  function suppressedCause(f, r, ctx) {
+    const doc = app.doc;
+    const sup = ctx.suppressedIds;
+    const state = app.result && app.result.state;
+    const refs = refsOf(f);
+    const creator = (b) => creatorOf(ctx.creators, doc, b);
+    for (const b of refs.bodies) {
+      const c = creator(b);
+      if (c && sup.has(c) && (app.feature(c)?.suppressed || !(state && state.bodies.has(b)))) return app.feature(c);
+    }
+    for (const s of [...refs.sketches, ...refs.cplanes]) if (sup.has(s) && app.feature(s)?.suppressed) return app.feature(s);
+    if (r.ok !== false && !r.warning) return null;
+    for (const d of explicitDeps(doc, results(), f, ctx.creators)) if (sup.has(d)) return app.feature(d);
+    const used = new Set([...refs.bodies, ...(lastTouched.get(f.id) || [])]);
+    used.delete(f.newBody);
+    for (const b of used) { const c = creator(b); if (c && c !== f.id && sup.has(c)) return app.feature(c); }
+    if (r.ok === false) {
+      // e.g. a fillet on an edge that a now suppressed cut made
+      for (const id of sup) {
+        const t = lastTouched.get(id);
+        if (t && [...used].some((b) => t.has(b))) return app.feature(id);
+      }
+    }
+    return null;
+  }
+
   function statusOf(f, i, ctx) {
     const r = results()[f.id] || {};
     const rolled = i >= app.doc.marker || r.rolled;
     let implicitBy = null;
-    if (!rolled && !f.suppressed && r.ok === false) {
-      for (const d of explicitDeps(app.doc, results(), f, ctx.creators)) {
-        if (ctx.suppressedIds.has(d)) { implicitBy = app.feature(d); break; }
-      }
+    if (!rolled && !f.suppressed && ctx.suppressedIds.size) {
+      try { implicitBy = suppressedCause(f, r, ctx); } catch (e) { console.error(e); }
     }
     return {
       rolled,
@@ -85,7 +131,7 @@ export function init(app) {
       implicit: !!implicitBy,
       implicitBy,
       error: !rolled && !f.suppressed && !implicitBy && r.ok === false ? friendlyError(r.error || "Feature failed to compute") : null,
-      warning: !rolled && !f.suppressed && r.ok !== false && r.warning ? r.warning : null,
+      warning: !rolled && !f.suppressed && !implicitBy && r.ok !== false && r.warning ? r.warning : null,
     };
   }
 
@@ -95,6 +141,7 @@ export function init(app) {
     if (renaming) { pending = true; return; }
     const doc = app.doc;
     const feats = doc.features;
+    rememberTouched();
     const ctx = { creators: bodyCreators(doc), suppressedIds: new Set() };
     // implicit suppression propagates in order
     const frag = document.createDocumentFragment();
@@ -680,7 +727,7 @@ export function init(app) {
   });
 
   // ------------------------------------------------------------------ events
-  app.on("model", () => scheduleRender());
+  app.on("model", (d) => { if (!(d && d.preview)) { try { rememberTouched(); } catch (e) { console.error(e); } } scheduleRender(); });
   app.on("doc", (d) => {
     if (play && !internalDoc) { clearTimeout(play.timer); play = null; } // someone else changed the design
     if (d && d.replaced) anchorId = null;

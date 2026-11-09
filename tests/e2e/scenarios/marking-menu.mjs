@@ -147,6 +147,63 @@ const scenario = defineScenario({
       }
       await t.escapeAll();
     }
+
+    t.step("inside a sketch: same 8 buttons (FusionSketchEnvironment), sketch overflow with Sketch Palette Show/Hide rows");
+    const skId = await t.app(() => {
+      const { S, K } = window.app;
+      const sk = S.newSketch();
+      S.addRect2pt(sk, [-15, -10], [15, 10]);
+      const f = window.app.addFeature({ type: "sketch", plane: K.ORIGIN_PLANES.XY, planeRef: { kind: "origin", name: "XY" }, sk });
+      return f.id;
+    });
+    await t.app((id) => window.app.ui.sketch && window.app.ui.sketch.edit(id), skId);
+    await t.settle(600);
+    t.require("entered the sketch for the sketch marking-menu test", (await t.app(() => window.app.mode)) === "sketch");
+    await t.app(() => window.app.selection.clear());
+    const sc = await t.mouseToCanvas(0.3, 0.75);
+    const skMenu = async () => {
+      await t.page.mouse.click(sc.x, sc.y, { button: "right" });
+      await t.waitFor(".mm-root", { timeout: 1500 });
+      return t.app(() => {
+        const r = document.querySelector(".mm-root");
+        const rows = [...r.querySelectorAll(".mm-overflow .mn-mi")].map((e) => ({ mm: e.dataset.mm || "", cmd: e.dataset.cmd || "", text: e.querySelector(".mn-mi-label")?.textContent || "" }));
+        const wedges = [...r.querySelectorAll(".mm-item")].map((e) => e.dataset.cmd || e.dataset.mm || e.dataset.action);
+        return { rows, wedges };
+      });
+    };
+    const m1 = await skMenu();
+    await t.shot("sketch-overflow");
+    t.check("sketch marking menu keeps Fusion's 8 buttons (Press Pull NE, Hole SE, Sketch tier S)", ["FusionPressPullCommand", "FusionHoleCommand", "sketch-submenu", "RepeatCommand"].every((x) => m1.wedges.includes(x)), m1.wedges.join(","));
+    const pal = (m, opt) => m.rows.find((r) => r.mm === `palette-${opt}`);
+    t.check("sketch overflow offers Hide Profile / Hide Dimension / Hide Projected Geometries / Hide Construction Geometries",
+      ["showProfile", "showDims", "showProjected", "showConstruction"].every((o) => pal(m1, o)) && /^(Show|Hide) Profile$/.test(pal(m1, "showProfile")?.text || "") && /^(Show|Hide) Dimension$/.test(pal(m1, "showDims")?.text || ""),
+      m1.rows.map((r) => r.text).join(" | "));
+    t.check("sketch overflow has no model-only commands (Create Sketch, Extrude, Fillet, Edit Feature)", !m1.rows.some((r) => ["SketchCreate", "FusionFilletEdgesCommand", "FusionEditFeatureCommand", "SketchActivate"].includes(r.cmd)), m1.rows.map((r) => r.cmd || r.mm).join(","));
+    const dimsBefore = await t.app(() => window.app.ui.sketch.options.showDims !== false);
+    const dimRow = pal(m1, "showDims");
+    if (dimRow) {
+      await t.click('.mm-overflow [data-mm="palette-showDims"]');
+      await t.settle(250);
+      const after = await t.app(() => ({ opt: window.app.ui.sketch.options.showDims !== false, cb: document.querySelector('.sk-palette input[data-opt="showDims"]')?.checked }));
+      t.check(`"${dimRow.text}" flips the Sketch Palette Dimensions option (and its checkbox)`, after.opt === !dimsBefore && after.cb === !dimsBefore, JSON.stringify({ dimsBefore, after }));
+      const m2 = await skMenu();
+      t.check("the row then reads the opposite action", (pal(m2, "showDims")?.text || "") === (dimsBefore ? "Show Dimension" : "Hide Dimension"), pal(m2, "showDims")?.text);
+      await t.click('.mm-overflow [data-mm="palette-showDims"]');
+      await t.settle(250);
+      t.check("clicking it again restores the option", (await t.app(() => window.app.ui.sketch.options.showDims !== false)) === dimsBefore);
+    }
+    const m3 = await skMenu();
+    const skSub = await t.app(() => { const n = document.querySelector('.mm-root .mm-item[data-mm="sketch-submenu"]'); const r = n && n.getBoundingClientRect(); return r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null; });
+    if (skSub) {
+      await t.page.mouse.move(skSub.x, skSub.y, { steps: 6 });
+      await t.settle(400);
+      const fin = await t.app(() => { const n = document.querySelector('.mm-root .mm-item[data-cmd="SketchStop"]'); return n ? { enabled: !n.classList.contains("mm-disabled"), text: n.innerText.trim() } : null; });
+      t.check("Sketch tier N offers an enabled Finish Sketch inside the sketch", !!fin && fin.enabled && /Finish Sketch/.test(fin.text), JSON.stringify(fin));
+    } else t.check("Sketch tier available in the sketch marking menu", false, m3.wedges.join(","));
+    await t.escapeAll();
+    await t.app(() => window.app.ui.sketch && window.app.ui.sketch.finish());
+    await t.settle(300);
+
     t.check("browser context menu suppressed on canvas (contextmenu default prevented)", await t.app(() => {
       const ev = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 600, clientY: 400 });
       window.app.viewport.canvas.dispatchEvent(ev);

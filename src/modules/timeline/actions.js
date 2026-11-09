@@ -3,6 +3,35 @@ import { esc, confirmBox } from "../browser/ui.js";
 import { dependentsOf } from "./deps.js";
 
 /**
+ * confirmBox, but application-modal like Fusion's message boxes: while it is up no shortcut
+ * (Ctrl+Z / Ctrl+Y, E, Delete, F2 ...) reaches the app and the canvas takes no input, so the
+ * document cannot change under the question. Esc / Enter still answer it (confirmBox's own
+ * capture listener runs first); Tab / Space keep their default focus/press behaviour.
+ */
+export function modalConfirm(app, opts) {
+  const onKey = (ev) => {
+    if (ev.key === "Escape" || ev.key === "Enter") return;
+    ev.stopPropagation();
+    if (ev.key !== "Tab" && ev.key !== " ") ev.preventDefault();
+  };
+  window.addEventListener("keydown", onKey, true);
+  const swallow = () => true;
+  let pop = null;
+  try {
+    pop = app.input && app.input.push ? app.input.push({
+      name: "timeline-confirm", modal: true,
+      onKeyDown: swallow, onCancel: swallow, onPointerDown: swallow, onPointerMove: swallow,
+      onPointerUp: swallow, onDoubleClick: swallow, onContextMenu: swallow,
+    }) : null;
+  } catch (e) { console.error(e); }
+  const done = () => {
+    window.removeEventListener("keydown", onKey, true);
+    if (typeof pop === "function") pop();
+  };
+  return confirmBox(app, opts).then((v) => { done(); return v; }, (e) => { done(); throw e; });
+}
+
+/**
  * Changing only a feature's display fields (visible, name) must not force the evaluator to
  * recompute everything after it. Its cache signature starts with JSON.stringify(feature), so
  * we re-key those entries to the edited JSON; if the format ever differs we simply fall back
@@ -146,7 +175,7 @@ export async function deleteFeatures(app, ids, opts = {}) {
     const referenced = ids.map((id) => app.feature(id)).filter(Boolean);
     const html = `The following features are referenced by downstream dependent features in the timeline:<ul>${referenced.map((f) => `<li><b>${esc(f.name)}</b></li>`).join("")}</ul>`
       + `Dependent features: ${extra.map((f) => `<b>${esc(f.name)}</b>`).join(", ")}<br><br>Permanently <b>Delete</b> these features and all features that reference them?`;
-    const ok = await confirmBox(app, { title: "Delete", html, ok: "Delete", cancel: "Cancel", danger: true });
+    const ok = await modalConfirm(app, { title: "Delete", html, ok: "Delete", cancel: "Cancel", danger: true });
     if (!ok) return false;
   }
   const all = new Set([...ids, ...extra.map((f) => f.id)]);
@@ -167,7 +196,7 @@ export async function deleteAfterMarker(app) {
   const doc = app.doc;
   const after = doc.features.slice(doc.marker);
   if (!after.length) return false;
-  const ok = await confirmBox(app, {
+  const ok = await modalConfirm(app, {
     title: "Delete",
     html: `Permanently <b>Delete</b> all ${after.length} feature${after.length > 1 ? "s" : ""} after the History Marker?`,
     ok: "Delete", cancel: "Cancel", danger: true,

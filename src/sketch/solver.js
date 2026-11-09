@@ -83,8 +83,11 @@ function jacobiEigen(S, n, sweeps = 30) {
  * Build the variable map and residual list for a sketch.
  * opts.dims: map constraintId -> numeric value (already evaluated)
  * opts.pinned: Set of point ids held fixed for this solve (e.g. dragged)
+ * extra.pinR: Set of circle/arc ids whose radius is held constant for this solve
+ * extra.keep: [lineId] soft "keep your current length" residuals (flagged soft:true)
  */
-export function buildSystem(sk, dimValues = {}, pinned = new Set()) {
+export function buildSystem(sk, dimValues = {}, pinned = new Set(), extra = {}) {
+  const pinR = extra.pinR || new Set();
   const idx = new Map(); // `${pointId}.x` -> var index
   const x0 = [];
   const fixedPts = new Set(pinned);
@@ -102,7 +105,7 @@ export function buildSystem(sk, dimValues = {}, pinned = new Set()) {
   for (const c of sk.constraints) if (c.type === "fix") for (const r of c.refs) if (sk.curves[r]) fixedCurveR.add(r);
   for (const [id, cv] of Object.entries(sk.curves)) {
     if (cv.type === "circle" || cv.type === "arc") {
-      if (cv.proj || fixedCurveR.has(id)) continue;
+      if (cv.proj || fixedCurveR.has(id) || pinR.has(id)) continue;
       idx.set(id + ".r", x0.length); x0.push(cv.r);
     }
   }
@@ -322,8 +325,19 @@ export function buildSystem(sk, dimValues = {}, pinned = new Set()) {
       }
       case "angle": {
         if (val === undefined || c.driven) break;
-        const [a, b] = line(R[0]), [d, e] = line(R[1]);
         const s1 = c.flip1 ? -1 : 1, s2 = c.flip2 ? -1 : 1;
+        if (R.length === 1) {
+          // angle between one line and the sketch X axis (typed angle of a first Line segment)
+          const [a, b] = line(R[0]);
+          add(c.id, [...a.vars, ...b.vars], (x) => {
+            const A = a.get(x), B = b.get(x);
+            const u = [s1 * (B[0] - A[0]), s1 * (B[1] - A[1])];
+            const ang = Math.abs(Math.atan2(-u[1] * s2, u[0] * s2));
+            return (ang - val * D2R) * 20;
+          });
+          break;
+        }
+        const [a, b] = line(R[0]), [d, e] = line(R[1]);
         add(c.id, [...a.vars, ...b.vars, ...d.vars, ...e.vars], (x) => {
           const A = a.get(x), B = b.get(x), D = d.get(x), E = e.get(x);
           const u = [s1 * (B[0] - A[0]), s1 * (B[1] - A[1])], w = [s2 * (E[0] - D[0]), s2 * (E[1] - D[1])];
@@ -335,6 +349,15 @@ export function buildSystem(sk, dimValues = {}, pinned = new Set()) {
       default:
         break;
     }
+  }
+  // soft "keep the current length" terms (minimal-change preference: rotate a line rather than stretch it)
+  for (const lid of extra.keep || []) {
+    if (!isLine(lid)) continue;
+    const [a, b] = line(lid);
+    const A0 = a.get(x0), B0 = b.get(x0);
+    const L0 = Math.hypot(B0[0] - A0[0], B0[1] - A0[1]);
+    const v = [...new Set([...a.vars, ...b.vars])];
+    if (v.length) res.push({ vars: v, cid: "__keep", soft: true, f: (x) => { const A = a.get(x), B = b.get(x); return 0.1 * (Math.hypot(B[0] - A[0], B[1] - A[1]) - L0); } });
   }
   return { idx, x0, res, fixedPts };
 }
@@ -375,59 +398,202 @@ function jacobian(res, x, n) {
 }
 
 /**
- * Solve the sketch in place. Returns {ok, error, freeVars:Set<string>}.
+ * Levenberg–Marquardt from x over the residual list. stall: give up early when progress stalls
+ * (used for the optional minimal-change stages, which fall back to a full solve).
+ */
+function levenberg(res, x, n, maxIter, stall = false) {
+  x = Float64Array.from(x);
+  let r = evalRes(res, x);
+  let err = r.reduce((s, v) => s + v * v, 0);
+  if (!res.length || !n) return { x, err };
+  let lambda = 1e-3;
+  const hist = [];
+  for (let it = 0; it < maxIter && err > 1e-20; it++) {
+    hist.push(err);
+    if (stall && it >= 10 && err > 1e-10 && err > 0.5 * hist[it - 5]) break;
+    const J = jacobian(res, x, n);
+    const m = res.length;
+    const JTJ = new Float64Array(n * n);
+    const g = new Float64Array(n);
+    for (let i = 0; i < m; i++) {
+      const row = res[i].vars;
+      for (const a of row) {
+        const ja = J[i * n + a];
+        if (ja === 0) continue;
+        g[a] += ja * r[i];
+        for (const b of row) JTJ[a * n + b] += ja * J[i * n + b];
+      }
+    }
+    let improved = false;
+    for (let tries = 0; tries < 12; tries++) {
+      const A = Float64Array.from(JTJ);
+      for (let k = 0; k < n; k++) A[k * n + k] += lambda * (1 + JTJ[k * n + k]);
+      const b = g.map((v) => -v);
+      const dx = solveLinear(A, b, n);
+      const xn = x.map((v, k) => v + dx[k]);
+      const rn = evalRes(res, xn);
+      const en = rn.reduce((s, v) => s + v * v, 0);
+      if (Number.isFinite(en) && en < err) {
+        x = xn; r = rn; err = en;
+        lambda = Math.max(lambda / 4, 1e-12);
+        improved = true;
+        break;
+      }
+      lambda *= 6;
+    }
+    if (!improved) break;
+  }
+  return { x, err };
+}
+
+// ---------- degenerate geometry (zero-length lines, zero radii, closed-up arcs) ----------
+export const DEGENERATE_TOL = 1e-5;
+function degenerateWith(sk, getP, getR) {
+  const out = new Set();
+  const d = (a, b) => (a && b ? Math.hypot(a[0] - b[0], a[1] - b[1]) : Infinity);
+  for (const [id, cv] of Object.entries(sk.curves)) {
+    if (cv.type === "line") { if (d(getP(cv.p1), getP(cv.p2)) < DEGENERATE_TOL) out.add(id); }
+    else if (cv.type === "circle" || cv.type === "arc") {
+      const r = getR(id);
+      if (Number.isFinite(r) && Math.abs(r) < DEGENERATE_TOL) out.add(id);
+      if (cv.type === "arc" && d(getP(cv.p1), getP(cv.p2)) < DEGENERATE_TOL) out.add(id);
+    }
+  }
+  return out;
+}
+/** Ids of curves that are degenerate at the sketch's stored positions. */
+export function degenerateCurves(sk) {
+  return degenerateWith(sk, (id) => (sk.points[id] ? [sk.points[id].x, sk.points[id].y] : null), (id) => sk.curves[id].r);
+}
+function degenerateAt(sk, idx, x) {
+  return degenerateWith(sk, (id) => {
+    const i = idx.get(id + ".x");
+    if (i !== undefined) return [x[i], x[i + 1]];
+    return sk.points[id] ? [sk.points[id].x, sk.points[id].y] : null;
+  }, (id) => { const i = idx.get(id + ".r"); return i !== undefined ? x[i] : sk.curves[id].r; });
+}
+const newlyDegenerate = (sk, idx, x, before) => [...degenerateAt(sk, idx, x)].filter((id) => !before.has(id));
+
+// ---------- minimal-change staging ----------
+// A plain least-change step spreads a correction over every free variable: an undimensioned radius
+// grows to meet a line, both circles of a Concentric meet half way, a symmetry axis drifts. Fusion
+// instead keeps sizes and leaves the first selection in place: the entity picked first (and a
+// symmetry line) stays, the later one moves; a point moves onto a curve / midpoint. So when some
+// constraints are violated (a constraint was just added or a dimension changed), first try solving
+// with those "anchor" entities and all radii held, then relax step by step; the plain solve is the
+// last resort.
+function constraintRoles(c) {
+  const R = c.refs || [];
+  switch (c.type) {
+    case "onCurve": case "midpoint": case "pointLine": return { anchors: R.slice(1), movers: R.slice(0, 1) };
+    case "symmetric": return { anchors: [R[0], R[2]], movers: [R[1]] };
+    case "grab": case "fix": return null;
+    default: return R.length >= 2 ? { anchors: R.slice(0, -1), movers: R.slice(-1) } : { anchors: [], movers: R.slice() };
+  }
+}
+function stagePlans(sk, sys, pinned) {
+  const x0 = Float64Array.from(sys.x0);
+  const viol = new Set();
+  for (const r of sys.res) {
+    const v = r.f(x0);
+    if (!Number.isFinite(v) || Math.abs(v) > 1e-7) viol.add(r.cid);
+  }
+  if (!viol.size) return [];
+  const isRound = (id) => sk.curves[id] && (sk.curves[id].type === "circle" || sk.curves[id].type === "arc");
+  const isLine = (id) => sk.curves[id] && sk.curves[id].type === "line";
+  const ptsOf = (id) => (sk.points[id] ? [id] : sk.curves[id] ? curvePoints(sk.curves[id]) : []);
+  const anchorPts = new Set(), moverPts = new Set(), sizeR = new Set(), moverRound = new Set(), keep = new Set();
+  const directPts = new Set();
+  for (const c of sk.constraints) {
+    if (c.suppressed || !viol.has(c.id)) continue;
+    const ro = constraintRoles(c);
+    if (!ro) return []; // interactive drag (grab) or unknown: plain solve
+    for (const a of ro.anchors) for (const p of ptsOf(a)) anchorPts.add(p);
+    for (const m of ro.movers) {
+      for (const p of ptsOf(m)) moverPts.add(p);
+      if (sk.points[m]) directPts.add(m);
+      if (isRound(m)) moverRound.add(m);
+    }
+    if ((c.type === "radius" || c.type === "diameter") && isRound(c.refs[0])) sizeR.add(c.refs[0]);
+    if (c.type === "equal") for (const m of ro.movers) if (isRound(m)) sizeR.add(m);
+    if (c.type === "angle" || c.type === "parallel" || c.type === "perpendicular" || c.type === "collinear") for (const m of ro.movers) if (isLine(m)) keep.add(m);
+  }
+  for (const cid of viol) if (typeof cid === "string" && cid.startsWith("arc:")) sizeR.add(cid.slice(4));
+  // an arc whose end point is dragged onto something may change its radius (its other end stays)
+  for (const [id, cv] of Object.entries(sk.curves)) if (cv.type === "arc" && (directPts.has(cv.p1) || directPts.has(cv.p2))) sizeR.add(id);
+  const rounds = Object.keys(sk.curves).filter((id) => isRound(id) && !sk.curves[id].proj);
+  const pinR1 = new Set(rounds.filter((id) => !sizeR.has(id)));
+  const pinR2 = new Set([...pinR1].filter((id) => !moverRound.has(id)));
+  const pinsA = new Set(pinned);
+  // a point shared by the anchor and the moving curve (the vertex of an angle) stays: the curve
+  // turns about it; only a point that is itself the moving selection is released
+  for (const p of anchorPts) if (!directPts.has(p)) pinsA.add(p);
+  const keepL = [...keep];
+  const plans = [];
+  const seen = new Set();
+  const push = (pins, pinR) => {
+    const key = [...pins].sort().join(",") + "|" + [...pinR].sort().join(",");
+    if (seen.has(key)) return;
+    seen.add(key);
+    plans.push({ pins, pinR, keep: keepL });
+  };
+  push(pinsA, pinR1);
+  push(pinsA, pinR2);
+  push(new Set(pinned), pinR1);
+  // the last plan equal to the plain solve adds nothing
+  return plans.filter((p) => p.pins.size > pinned.size || p.pinR.size || p.keep.length);
+}
+
+/**
+ * Solve the sketch in place. Returns {ok, error, freeVars:Set<string>, degenerate?:[curveId]}.
+ * opts: {pinned:Set<pointId>, maxIter, writeOnFail, dof:false, staged:false (plain least-change only)}
+ * A solution that collapses a curve (zero-length line, zero radius) counts as a failure.
  */
 export function solveSketch(sk, dimValues = {}, opts = {}) {
-  const { idx, x0, res } = buildSystem(sk, dimValues, opts.pinned || new Set());
-  const n = x0.length;
-  let x = Float64Array.from(x0);
-  let ok = true;
+  const pinned = opts.pinned || new Set();
+  let sys = buildSystem(sk, dimValues, pinned);
+  const degBefore = degenerateCurves(sk);
+  let x = null;
+  let ok = false;
   let err = 0;
-  if (res.length && n) {
-    let r = evalRes(res, x);
-    err = r.reduce((s, v) => s + v * v, 0);
-    let lambda = 1e-3;
-    for (let it = 0; it < (opts.maxIter || 120) && err > 1e-20; it++) {
-      const J = jacobian(res, x, n);
-      const m = res.length;
-      const JTJ = new Float64Array(n * n);
-      const g = new Float64Array(n);
-      for (let i = 0; i < m; i++) {
-        const row = res[i].vars;
-        for (const a of row) {
-          const ja = J[i * n + a];
-          if (ja === 0) continue;
-          g[a] += ja * r[i];
-          for (const b of row) JTJ[a * n + b] += ja * J[i * n + b];
-        }
+  let degenerate = [];
+  if (opts.staged !== false && sys.res.length && sys.x0.length) {
+    for (const plan of stagePlans(sk, sys, pinned)) {
+      const s = buildSystem(sk, dimValues, plan.pins, { pinR: plan.pinR, keep: plan.keep });
+      const n = s.x0.length;
+      let xs = Float64Array.from(s.x0);
+      const hard = s.res.filter((r) => !r.soft);
+      if (hard.length !== s.res.length) xs = levenberg(s.res, xs, n, 60, true).x;
+      const out = levenberg(hard, xs, n, 80, true);
+      if (!(out.err < 1e-10) || newlyDegenerate(sk, s.idx, out.x, degBefore).length) continue;
+      for (const [key, i] of s.idx) {
+        const [id, comp] = key.split(".");
+        if (comp === "r") sk.curves[id].r = out.x[i];
+        else sk.points[id][comp] = out.x[i];
       }
-      let improved = false;
-      for (let tries = 0; tries < 12; tries++) {
-        const A = Float64Array.from(JTJ);
-        for (let k = 0; k < n; k++) A[k * n + k] += lambda * (1 + JTJ[k * n + k]);
-        const b = g.map((v) => -v);
-        const dx = solveLinear(A, b, n);
-        const xn = x.map((v, k) => v + dx[k]);
-        const rn = evalRes(res, xn);
-        const en = rn.reduce((s, v) => s + v * v, 0);
-        if (Number.isFinite(en) && en < err) {
-          x = xn; r = rn; err = en;
-          lambda = Math.max(lambda / 4, 1e-12);
-          improved = true;
-          break;
-        }
-        lambda *= 6;
-      }
-      if (!improved) break;
+      sys = buildSystem(sk, dimValues, pinned);
+      x = Float64Array.from(sys.x0);
+      err = evalRes(sys.res, x).reduce((a, v) => a + v * v, 0);
+      ok = true;
+      break;
     }
-    ok = err < 1e-10;
   }
-  // write back
-  if (ok || opts.writeOnFail) {
-    for (const [key, i] of idx) {
-      const [id, comp] = key.split(".");
-      if (comp === "r") sk.curves[id].r = x[i];
-      else sk.points[id][comp] = x[i];
+  const { idx, x0, res } = sys;
+  const n = x0.length;
+  if (!x) {
+    const out = levenberg(res, x0, n, opts.maxIter || 120);
+    x = out.x;
+    err = out.err;
+    ok = !(res.length && n) || err < 1e-10;
+    degenerate = newlyDegenerate(sk, idx, x, degBefore);
+    if (degenerate.length) ok = false;
+    // write back
+    if (ok || opts.writeOnFail) {
+      for (const [key, i] of idx) {
+        const [id, comp] = key.split(".");
+        if (comp === "r") sk.curves[id].r = x[i];
+        else sk.points[id][comp] = x[i];
+      }
     }
   }
   // degrees of freedom analysis
@@ -486,7 +652,7 @@ export function solveSketch(sk, dimValues = {}, opts = {}) {
       for (const [key, i] of idx) if (freeness[i] > 1e-6) freeVars.add(key);
     }
   }
-  return { ok, error: err, freeVars, nVars: n, nRes: res.length, nullity };
+  return { ok, error: err, freeVars, nVars: n, nRes: res.length, nullity, ...(degenerate.length ? { degenerate } : {}) };
 }
 
 /** Constraint residual check for detecting over-constraint before adding. */

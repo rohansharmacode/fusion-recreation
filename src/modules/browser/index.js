@@ -1,7 +1,8 @@
 // BROWSER: the design tree floating at the top-left of the canvas (Fusion's Browser).
 //   root component "(Unsaved)" / "Name vN" > Document Settings (Units: mm, g; Part Design),
 //   Named Views, Origin, Bodies, Sketches, Construction (folders appear once they have content).
-//   Eye toggles (folders keep their own visibility like Fusion), selection/hover sync with the
+//   Eye toggles (folder eyes reflect their children; hiding a folder remembers the children's
+//   states and showing it restores them, or shows them all), selection/hover sync with the
 //   canvas, rename (double-click / F2), Fusion's right-click menus, « collapse, − minimise,
 //   resize, ToggleBrowser (Ctrl+Alt+B).
 import "./style.css";
@@ -13,7 +14,7 @@ import {
 } from "./scene.js";
 import { creatorFeature } from "../timeline/deps.js";
 import {
-  setFeatureVisible, setBodiesVisible, setFolderVisibility, renameBody, renameFeature, deleteFeatures,
+  setFeatureVisible, setBodiesVisible, setFolderVisibility, setVisibility, renameBody, renameFeature, deleteFeatures,
 } from "../timeline/actions.js";
 
 const KEY_W = "fusionrec.browser.width";
@@ -142,8 +143,20 @@ export function init(app) {
   const planeFeatures = () => app.doc.features.filter((f) => f.type === "cplane" && exists(f));
   const originItemVisible = (name) => !(app.doc.origin && app.doc.origin.items && app.doc.origin.items[name] === false);
   const folderFlag = (key) => !!(app.doc.folders && app.doc.folders[key] && app.doc.folders[key].hidden);
-  // Fusion folders carry their own visibility: the eye stays on while some children are hidden
-  const folderEye = (key, childVis) => (folderFlag(key) ? childVis.some(Boolean) : true);
+  // A folder's eye reflects its contents: open while any child is shown, closed when every child
+  // is hidden (e.g. sketches auto-hidden by Extrude). An empty folder follows its own flag.
+  const folderEye = (key, childVis) => (childVis.length ? childVis.some(Boolean) : !folderFlag(key));
+  // Folder eye click. Hide: hide every child and remember their states (doc.folders[key]).
+  // Show: restore the remembered states when that shows something (Fusion keeps a child that was
+  // hidden before the folder hidden), otherwise show every child. One undoable step either way.
+  function toggleFolder(key, shown, { bodies = [], features = [] } = {}) {
+    if (shown) { setFolderVisibility(app, key, false, { bodies, features }); return; }
+    const st = app.doc.folders && app.doc.folders[key];
+    const saved = st && st.hidden && st.saved;
+    const restoresSome = !!saved && (bodies.some((id) => saved[`b:${id}`] !== false) || features.some((id) => saved[`f:${id}`] !== false));
+    if (restoresSome) setFolderVisibility(app, key, true, { bodies, features });
+    else setVisibility(app, { bodies, features }, true);
+  }
 
   function setOriginVisible(v) {
     app.mutate(v ? "Show Origin" : "Hide Origin", (doc) => { doc.origin = { ...(doc.origin || {}), visible: !!v }; });
@@ -298,7 +311,7 @@ export function init(app) {
     const bodyIds = bodyIdsAlive();
     if (bodyIds.length) {
       const vis = folderEye("bodies", bodyIds.map((id) => app.doc.bodies[id].visible !== false));
-      const toggle = () => setFolderVisibility(app, "bodies", !vis, { bodies: bodyIds });
+      const toggle = () => toggleFolder("bodies", vis, { bodies: bodyIds });
       kids.push({
         key: "bodies:root", label: "Bodies", icon: glyph("br-folder"), eye: vis,
         selectAll: bodyIds.map((id) => ({ kind: "body", body: id })),
@@ -323,7 +336,7 @@ export function init(app) {
     const sks = sketchFeatures();
     if (sks.length) {
       const vis = folderEye("sketches", sks.map(isVisibleFeature));
-      const toggle = () => setFolderVisibility(app, "sketches", !vis, { features: sks.map((f) => f.id) });
+      const toggle = () => toggleFolder("sketches", vis, { features: sks.map((f) => f.id) });
       kids.push({
         key: "sketches:root", label: "Sketches", icon: glyph("br-folder"), eye: vis,
         selectAll: sks.map((f) => ({ kind: "feature", id: f.id })),
@@ -342,7 +355,7 @@ export function init(app) {
     const pls = planeFeatures();
     if (pls.length) {
       const vis = folderEye("construction", pls.map(isVisibleFeature));
-      const toggle = () => setFolderVisibility(app, "construction", !vis, { features: pls.map((f) => f.id) });
+      const toggle = () => toggleFolder("construction", vis, { features: pls.map((f) => f.id) });
       kids.push({
         key: "construction:root", label: "Construction", icon: glyph("br-folder"), eye: vis,
         selectAll: pls.map((f) => ({ kind: "cplane", id: f.id })),
@@ -364,7 +377,7 @@ export function init(app) {
     const allRefs = bodyIds.map((id) => ({ kind: "body", body: id }));
     return {
       key: "doc:root", label: rootLabel, icon: glyph("br-component"), eye: rootVis, root: true,
-      onEye: () => setFolderVisibility(app, "root", !rootVis, { bodies: bodyIds, features: [...sks, ...pls].map((f) => f.id) }),
+      onEye: () => toggleFolder("root", rootVis, { bodies: bodyIds, features: [...sks, ...pls].map((f) => f.id) }),
       menu: () => [
         { label: "Create Selection Set", act: "selection-set", icon: "m-selset", action: () => notAvailable(app, "Create Selection Set") },
         "-",

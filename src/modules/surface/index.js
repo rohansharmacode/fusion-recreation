@@ -5,6 +5,7 @@ import { beginModelCommand } from "../dialogs/common.js";
 import { registerSurfaceFeatures } from "./features.js";
 import * as C from "./dlg-create.js";
 import * as Mo from "./dlg-modify.js";
+import { registerSurfacePrimitives } from "./primitives.js";
 
 /** Command id -> [label, tooltip, open(app, opts), feature type (Edit Feature) | null]. */
 const COMMANDS = {
@@ -40,6 +41,7 @@ export function init(app) {
     editors[type] = (a, fid) => { beginModelCommand(a); return open(fn, { editId: fid }); };
   }
   try { registerSurfaceFeatures(editors); } catch (e) { console.error(e); }
+  try { registerSurfacePrimitives(app); } catch (e) { console.warn("[surface] primitives", e); }
   for (const [id, [label, tooltip, fn]] of Object.entries(COMMANDS)) {
     try {
       app.commands.register({

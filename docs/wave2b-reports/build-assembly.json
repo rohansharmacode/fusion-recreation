@@ -1,0 +1,54 @@
+{
+  "summary": "Resumed the partial assembly work (math, solver, features, motion, contact were kept) and finished it. Added the command layer (index.js), the dialogs (dialogs.js), the canvas display (display.js: joint glyphs, joint origin triads, snap hover glyph, DOF labels), the analyses (analysis.js), Motion Study (study.js), style.css and README.md. The solver now handles relation-only constraints (Angle, Tangent, Center): they are loop residuals, and a free cluster pose is used only when the joints cannot close them. Rigid groups store their relative poses and re-solve at their own timeline step. Contact checks the drag path so a fast drag cannot pass through another component. The temporary createx rigid-group wrapper is removed; the assembly move wrapper now moves Bounding Solid rigid groups (createx scenario passes). The Hybrid Design panel swap also re-checks after each evaluation, which fixes a stale ASSEMBLE panel.",
+  "implemented": [
+    "NewAssemblyFromPartCommand",
+    "JointAssembleCmdNew",
+    "JointAsBuiltCmd",
+    "JointOrigin",
+    "FusionDragCompControlsCmd",
+    "FusionMoveJointsCommand",
+    "FusionMotionRelationshipCommand",
+    "FusionMotionStudyCommand",
+    "RigidGroupCmd",
+    "EnableContactSetsCmd",
+    "EnableAllContactCmd",
+    "DisableAllContactCmd",
+    "ContactSetCmd",
+    "AssemblyMateCommand",
+    "AlignConstraintCmd",
+    "AngleConstraintCmd",
+    "MidplaneConstraintCmd",
+    "TangentConstraintCmd",
+    "JointConstraintCmd",
+    "AsBuiltConstraintCmd",
+    "FusionDOFAnalysisCommand",
+    "FusionComponentConnectionAnalysisCommand",
+    "FusionEditComponentConnectionAnalysisCommand",
+    "FusionAssemblyStatisticsCommand",
+    "FusionDuplicateWithJointsCommand"
+  ],
+  "notImplemented": [],
+  "sharedEdits": [
+    "src/modules/shell/toolbar.js: the PartAssemblePanel -> AssemblePanel swap for a design with components (panelsForTab), re-checked on 'doc' and on every non-preview 'model' event (the component list follows the evaluated result)",
+    "src/modules/browser/index.js featureNode: def.browser.node(app, f) may return menuFirst() -> items placed before the standard feature menu items (additive)",
+    "src/modules/createx/index.js: installRigidGroups(app) is no longer called (import removed); bounding.js still exports the now unused expandRigid / installRigidGroups"
+  ],
+  "contracts": "Feature types joint, constraint (ctype align|angle|center|tangent|joint|asbuilt), jointorigin, rigidgroup (rel = locked relative poses), motionlink, registered from src/modules/assembly with editors, browser folders (Joints, Joint Origins) and timeline icons. A joint holds T(occ1) = T(occ2) * frame2 * Offset * Motion(drive) * inv(frame1); frames are local to the occurrences. Evaluation state: st.joints, st.jorigins, st.rigid, st.links. Document data: doc.contact {mode:'sets'|'all'}, doc.contactSets, doc.motionStudies, doc.connectionAnalysis. app.components.setTransform(s) is wrapped: jointed components drive their joints, rigid groups (also createx Bounding Solid rigid groups) move together, a pinned member holds its group. API app.ui.assembly: display, model(), solve(), dofTable(), statistics(), connections(), animateJoint(), stopAnimation(), animating(), commitDrives(), contactMode(), contactHits(), componentDrag, lastDrag(), playStudy(), duplicateWithJoints(), addToAssembly(). Details: src/modules/assembly/README.md.",
+  "tests": [
+    "tests/e2e/scenarios/assembly.mjs: 47/47 (Add To Assembly + panel swap, Joint dialog with real canvas snaps and tabs, Revolute, glyph, browser Joints folder, timeline, undo/redo, Drive Joints, Edit Joint Limits from the browser menu, Animate, Edit Joint offset, Suppress, As-built slider, Motion Link, Rigid Group follows a driven joint, pinned refuses a move, Joint Origin, Component Drag free move, Enable All Contact stops a drag, Align / Angle / Tangent / Center / Joint Constraint, DOF Analysis, Assembly Statistics, Component Connection Analysis + Edit, Duplicate With Joints, Motion Study, save/open)",
+    "run-all on port 6001: assembly 47/47, core-loop 65/65, modeling 83/83, toolbar 62/62, undo-redo 15/15, components 45/45, createx 58/58 (with the Bounding Solid rigid group), 0 console errors",
+    "tests/e2e/out/assembly/solver-sanity.mjs: open chains, links, limits, reach, weld, four-bar loop, angle and tangent constraints all ok"
+  ],
+  "knownIssues": [
+    "Port 6000 is blocked by Chromium (ERR_UNSAFE_PORT): the QA run used QA_PORT=6001.",
+    "Joint snap frames are stored when the joint is made; editing the snapped geometry upstream does not move the joint until Edit Joint re-picks the snaps.",
+    "Joint dialog Mode 'Between Two Faces' and 'Two Edge Intersection' are shown disabled; only Simple works.",
+    "Closed loops and the Angle / Tangent / Center constraints are solved numerically (best effort); DOF Analysis counts are exact for open chains only.",
+    "Duplicate With Joints puts the copy exactly on the original (its joints are copied unchanged); Fusion lets you retarget it.",
+    "Add To Assembly copies the part into a new design (local equivalent) instead of linking it as an external cloud component.",
+    "Contact sets mode (EnableContactSetsCmd, ContactSetCmd), the Constrain Components type dropdown, pin-slot / planar / ball joints and sphere tangency are built but not covered by the QA scenario.",
+    "Joint glyphs stay at the evaluated pose during an animation or a drag (the bodies move display-only).",
+    "Motion studies are listed in a 'Motion Studies' browser folder (not checked against real Fusion placement).",
+    "ARCHITECTURE.md still describes the removed createx rigid-group hook (not an owned file)."
+  ]
+}

@@ -10,6 +10,7 @@ import { openConvert, openJoinByBend } from "./convert.js";
 import { openRulesDialog, openLibraryDialog } from "./rules-ui.js";
 import { createFlatEnv, pickStationaryFace, flatOf, flatDXF } from "./flat.js";
 import * as R from "./rules.js";
+import { registerCosmeticBend } from "./cosmetic.js";
 
 const EDITORS = {
   smBaseFlange: (app, id) => openFlange(app, { editId: id }),
@@ -54,6 +55,7 @@ export function init(app) {
   let flat = null;
   part("flat", () => { flat = createFlatEnv(app); app.ui.sheetMetal = { flatOf: (id) => flatOf(app, id), flatDXF, enterFlat: (id) => flat.enter(id), exitFlat: () => flat.exit(), get flatActive() { return flat.active ? flat.active.bodyId : null; }, rules: R }; });
   part("commands", () => registerCommands(app, () => flat));
+  part("cosmetic bend", () => registerCosmeticBend(app));
   // the browser module starts after this one: add the Flat Pattern folder once it exists
   let browserDone = false;
   const tryBrowser = () => { if (!browserDone && app.ui.browser && typeof app.ui.browser.registerFolder === "function") { browserDone = true; part("browser", () => registerBrowser(app, () => flat)); } };

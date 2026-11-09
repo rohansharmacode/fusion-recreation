@@ -1,0 +1,38 @@
+{
+  "summary": "insertx module complete for wave 2b (resumed: kept the earlier builder's Insert Component, Edit In Place and Derive work, fixed Derive's preselection, then added Fasteners, Fastener Stack Analysis, Decal, Arrange, Find Similar Components and Replace with Primitives). Each command has a dialog, undo, save/open and (for timeline features) Edit Feature, and is covered by tests/e2e/scenarios/insertx.mjs through the real UI.",
+  "implemented": [
+    "FusionImportCommandFromToolbar",
+    "EIPNonAssociativeToggleCmd",
+    "EIPAssociativeToggleCmd",
+    "ReferenceObjectsCmd",
+    "EIPVisibilityControlCmd",
+    "EndEditInPlaceCmd",
+    "PullDeriveCommand",
+    "PushDeriveCommand",
+    "FusionFastenersCommand",
+    "FusionFastenerStackAnalysisCommand",
+    "FusionAddEditDecalCommand",
+    "ArrangeCommand",
+    "SimilarPartsCommand",
+    "ReplaceWithPrimitivesCommand"
+  ],
+  "notImplemented": [
+    { "id": "InsertMcMasterCarrComponentCommand", "reason": "Cloud feature deferred by the user: stays a stub." }
+  ],
+  "sharedEdits": [
+    "src/modules/browser/index.js: occNode() now runs registered row decorators over occNodeBase(); new api.registerOccDecorator(fn) returning remove() (made by the earlier insertx builder, additive, kept)."
+  ],
+  "contracts": "app.insertx = {xref, derive, fasteners, decal, layout} (see src/modules/insertx/README.md). Document data: doc.xrefs {id, file, name, stamp, uid, savedAt, doc} link records; feature types insertcomp, eipref, derive, fastener, decal (browser folder 'decals'), arrange, replaceprim, all through M.registerFeature. Browser: Fasteners folder (registerFolder key 'fasteners'), external component badge .ix-link through registerOccDecorator. Edit In Place is the environment 'insertx-eip' with modeToolbar EIPToolbar. Decals are drawn in the scene group 'insertx-decals'.",
+  "tests": [
+    "insertx (new, 74 checks): Insert Component, Edit In Place, Insert Derive, Derive, Fasteners, Fastener Stack Analysis, Decal, Arrange, Find Similar Components, Replace with Primitives: PASS",
+    "insert, core-loop, modeling, toolbar, undo-redo, components: PASS, 0 console errors (7/7 scenarios on build/insertx, port 6020)"
+  ],
+  "knownIssues": [
+    "Insert Component and Insert Derive read only this app's JSON design files: the app has STEP export but no STEP import.",
+    "Fasteners: shanks are plain (no modeled or cosmetic threads); library is ISO M3..M20 and ANSI #10..3/4; auto size takes the largest nominal size not larger than the hole, so a tapped (tap-drill) hole gets the next smaller size.",
+    "Fastener Stack Analysis is a results dialog, not a persistent entry in the browser Analysis folder.",
+    "Decal is a viewport overlay (planar projection in the decal frame): it does not follow component display transforms during joint animation until the next recompute, and Chain Faces covers front-facing faces of the same body inside the decal rectangle.",
+    "Arrange packs bounding-box footprints in shelves (no true-shape nesting, 0 or 90 degree turns); a sketch profile envelope uses the profile's bounding rectangle.",
+    "Find Similar Components compares only inside the open design (no hub search, by design of the task)."
+  ]
+}

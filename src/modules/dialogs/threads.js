@@ -24,24 +24,114 @@ const ISO = [
 const EXTERNAL = ["4g6g", "6g"];
 const INTERNAL = ["6H"];
 
+// ---------- custom threads library (Manage Threads Library) ----------
+// A custom thread type: {name, unit:'mm'|'in', angle, items:[{size, designation, cls, gender:'external'|'internal',
+// pitch, major, minor}]} (lengths in the type's unit). The library is kept in localStorage (try/catch) and in
+// files (threads-library.js). Every function below takes an optional thread type name (default ISO metric).
+const LIB_KEY = "fusion-recreation.threadsLibrary.v1";
+let LIB = null;
+const num = (x) => Number.parseFloat(x);
+/** A cleaned copy of a thread type (null when unusable). */
+export function cleanThreadType(t) {
+  if (!t || typeof t.name !== "string" || !t.name.trim()) return null;
+  const items = (Array.isArray(t.items) ? t.items : []).filter((it) => it && String(it.size || "").trim() && String(it.designation || "").trim() && String(it.cls || "").trim())
+    .map((it) => ({ size: String(it.size).trim(), designation: String(it.designation).trim(), cls: String(it.cls).trim(), gender: it.gender === "internal" ? "internal" : "external", pitch: num(it.pitch), major: num(it.major), minor: num(it.minor) }));
+  return { name: t.name.trim(), unit: t.unit === "in" ? "in" : "mm", angle: num(t.angle) > 0 ? num(t.angle) : 60, items };
+}
+/** The custom thread types (a live array: change it through saveThreadLibrary). */
+export function threadLibrary() {
+  if (LIB) return LIB;
+  LIB = [];
+  try {
+    const s = globalThis.localStorage && globalThis.localStorage.getItem(LIB_KEY);
+    const v = s ? JSON.parse(s) : [];
+    if (Array.isArray(v)) LIB = v.map(cleanThreadType).filter(Boolean);
+  } catch { LIB = []; }
+  return LIB;
+}
+/** Replaces and stores the custom library. */
+export function saveThreadLibrary(types) {
+  LIB = (types || []).map(cleanThreadType).filter(Boolean);
+  try { if (globalThis.localStorage) globalThis.localStorage.setItem(LIB_KEY, JSON.stringify(LIB)); } catch { /* storage unavailable */ }
+  return LIB;
+}
+/** Problems of one thread type (Fusion's library messages), [] when it is fine. */
+export function threadTypeErrors(t, others = []) {
+  const out = [];
+  if (!t || !t.name || !t.name.trim()) out.push("Enter a thread type name.");
+  else if (t.name.trim() === ISO_NAME || others.some((o) => o !== t && o.name === t.name.trim())) out.push(`A thread type named "${t.name.trim()}" already exists.`);
+  const key = new Set(), pitch = new Map();
+  (t && t.items || []).forEach((it, i) => {
+    const row = `Row ${i + 1}: `;
+    if (!String(it.size || "").trim() || !String(it.designation || "").trim() || !String(it.cls || "").trim()) out.push(row + "Enter a size, a designation and a class.");
+    if (!(num(it.pitch) > 0)) out.push(row + "The pitch must be positive.");
+    if (!(num(it.major) > num(it.minor) && num(it.minor) > 0)) out.push(row + "The major diameter must be larger than the minor diameter.");
+    const k = `${it.size}|${it.designation}|${it.cls}`;
+    if (key.has(k)) out.push(row + "Duplicate thread specification found in this hub library. Use a unique combination of size, designation, and class to distinguish it in commands.");
+    key.add(k);
+    const pk = `${it.size}|${it.designation}`;
+    if (pitch.has(pk) && Math.abs(pitch.get(pk) - num(it.pitch)) > 1e-9) out.push(row + "An item with the same size and designation already exists in this library but uses a different pitch. Items that share size and designation must have matching pitch values.");
+    if (!pitch.has(pk)) pitch.set(pk, num(it.pitch));
+  });
+  return out;
+}
+const ISO_NAME = THREAD_TYPES[0].value;
+/** The ISO metric table as library items (Copy of the standard type). */
+export function isoItems() {
+  const out = [];
+  for (const [size, des] of ISO) for (const [designation, pitch, cls] of des) for (const [c, [major, minor]] of Object.entries(cls)) out.push({ size, designation, cls: c, gender: INTERNAL.includes(c) ? "internal" : "external", pitch, major, minor });
+  return out;
+}
+const customType = (type) => (type && type !== ISO_NAME ? threadLibrary().find((t) => t.name === type) || null : null);
+/** [[size, [[designation, pitch, {cls: [major, minor]}]]]] of a thread type (sizes in numeric order). */
+function tableOf(type) {
+  const c = customType(type);
+  if (!c) return ISO;
+  const sizes = new Map();
+  for (const it of c.items) {
+    let s = sizes.get(it.size);
+    if (!s) sizes.set(it.size, (s = new Map()));
+    let d = s.get(it.designation);
+    if (!d) s.set(it.designation, (d = [it.designation, it.pitch, {}]));
+    d[2][it.cls] = [it.major, it.minor];
+  }
+  return [...sizes].sort((a, b) => (num(a[0]) - num(b[0])) || (a[0] < b[0] ? -1 : 1)).map(([s, m]) => [s, [...m.values()]]);
+}
+const unitOf = (type) => (customType(type) || {}).unit || "mm";
+/** Thread Type options: ISO Metric profile, then the custom types of the library. */
+export function threadTypeOptions() { return [...THREAD_TYPES, ...threadLibrary().map((t) => ({ value: t.name, label: t.name }))]; }
+
 /** Size options ("10.0 mm"). */
-export function sizeOptions() { return ISO.map(([s]) => ({ value: s, label: `${s} mm` })); }
+export function sizeOptions(type) { const u = unitOf(type); return tableOf(type).map(([s]) => ({ value: s, label: `${s} ${u}` })); }
 /** Designation options of a size ("M10x1.5", ...). */
-export function designationOptions(size) {
-  const e = ISO.find(([s]) => s === size);
+export function designationOptions(size, type) {
+  const e = tableOf(type).find(([s]) => s === size);
   return (e ? e[1] : []).map(([d]) => ({ value: d, label: d }));
 }
-/** Class options for a designation (external: 4g6g, 6g; internal: 6H). */
-export function classOptions(internal) { return (internal ? INTERNAL : EXTERNAL).map((c) => ({ value: c, label: c })); }
-export const defaultClass = (internal) => (internal ? "6H" : "6g");
+/** Class options for a designation (external: 4g6g, 6g; internal: 6H; custom types: their classes of that gender). */
+export function classOptions(internal, type, size, designation) {
+  const c = customType(type);
+  if (!c) return (internal ? INTERNAL : EXTERNAL).map((x) => ({ value: x, label: x }));
+  const seen = new Set();
+  for (const it of c.items) if ((it.gender === "internal") === !!internal && (size == null || it.size === size) && (designation == null || it.designation === designation)) seen.add(it.cls);
+  return [...seen].map((x) => ({ value: x, label: x }));
+}
+export const defaultClass = (internal, type, size, designation) => {
+  if (!customType(type)) return internal ? "6H" : "6g";
+  const o = classOptions(internal, type, size, designation);
+  return o[0] ? o[0].value : "";
+};
 
-/** {pitch, major, minor} of a size / designation / class (null when unknown). */
-export function threadData(size, designation, cls) {
-  const e = ISO.find(([s]) => s === size);
-  const d = e && (e[1].find(([n]) => n === designation) || e[1][0]);
+/** {pitch, major, minor} in mm of a size / designation / class (null when unknown). */
+export function threadData(size, designation, cls, type) {
+  const c = customType(type);
+  const e = tableOf(type).find(([s]) => s === size);
+  const d = e && (e[1].find(([n]) => n === designation) || (c ? null : e[1][0]));
   if (!d) return null;
-  const dia = d[2][cls] || d[2]["6g"];
-  return { designation: d[0], pitch: d[1], major: dia[0], minor: dia[1] };
+  const dia = d[2][cls] || (c ? null : d[2]["6g"]);
+  if (!dia) return null;
+  const k = c && c.unit === "in" ? 25.4 : 1;
+  return { designation: d[0], pitch: d[1] * k, major: dia[0] * k, minor: dia[1] * k };
 }
 
 /**
@@ -49,10 +139,18 @@ export function threadData(size, designation, cls) {
  * thread (the cylinder is the major diameter), the size whose internal minor diameter is closest to
  * a hole's diameter (the hole is the tap drill).
  */
-export function sizeForDiameter(dia, internal) {
-  let best = ISO[0][0], bd = Infinity;
-  for (const [s, des] of ISO) {
-    const ref = internal ? des[0][2]["6H"][1] : Number(s);
+export function sizeForDiameter(dia, internal, type) {
+  const c = customType(type);
+  const T = tableOf(type);
+  if (!T.length) return "";
+  const k = c && c.unit === "in" ? 25.4 : 1;
+  let best = T[0][0], bd = Infinity;
+  for (const [s, des] of T) {
+    let ref = num(s) * k;
+    if (c) {
+      const it = c.items.find((x) => x.size === s && (x.gender === "internal") === !!internal);
+      if (it) ref = (internal ? it.minor : it.major) * k;
+    } else if (internal) ref = des[0][2]["6H"][1];
     const d = Math.abs(ref - dia);
     if (d < bd - 1e-9) { bd = d; best = s; }
   }

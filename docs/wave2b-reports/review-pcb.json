@@ -1,0 +1,10 @@
+[
+  {
+    "file": "src/modules/surface/primitives.js",
+    "line": 37,
+    "severity": "low",
+    "confidence": "high",
+    "scenario": "Each recompute of a surface primitive whose solid has more than one shell leaks the shell wrappers returned by explore(): only made.shape is deleted, and combine() builds a compound from the shells without releasing them.",
+    "fix": "After const shape = combine(shells), call K.del(shells) when shells.length > 1 (the compound copies the topology, so the wrappers can be released). Keep the single-shell case as is, because combine() then returns that shell itself and applyOp takes ownership of it."
+  }
+]

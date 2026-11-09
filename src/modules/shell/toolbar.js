@@ -378,10 +378,14 @@ export function buildToolbar(app, svc) {
     menu.open(items, { x: ev.clientX, y: ev.clientY }, { className: "tb-ctx-menu" });
   });
 
+  const hybridDesign = () => { try { return !!(app.components && app.components.list().length); } catch { return false; } };
   function panelsForTab() {
     const t = tabDef(state.tab) || tabList()[0];
     if (!t) return [];
     const list = (t.panels || []).slice();
+    // a design with components is a Hybrid Design: it shows the full ASSEMBLE panel in place of Add To Assembly
+    const pa = list.indexOf("PartAssemblePanel");
+    if (pa >= 0 && hybridDesign() && PANEL("AssemblePanel")) list[pa] = "AssemblePanel";
     if (!t.ctx) for (const c of activeCtx()) if (c.finishPanel && !list.includes(c.finishPanel)) list.push(c.finishPanel);
     return list.filter((p) => PANEL(p));
   }
@@ -515,6 +519,12 @@ export function buildToolbar(app, svc) {
   const scheduleRefresh = frameThrottle(refreshStates);
   for (const ev of ["commands", "selection", "doc", "history", "dialog", "input", "command-start"]) app.on(ev, scheduleRefresh);
   app.on("model", (d) => { if (!d || !d.preview) scheduleRefresh(); });
+  // Part Design <-> Hybrid Design swaps the ASSEMBLE panel (see panelsForTab)
+  let wasHybrid = hybridDesign();
+  const swapAssemble = () => { const h = hybridDesign(); if (h !== wasHybrid) { wasHybrid = h; render(); } };
+  app.on("doc", swapAssemble);
+  // the component list follows the evaluated result: check again after each (non-preview) evaluation
+  app.on("model", (d) => { if (!d || !d.preview) swapAssemble(); });
 
   // entering an environment selects its (first) contextual tab; leaving it returns to the tab used before
   const onEnvChange = () => {

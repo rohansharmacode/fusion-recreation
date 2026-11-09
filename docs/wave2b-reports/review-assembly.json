@@ -1,0 +1,42 @@
+[
+  {
+    "file": "src/modules/assembly/analysis.js",
+    "line": 211,
+    "severity": "high",
+    "confidence": "high",
+    "scenario": "Add To Assembly on a Part design with unsaved edits: if files.saveAs throws (for example browser storage is full or blocked), the catch at line 211 only logs a warning, and line 215 then replaces the open document with the new Hybrid Design, so the part's edits are lost while the toast reports success.",
+    "fix": "Return null with an error toast when saveAs fails, before the document is replaced at line 215; only continue after a successful save."
+  },
+  {
+    "file": "src/modules/assembly/dialogs.js",
+    "line": 307,
+    "severity": "medium",
+    "confidence": "high",
+    "scenario": "Rigid Group with two faces of the same component picked and Include Children on: picked dedupes to one component, the check calls .length on the Set returned by M.occSubtree (undefined), so build returns null and no Rigid Group is created and nothing reports why.",
+    "fix": "Use .size instead of .length: M.occSubtree(dlg.baseState, picked[0]).size > 1."
+  },
+  {
+    "file": "src/modules/assembly/index.js",
+    "line": 76,
+    "severity": "low",
+    "confidence": "high",
+    "scenario": "A joint renamed to contain '<' or '&' (or a component named that way, shown through D.labelOf) breaks the browser tooltip markup, because the names are inserted into the tip HTML unescaped, unlike the other browser rows which use esc().",
+    "fix": "Escape the feature name and component labels with an esc() helper before building the tip string."
+  },
+  {
+    "file": "src/modules/assembly/index.js",
+    "line": 155,
+    "severity": "low",
+    "confidence": "high",
+    "scenario": "A contact set renamed with '<' or '&' produces broken tooltip HTML for its browser row, because s.name and the component labels are inserted unescaped into the tip.",
+    "fix": "Escape s.name and each component label before inserting them into the tip markup."
+  },
+  {
+    "file": "src/modules/assembly/features.js",
+    "line": 264,
+    "severity": "low",
+    "confidence": "low",
+    "scenario": "Re-registering the built-in snapshot type with replace:true drops its builtin flag, so featureDef('snapshot') returns a non-builtin definition and the timeline lookup (src/modules/timeline/index.js line 20) treats Snapshot as a module feature.",
+    "fix": "Keep builtin: true in the re-registered definition, or wrap snapshot.apply without re-registering the type."
+  }
+]

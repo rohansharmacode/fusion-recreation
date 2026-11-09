@@ -17,7 +17,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
 
-export const ALL_MODULES = ["viewport", "sketch", "dialogs", "shell", "browser", "timeline", "menus", "inspect", "manage", "annotate", "configure", "assembly", "insertx", "surface", "mesh", "sheetmetal", "plastic", "createx", "solidx", "form", "render", "drawing"];
+export const ALL_MODULES = ["viewport", "sketch", "dialogs", "shell", "browser", "timeline", "menus", "inspect", "manage", "annotate", "configure", "assembly", "insertx", "pcb", "surface", "mesh", "sheetmetal", "plastic", "createx", "solidx", "form", "render", "drawing"];
 export const WASM_FILE = "occt.gz.wasm";
 export const LEGACY_WASM_FILE = "occt.wasm.gz";
 export const RELEASE_FILES = ["index.html", "app.js", "app.css", WASM_FILE];

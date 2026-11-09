@@ -106,7 +106,8 @@ export function init(app) {
     }
     for (const s of [...refs.sketches, ...refs.cplanes]) if (sup.has(s) && app.feature(s)?.suppressed) return app.feature(s);
     if (r.ok !== false && !r.warning) return null;
-    for (const d of explicitDeps(doc, results(), f, ctx.creators)) if (sup.has(d)) return app.feature(d);
+    // noSoft: a pattern of features whose source is suppressed keeps its lost-reference warning
+    for (const d of explicitDeps(doc, results(), f, ctx.creators, { noSoft: true })) if (sup.has(d)) return app.feature(d);
     const used = new Set([...refs.bodies, ...(lastTouched.get(f.id) || [])]);
     used.delete(f.newBody);
     for (const b of used) { const c = creator(b); if (c && c !== f.id && sup.has(c)) return app.feature(c); }
@@ -293,7 +294,8 @@ export function init(app) {
     const alive = st0 ? { has: (id) => st0.bodies.has(id) || !!(st0.meshBodies && st0.meshBodies.has(id)) } : null;
     const cands = [...(r.affected || []), f.newBody, ...(f.newBodies || []), ...(f.edges || []).map((e) => e && e.body), ...(f.faces || []).map((x) => x && x.body), ...(f.bodies || []), f.target];
     const b = cands.find((id) => id && alive && alive.has(id));
-    return b ? { kind: "body", body: b } : { kind: "feature", id: f.id };
+    // `feature` lets the viewport highlight only the faces that this feature created or changed
+    return b ? { kind: "body", body: b, feature: f.id } : { kind: "feature", id: f.id };
   }
   function selectedFeatureIds(contextId) {
     const sel = app.selection.items.filter((r) => (r.kind === "feature" || r.kind === "cplane") && app.feature(r.id)).map((r) => r.id);

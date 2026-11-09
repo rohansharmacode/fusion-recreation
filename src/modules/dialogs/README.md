@@ -142,6 +142,14 @@ cpattern, loft, sweep, coil, pipe, thread, scale, split.
   `{patternType:'features', features:[ids]}`; model.js `patternFeatures` re-creates each feature's tool
   (cut / join) or its fillet / chamfer edges at every instance (instances that miss the body -> warning).
 
+* **Sweep**: Type (Single Path; the guide types are greyed out), Profile, Path, Orientation, Operation. The
+  path is a chain of connected sketch curves of one sketch (lines, arcs, circles, splines, ellipses) and / or
+  body edges of any curve type (spline edges too) -> `{type:'sweep', profile, path?:{sketch, curves},
+  pathEdges?:[{body, p}], orientation?:'parallel', operation}`. Orientation Perpendicular (default) keeps the
+  profile at its start angle to the path; Parallel only translates the profile (it stays parallel to its
+  sketch plane). Paths of only lines and arcs with Perpendicular keep the original replicad sweep; all other
+  cases go through `K.sweepSolid` (constant binormal = the path sketch's normal, corrected Frenet for body
+  edges, a fixed trihedron for Parallel). Sketch curves become exact edges through `K.sketchCurveEdge`.
 * **Coil**: Plane, Type (Revolution and Height / Revolution and Pitch / Height and Pitch / Spiral), Diameter,
   Rotation, Revolutions, Height, Pitch, Angle (taper), Section (Circular / Square / Triangular (External) /
   (Internal)), Section Position (Inside / On Center / Outside), Section Size, Operation. After the plane: click
@@ -157,8 +165,26 @@ cpattern, loft, sweep, coil, pipe, thread, scale, split.
 * **Thread**: Faces (cylindrical), Modeled, Full Length (else Offset / Length from the high end), Thread Type
   (ISO Metric profile), Size / Designation / Class (sized from the selected cylinder; 6g / 4g6g external, 6H
   internal), Direction. Cosmetic threads keep the geometry and are drawn as helical lines on the face
-  (`cosmetic.js`, from `result.threads`); modeled threads cut a 60° helical groove (one-turn sweeps in one
-  multi-tool cut, ~0.5 s per turn). Model commands started in the sketch environment finish the sketch first
+  (`cosmetic.js`, from `result.threads`); modeled threads cut a 60° helical groove (`K.threadGrooveSolid`: one
+  solid sewn from one-turn sweep faces, one cut, ~50 ms per turn in Node; the old one-turn pieces in one
+  multi-tool cut, ~200..300 ms per turn, stay as the fallback). Thread Type also lists the custom types of
+  Manage Threads Library; the feature stores `threadType, size, designation, tclass, pitch, major, minor`
+  (mm), so a design keeps its threads where the library lacks the type.
+* **Manage Threads Library** (`threads-library.js`, UTILITIES > UTILITY): a local stand-in for Fusion's hub
+  library. Thread Type (ISO standard read-only, custom types editable), New / Copy / Delete type, Name / Unit
+  (mm, in) / Angle, an item table (Size, Designation, Class, Gender, Pitch, Major Dia, Minor Dia) with Add,
+  copy and delete per row, Fusion's duplicate and pitch-mismatch messages, Import (this app's JSON or a Fusion
+  thread XML: ThreadType / ThreadSize / Designation / Thread, TPI or Pitch), Export (JSON through
+  `app.download`). OK saves (`threads.js` `saveThreadLibrary`: localStorage key
+  `fusion-recreation.threadsLibrary.v1`, in try/catch), Cancel discards. `threads.js` functions take an
+  optional thread type name: `threadTypeOptions()`, `sizeOptions(type)`, `designationOptions(size, type)`,
+  `classOptions(internal, type, size, designation)`, `threadData(size, des, cls, type)` (mm), `sizeForDiameter`.
+* **Hole > Hole Tap Type Tapped**: Thread Type (ISO or custom), Size, Designation, Class (internal), Direction,
+  Modeled; the Diameter callout is hidden and the hole is drilled at the thread's minor diameter ->
+  `{tapType:'tapped', diameter:'<minor> mm', thread:{threadType, size, designation, tclass, pitch, major, minor,
+  rightHanded, modeled}}`. model.js `hole` adds `result.threads` for every cylindrical face of the holes
+  (cosmetic, drawn by `cosmetic.js`) or cuts them with `K.threadedShape` when modeled. Clearance and Taper
+  Tapped stay disabled. Model commands started in the sketch environment finish the sketch first
 (`SketchStop`'s run, or `app.setMode('model')`). `run(app, {preselect})` accepts explicit refs.
 
 ## DOM hooks (for tests)

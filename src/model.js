@@ -804,7 +804,37 @@ const APPLY = {
     const tool = fuseTemp(centers.map((c) => K.holeTool(c.p, c.dir, h)));
     st._tool = tool;
     const fx = { ...f, operation: "cut" };
-    return { affected: applyOp(st, fx, tool, doc) };
+    const affected = applyOp(st, fx, tool, doc);
+    // Hole Tap Type "Tapped": f.thread {pitch, major, minor, rightHanded, modeled, ...}: a thread on every
+    // cylindrical face of the holes (cosmetic like Thread, or modeled with K.threadedShape)
+    const th = f.thread;
+    if (f.tapType !== "tapped" || !th || !(Number(th.pitch) > 0)) return { affected };
+    const pitch = Number(th.pitch), major = Number(th.major), minor = Number(th.minor);
+    const depth = major > minor && minor > 0 ? (major - minor) / 2 : 0.6134 * pitch;
+    const threads = [];
+    for (const id of affected) {
+      const b = st.bodies.get(id);
+      if (!b) continue;
+      const mine = [];
+      K.topoOf(b.shape).faces.forEach((fi, i) => {
+        if (fi.type !== "CYLINDRE" || !fi.a || !fi.ao || Math.abs(fi.r - h.diameter / 2) > 1e-4) return;
+        const onAxis = centers.some((c) => {
+          const d = V.norm(c.dir);
+          if (Math.abs(Math.abs(V.dot(V.norm(fi.a), d)) - 1) > 1e-6) return false;
+          const w = V.sub(fi.ao, c.p);
+          return V.len(V.sub(w, V.mul(d, V.dot(w, d)))) < 1e-4;
+        });
+        const ci = onAxis ? K.cylinderFaceInfo(b.shape, i) : null;
+        if (ci && ci.internal) mine.push({ body: id, o: ci.o, a: ci.a, r: ci.r, z0: 0, z1: ci.len, pitch, depth, internal: true, left: th.rightHanded === false });
+      });
+      if (th.modeled && mine.length) {
+        let s = b.shape;
+        for (const t of mine) { const n = K.threadedShape(s, t); if (s !== b.shape) K.del(s); s = n; }
+        st.bodies.set(id, { id, shape: s, from: f.id });
+      }
+      threads.push(...mine);
+    }
+    return { affected, ...(threads.length ? { threads, modeled: !!th.modeled } : {}) };
   },
 
   box(st, f, P, doc) {
@@ -865,9 +895,15 @@ const APPLY = {
     if (!f.keepTools) for (const id of tools) st.bodies.delete(id);
   },
 
-  mirror(st, f) {
+  mirror(st, f, P, doc) {
     const pl = resolvePlane(f.plane, st);
     if (!pl) throw new Error("Select a mirror plane");
+    if (f.patternType === "features") {
+      // Object Type "Features": one mirrored instance of every source feature (see patternFeatures)
+      const n = V.norm(pl.n);
+      const point = (p) => V.sub(p, V.mul(n, 2 * V.dot(V.sub(p, pl.o), n)));
+      return patternFeatures(st, f, P, doc, [{ shape: (s) => K.mirrored(s, pl.n, pl.o), point }]);
+    }
     (f.bodies || []).forEach((id, i) => {
       const b = st.bodies.get(id);
       if (!b) return;
@@ -1036,10 +1072,14 @@ const APPLY = {
   sweep(st, f, P, doc) {
     const { region, sketch } = resolveRegion(st, f.profile || {});
     const prof = K.sketchWire(K.regionDrawing(region, sketch.regions.vertices), sketch.plane);
-    const ps = st.sketches.get(f.path && f.path.sketch);
-    if (!ps) throw new Error("Select a path");
+    const pathEdges = f.pathEdges || [];
+    const ps = f.path && f.path.sketch ? st.sketches.get(f.path.sketch) : null;
+    if (!ps && !pathEdges.length) throw new Error("Select a path");
     const edges = [];
-    for (const cid of f.path.curves || []) {
+    // simple: only sketch lines and arcs (the original sweep); splines, ellipses, circles and body
+    // edges (f.pathEdges, any curve type) take the general sweep below
+    let simple = true;
+    for (const cid of (ps && f.path.curves) || []) {
       const cv = ps.sk.curves[cid];
       if (!cv) continue;
       const W = (id) => K.toWorld(ps.plane, ps.sk.points[id].x, ps.sk.points[id].y);
@@ -1051,11 +1091,26 @@ const APPLY = {
         const m = (a0 + a1) / 2;
         const mid = K.toWorld(ps.plane, c.x + cv.r * Math.cos(m), c.y + cv.r * Math.sin(m));
         edges.push(R.makeThreePointArc(W(cv.p1), mid, W(cv.p2)));
+      } else {
+        const e = K.sketchCurveEdge(ps, cid);
+        if (e) { edges.push(e); simple = false; }
       }
+    }
+    for (const er of pathEdges) {
+      const b = st.bodies.get(er.body);
+      const idx = b ? locateEdge(b.shape, er) : -1;
+      if (idx < 0) throw new Error("The path for sweep cannot be found!");
+      edges.push(...K.edgesAt(b.shape, [idx]));
+      simple = false;
     }
     if (!edges.length) throw new Error("Path has no curves");
     const spine = R.assembleWire(orderEdges(edges));
-    const tool = R.genericSweep(prof, spine, { frenet: true, transitionMode: "right" }, false);
+    // Orientation Perpendicular: the profile turns with the path (a planar sketch path keeps the sketch
+    // normal as the binormal, so the profile does not flip at inflections); Parallel: it is only translated
+    const parallel = f.orientation === "parallel";
+    const tool = simple && !parallel
+      ? R.genericSweep(prof, spine, { frenet: true, transitionMode: "right" }, false)
+      : K.sweepSolid(prof, spine, { mode: parallel ? { fixed: true } : ps && !pathEdges.length ? { binormal: ps.plane.n } : "corrected", transition: "right" });
     st._tool = tool;
     return { affected: applyOp(st, f, tool, doc) };
   },
@@ -1552,10 +1607,17 @@ export function patternFeatures(st, f, P, doc, xs) {
   if (!ids.length) throw new Error("Select features to pattern");
   let failed = 0, total = 0, k = 0;
   const affected = new Set();
+  // A deleted or suppressed source feature is a lost reference (Fusion: the pattern stays in the timeline
+  // with a warning and computes the sources that are left), not an error.
+  const lost = [];
   for (const fid of ids) {
     const src0 = (doc.features || []).find((x) => x.id === fid);
-    if (!src0 || src0.id === f.id) throw new Error("A patterned feature is missing");
-    if (src0.suppressed || src0.type === "rpattern" || src0.type === "cpattern" || !APPLY[src0.type]) throw new Error(`${src0.name} cannot be patterned`);
+    if (!src0 || src0.id === f.id || src0.suppressed) {
+      lost.push(src0 && src0.suppressed ? `${src0.name} is suppressed` : "a patterned feature was deleted");
+      k += xs.length; // keeps the instance body ids of the other sources
+      continue;
+    }
+    if (src0.type === "rpattern" || src0.type === "cpattern" || (src0.type === "mirror" && src0.patternType === "features") || !APPLY[src0.type]) throw new Error(`${src0.name} cannot be patterned`);
     // evaluation refreshes geometric refs in place: work on a copy so the document stays untouched
     const src = JSON.parse(JSON.stringify(src0));
     if (src.type === "fillet" || src.type === "chamfer") {
@@ -1595,7 +1657,10 @@ export function patternFeatures(st, f, P, doc, xs) {
     K.del(tool);
   }
   if (total && failed >= total) throw new Error("No pattern instance could be computed");
-  return { affected: [...affected], ...(failed ? { warning: `${failed} pattern instance${failed > 1 ? "s" : ""} could not be computed` } : {}) };
+  const warn = [];
+  if (lost.length) warn.push(`Reference Failures: ${[...new Set(lost)].join(", ")}. Edit this feature and select new feature references.`);
+  if (failed) warn.push(`${failed} pattern instance${failed > 1 ? "s" : ""} could not be computed`);
+  return { affected: [...affected], ...(warn.length ? { warning: warn.join(" ") } : {}) };
 }
 
 // ---------- evaluator with incremental cache ----------

@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
+import { featureFaces } from "./feature-faces.js";
 
 // Selection: faces painted an almost opaque, lit navy blue with light-blue edges (reference capture
 // of a selected body/feature: faces ~rgb(12,46,143), edges ~rgb(100,140,228)); pre-selection: a
@@ -38,6 +39,7 @@ export class Highlighter {
     this.root.userData.noPick = true;
     vp.scene.add(this.root);
     this.lineMats = [];
+    this.handlesFeatures = true; // feature refs are drawn here (faces of the feature), not by the browser hook
   }
 
   _lineMat(color, width) {
@@ -95,9 +97,9 @@ export class Highlighter {
       case "face": return this._face(ref, selected);
       case "edge": return this._edge(ref, selected);
       case "vertex": return this._vertex(ref.p, selected);
-      case "body": return this._body(ref.body, selected);
+      case "body": if (ref.feature && this._feature(ref.feature, selected)) return; return this._body(ref.body, selected);
       case "meshFace": return this._meshFace(ref, selected);
-      case "feature": for (const b of this._featureBodies(ref.id)) this._body(b, selected); return;
+      case "feature": if (!this._feature(ref.id, selected)) for (const b of this._featureBodies(ref.id)) this._body(b, selected); return;
       case "occurrence": { const c = this.vp.app.components; if (c) for (const b of c.bodiesOf(ref.occ)) if (this._bodyObj(b)) this._body(b, selected); return; }
       default: return;
     }
@@ -210,6 +212,51 @@ export class Highlighter {
     const l = this._fatLines(segs, selected ? HL.selBodyLine : HL.hovLine, selected ? 1.6 : 2);
     if (l) this.root.add(l);
   }
+
+  /**
+   * The faces that a timeline feature created or changed (feature-faces.js), with their edges.
+   * Returns false when there is no face information: the caller then highlights whole bodies.
+   */
+  _feature(id, selected) {
+    const app = this.vp.app;
+    const f = app.feature(id);
+    if (!f || f.type === "sketch" || f.type === "cplane") return false;
+    const r = (app.result && app.result.results && app.result.results[id]) || {};
+    if (r.rolled || r.suppressed || f.suppressed) return false;
+    const refs = featureFaces(app, id);
+    if (!refs || !refs.length) return false;
+    const byBody = new Map();
+    for (const x of refs) { let l = byBody.get(x.body); if (!l) byBody.set(x.body, (l = new Set())); l.add(x.index); }
+    let drawn = false;
+    for (const [body, set] of byBody) {
+      const o = this._bodyObj(body);
+      if (!o || o.entry.isMesh) continue;
+      const groups = o.entry.md.faceGroups.filter((g) => set.has(g.face));
+      if (!groups.length) continue;
+      if (groups.length === o.entry.md.faceGroups.length) { this._body(body, selected); drawn = true; continue; }
+      let n = 0;
+      for (const g of groups) n += g.count;
+      const idx = new Uint32Array(n);
+      let k = 0;
+      for (const g of groups) { idx.set(o.entry.md.triangles.subarray(g.start, g.start + g.count), k); k += g.count; }
+      const m = this._faceMesh(o, { start: 0, count: 0 }, selected);
+      m.geometry.setIndex(new THREE.BufferAttribute(idx, 1));
+      this.root.add(m);
+      // edges that bound a highlighted face
+      let segs = [];
+      try {
+        const T = app.K.topoOf(o.shape || app.body(body).shape);
+        segs = o.entry.edges.filter((e) => !e.seam && T.edges[e.index] && (T.edges[e.index].faces || []).some((fi) => set.has(fi))).map((e) => e.seg);
+      } catch { /* faces only */ }
+      const l = this._fatLines(segs, selected ? HL.selBodyLine : HL.hovLine, selected ? 1.6 : 2);
+      if (l) this.root.add(l);
+      drawn = true;
+    }
+    return drawn;
+  }
+
+  /** [{body, index}] of the faces a timeline feature created (or changed), or null (see feature-faces.js). */
+  featureFaceRefs(id) { return featureFaces(this.vp.app, id); }
 
   /** Bodies created/modified by a timeline feature (selecting it in the timeline/browser highlights them). */
   _featureBodies(id) {

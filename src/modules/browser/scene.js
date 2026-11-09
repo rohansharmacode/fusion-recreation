@@ -53,6 +53,8 @@ export function installFeatureHighlight(app) {
       for (const r of refs) {
         if (r.kind === "body" && !selBodies.has(r.body)) { extra.add(r.body); continue; }
         if (r.kind !== "feature") continue;
+        // the viewport draws the faces of a feature itself when it can (right-click, Edit Feature)
+        if (hl.handlesFeatures && typeof hl._feature === "function" && hl._feature(r.id, true)) { if (hl.vp && hl.vp.requestRender) hl.vp.requestRender(); continue; }
         for (const b of featureBodies(app, app.feature(r.id))) if (!selBodies.has(b)) extra.add(b);
       }
       if (extra.size) {

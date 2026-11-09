@@ -1,0 +1,28 @@
+{
+  "summary": "New pcb module (resumed from partial feature.js / env.js): Create 3D PCB, Derive PCB from Sketch, Create Linked PCB (local equivalent) and the PCB contextual environment (PCBTab) with Define Board, Imprint, Edit Board Sketch, Move Components, Flip Component, PCB Status and Finish PCB. A PCB is a timeline feature 'pcb' (operation newComponent) that makes a component 'PCB' with a green 'Board' body (outline profiles or planar faces, thickness, holes and cutouts, 2D PCB origin and axes). Leftover wave 2a stubs: the six SURFACE > CREATE primitives (surface bodies through the solid primitive dialogs), Cosmetic Bend (flat pattern bend lines) and Modify Model (opens the settings of a volumetric model).",
+  "implemented": [
+    "PCBCreateCmd", "PCBDeriveCmd", "PCBExternalComponentCreationCmd", "PCBDefineBoardCmd", "PCBImprintCmd", "PCBBoardSketchEditCmd", "PCBMoveComponentsCmd", "PCBFlipComponentCmd", "PCBStatusCmd", "PCBStop",
+    "SurfPrimitiveBox", "SurfPrimitiveCylinder", "SurfPrimitiveSphere", "SurfPrimitiveTorus", "SurfPrimitiveCoil", "SurfPrimitivePipe",
+    "FusionSheetMetalCosmeticBendCmd", "VolFieldModifyModelCommand"
+  ],
+  "notImplemented": [],
+  "sharedEdits": [
+    "src/modules.js: import of @module/pcb and the MODULES entry after insertx (module slot)",
+    "scripts/build.mjs: 'pcb' added to ALL_MODULES after insertx (module slot)",
+    "src/modules/surface/index.js: import registerSurfacePrimitives from ./primitives.js + one init call",
+    "src/modules/sheetmetal/index.js: import registerCosmeticBend from ./cosmetic.js + one part() init call",
+    "src/modules/createx/index.js: import registerModifyModel from ./modify-model.js + one init call"
+  ],
+  "contracts": "Feature 'pcb' {profiles, faces?, thickness, side 'top'|'bottom', origin?, xAxis?, flipX?, flipZ?, npth?, maxNpth?, derived?, linked?, boardSketch?, newComp, newOcc, newBody?}; result.board {thickness, holes, cutouts, size, frame {o,x,y,z}, T0}. Environment id/mode 'pcb' (PCBTab), entered after creation and when a PCB component is activated; left by Finish PCB, by activating a component outside the PCB, or when the PCB is undone. app.ui.pcb = {env, active, enter, finish, boardSketch}. Appearance 'pcb-green'. Surface primitive features surfBox / surfCylinder / surfSphere / surfTorus / surfCoil / surfPipe (solid primitive fields, operation new | newComponent). Feature smCosmeticBend {body, lines [{sketch, curve}], bendType, direction, angle, radius}, result.cosmetic [{a, b, n}]. Details in src/modules/pcb/README.md.",
+  "tests": [
+    "pcb PASS 83/83 (new scenario tests/e2e/scenarios/pcb.mjs: PCB commands through the toolbar, environment, Move / Flip with undo / redo, Define Board, Imprint, Edit Board Sketch, Edit Feature, Derive follows sketch edits, Linked PCB + Define Board + undo / redo, save / open; surface primitives, Cosmetic Bend, Modify Model)",
+    "core-loop PASS 65/65, modeling PASS 83/83, toolbar PASS 62/62, undo-redo PASS 15/15, surface PASS 72/72, sheetmetal PASS 91/91, createx PASS 58/58; 0 console errors (build/pcb, port 6040)"
+  ],
+  "knownIssues": [
+    "Move Components and Flip Component capture the new positions as a Position feature in the timeline (Fusion keeps PCB component moves out of the timeline).",
+    "Create Linked PCB and Derive PCB build local equivalents: no cloud Electronics design or separate 3D PCB document is created or linked.",
+    "Imprint copies lines, circles and arcs exactly; other outline curves (splines, ellipses) become straight segments through their start, mid and end points.",
+    "Cosmetic Bend: Fusion 2706 lists it only in the FLAT PATTERN SURFACE tab (not used here), so in the solid flat pattern it runs from the S toolbox; the flat pattern DXF export does not include cosmetic bend lines.",
+    "Surface primitives are closed shells of the solid primitives (no open-face variants)."
+  ]
+}

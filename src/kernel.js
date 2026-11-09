@@ -1,8 +1,8 @@
 // Thin wrapper around replicad / OpenCascade for the modelling features.
 import opencascade from "replicad-opencascadejs";
 import * as R from "replicad";
-import { cycleSegments, halfEdgeSamples } from "./sketch/regions.js";
-import { splinePieces, ellipsePoint, ellipseDer } from "./sketch/curves.js";
+import { cycleSegments, halfEdgeSamples, curveGeom } from "./sketch/regions.js";
+import { splinePieces, ellipsePoint, ellipseDer, pcurvePolyline } from "./sketch/curves.js";
 
 export { R };
 
@@ -1755,8 +1755,45 @@ export function spiralWire({ o, n, x, r0, pitch, turns, left = false }) {
 }
 
 /**
+ * World edge of one sketch curve of any type (s: an evaluated sketch {sk, plane}): line, arc,
+ * circle, fit point spline (the exact C1 cubic B-spline of the sketch), ellipse and elliptical arc;
+ * other free-form curves are fitted through dense samples. null for text and degenerate curves.
+ * The caller owns the edge.
+ */
+export function sketchCurveEdge(s, cid) {
+  const O = OC();
+  const g = s && s.sk.curves[cid] ? curveGeom(s.sk, cid) : null;
+  if (!g) return null;
+  const pl = s.plane;
+  const W = (q) => toWorld(pl, q[0], q[1]);
+  const tmp = [];
+  const edgeOf = (me) => {
+    tmp.push(me);
+    if (me.IsDone && !me.IsDone()) throw new Error("Failed to build a path curve");
+    return new R.Edge(me.Edge());
+  };
+  try {
+    if (g.kind === "line") return V.len(V.sub(W(g.a), W(g.b))) < 1e-9 ? null : R.makeLine(W(g.a), W(g.b));
+    if (g.kind === "circle") return R.makeCircle(g.r, W(g.c), pl.n);
+    if (g.kind === "arc") {
+      if (g.sweep >= 2 * Math.PI - 1e-9) return R.makeCircle(g.r, W(g.c), pl.n);
+      const at = (t) => W([g.c[0] + g.r * Math.cos(g.a0 + t), g.c[1] + g.r * Math.sin(g.a0 + t)]);
+      return R.makeThreePointArc(at(0), at(g.sweep / 2), at(g.sweep));
+    }
+    if (g.kind !== "pcurve") return null;
+    if (g.sub === "spline" && g.spans) {
+      const me = splineWireEdge(O, { g, t0: 0, t1: g.T, fwd: true, a: g.at(0), b: g.at(g.T) }, W, tmp);
+      return me ? edgeOf(me) : null;
+    }
+    if (g.sub === "ellipse" && g.E) return edgeOf(ellipseWireEdge(O, { g, t0: 0, t1: g.T, full: !!g.closed, fwd: true }, W, pl, tmp));
+    return R.makeBSplineApproximation(pcurvePolyline(g, 64).map(W), { tolerance: 1e-4, degMax: 5, degMin: 3 });
+  } finally { del(tmp); }
+}
+
+/**
  * Sweep a closed profile wire along a spine wire into a solid. mode: 'corrected' (OCCT's
- * corrected Frenet, default) | 'frenet' | {binormal:[x,y,z]} (fixed binormal: helices, threads);
+ * corrected Frenet, default) | 'frenet' | {binormal:[x,y,z]} (fixed binormal: helices, threads,
+ * planar paths) | {fixed:true} (fixed trihedron: the profile is only translated);
  * transition: 'round' | 'right' | 'transformed' at G0 corners of the spine.
  */
 export function sweepSolid(profile, spine, { mode = "corrected", transition = "round" } = {}) {
@@ -1768,6 +1805,7 @@ export function sweepSolid(profile, spine, { mode = "corrected", transition = "r
     const tm = { round: TM.BRepBuilderAPI_RoundCorner, right: TM.BRepBuilderAPI_RightCorner, transformed: TM.BRepBuilderAPI_Transformed }[transition];
     if (tm !== undefined) b.SetTransitionMode(tm);
     if (mode && typeof mode === "object" && mode.binormal) { d = gpDir(mode.binormal); b.SetMode(d); }
+    else if (mode && typeof mode === "object" && mode.fixed) { d = gpAx2([0, 0, 0], [0, 0, 1]); b.SetMode(d); }
     else if (mode === "frenet") b.SetMode(true);
     b.Add(profile.wrapped, false, false);
     b.Build();
@@ -1928,12 +1966,99 @@ export function cutMany(shape, tools) {
   } finally { del(bl, A, B); }
 }
 
+/** Copy of a shape moved from the frame (origin, z = [0,0,1], x = [1,0,0]) to the frame (o, z = a, x). */
+function placedFromZ(shape, o, a, x) {
+  return transformed(shape, (t) => {
+    const O = OC();
+    const p0 = gpPnt([0, 0, 0]), z0 = gpDir([0, 0, 1]), x0 = gpDir([1, 0, 0]), p1 = gpPnt(o), z1 = gpDir(a), x1 = gpDir(x);
+    let A = null, B = null;
+    try { A = new O.gp_Ax3(p0, z0, x0); B = new O.gp_Ax3(p1, z1, x1); t.SetDisplacement(A, B); } finally { del(p0, z0, x0, p1, z1, x1, A, B); }
+  });
+}
+
+/**
+ * The whole thread groove as ONE solid: the lateral faces of a one-turn sweep (copied up turn by turn),
+ * a partial last turn and the two end caps, sewn into one closed shell. It has no inner caps between
+ * turns, so the boolean only meets the helical faces. The groove is built about the Z axis (sewing a
+ * tilted copy can hang OCCT) and then placed on the thread axis. Throws when it cannot be closed.
+ */
+export function threadGrooveSolid(t) {
+  const O = OC();
+  const a = V.norm(t.a);
+  let x = V.cross(a, [0, 0, 1]);
+  if (V.len(x) < 1e-6) x = V.cross(a, [1, 0, 0]);
+  x = V.norm(V.cross(x, a)); // the helix start direction of threadGroove
+  const base = V.add(t.o, V.mul(a, t.z0));
+  const turns = (t.z1 - t.z0) / t.pitch;
+  const full = Math.floor(turns + 1e-6);
+  const partial = turns - full > 1e-3;
+  const c = { ...t, o: [0, 0, 0], a: [0, 0, 1], z0: 0 };
+  const tmp = [];
+  let sew = null, mk = null, ex = null;
+  try {
+    if (full < 1 || (full === 1 && !partial)) { const g = threadGroove({ ...c, z1: turns * t.pitch }); tmp.push(g); return placedFromZ(g, base, a, x); }
+    const capsOf = (g) => { const tf = topoOf(g).faces; const caps = tf.map((f, i) => i).filter((i) => tf[i].type === "PLANE").sort((i, j) => tf[i].c[2] - tf[j].c[2]); if (caps.length !== 2) throw new Error("Thread groove caps"); return { tf, caps }; };
+    sew = new O.BRepBuilderAPI_Sewing(1e-6, true, true, true, false);
+    const g0 = threadGroove({ ...c, z1: t.pitch });
+    tmp.push(g0);
+    const { tf, caps } = capsOf(g0);
+    const lat = facesAt(g0, tf.map((f, i) => i).filter((i) => !caps.includes(i)));
+    const [c0] = facesAt(g0, [caps[0]]), [c1] = facesAt(g0, [caps[1]]);
+    tmp.push(...lat, c0, c1);
+    sew.Add(c0.wrapped);
+    for (let k = 0; k < full; k++) for (const f of lat) {
+      if (!k) { sew.Add(f.wrapped); continue; }
+      const cp = translated(f, [0, 0, k * t.pitch]);
+      tmp.push(cp);
+      sew.Add(cp.wrapped);
+    }
+    if (partial) {
+      const g1 = threadGroove({ ...c, z0: full * t.pitch, z1: turns * t.pitch });
+      tmp.push(g1);
+      const q = capsOf(g1);
+      const fs = facesAt(g1, q.tf.map((f, i) => i).filter((i) => i !== q.caps[0]));
+      tmp.push(...fs);
+      for (const f of fs) sew.Add(f.wrapped);
+    } else {
+      const cp = translated(c1, [0, 0, (full - 1) * t.pitch]);
+      tmp.push(cp);
+      sew.Add(cp.wrapped);
+    }
+    sew.Perform();
+    if (sew.NbFreeEdges() || sew.NbMultipleEdges()) throw new Error("Thread groove is not closed");
+    const SE = O.TopAbs_ShapeEnum;
+    ex = new O.TopExp_Explorer(sew.SewedShape(), SE.TopAbs_SHELL, SE.TopAbs_SHAPE);
+    if (!ex.More()) throw new Error("Thread groove has no shell");
+    mk = new O.BRepBuilderAPI_MakeSolid(O.TopoDS.Shell(ex.Current()));
+    let solid = new R.Solid(mk.Solid());
+    tmp.push(solid);
+    if (volumeOf(solid) < 0) { solid = new R.Solid(O.TopoDS.Solid(solid.wrapped.Reversed())); tmp.push(solid); }
+    return placedFromZ(solid, base, a, x);
+  } finally { del(tmp, ex, mk, sew); }
+}
+
 /**
  * Body with a modeled thread cut into a cylindrical face (see threadGroove for t). One long helical
- * groove defeats OCCT's boolean, so the groove is cut as one-turn pieces (one sweep, translated
- * copies) plus a partial last turn, all in a single multi-tool cut.
+ * sweep defeats OCCT's boolean, so the groove is one solid sewn from one-turn sweep faces
+ * (threadGrooveSolid: one tool, about 4x faster); if that fails, the groove is cut as one-turn pieces
+ * (one sweep, translated copies) plus a partial last turn, all in a single multi-tool cut.
  */
 export function threadedShape(shape, t) {
+  if (!((t.z1 - t.z0) / t.pitch > 1e-3)) throw new Error("The thread is too short");
+  let g = null;
+  try { g = threadGrooveSolid(t); } catch { g = null; }
+  if (g) {
+    try {
+      const s = cutMany(shape, [g]);
+      if (s && !isEmptyShape(s)) return s;
+      del(s);
+    } catch { /* the one-turn pieces below */ } finally { del(g); }
+  }
+  return threadedShapePieces(shape, t);
+}
+
+/** The modeled thread cut as one-turn pieces in a single multi-tool cut (fallback of threadedShape). */
+export function threadedShapePieces(shape, t) {
   const a = V.norm(t.a);
   const turns = (t.z1 - t.z0) / t.pitch;
   const full = Math.floor(turns + 1e-6);

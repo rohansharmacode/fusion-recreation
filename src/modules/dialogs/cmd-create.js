@@ -149,19 +149,24 @@ export function openMirror(app, opts = {}) {
     help: "Creates a copy of selected faces, bodies, features, or components, mirrored across a plane.",
     preselect: (opts.preselect || []).map((r) => (r.kind === "body" || r.kind === "face" ? toBodyRef(r) : r)),
     rows: [
-      { id: "patternType", type: "dropdown", label: "Object Type", options: PATTERN_TYPES, default: "bodies" },
-      { id: "bodies", type: "selection", label: "Objects", kinds: ["body", "face"], mapRef: toBodyRef, prompt: "Select bodies to mirror" },
+      // Object Type "Features" mirrors the features themselves (model.js mirror + patternFeatures): each keeps its own operation
+      { id: "patternType", type: "dropdown", label: "Object Type", options: PATTERN_FEATURE_TYPES,
+        default: f0 ? (f0.patternType === "features" ? "features" : "bodies") : (opts.preselect || []).some((r) => r.kind === "feature") && !(opts.preselect || []).some((r) => r.kind === "body" || r.kind === "face") ? "features" : "bodies" },
+      featureRow("mirror"),
+      bodyRow("mirror"),
       { id: "plane", type: "selection", label: "Mirror Plane", kinds: ["originPlane", "cplane", "face"], planar: true, max: 1, prompt: "Select a mirror plane" },
-      { id: "operation", type: "dropdown", label: "Operation", options: [{ value: "join", label: "Join", icon: "join" }, { value: "new", label: "New Body", icon: "newBody" }], default: "new", sep: true },
+      { id: "operation", type: "dropdown", label: "Operation", options: [{ value: "join", label: "Join", icon: "join" }, { value: "new", label: "New Body", icon: "newBody" }], default: "new", sep: true, visible: (v) => v.patternType !== "features" },
     ],
     init(dlg) {
-      if (f0) Object.assign(dlg.values, { bodies: (f0.bodies || []).map((b) => ({ kind: "body", body: b })), plane: [U.refFromPlaneRef(f0.plane, dlg.baseState)].filter(Boolean), operation: f0.operation === "join" ? "join" : "new" });
+      if (f0) Object.assign(dlg.values, { bodies: (f0.bodies || []).map((b) => ({ kind: "body", body: b })), features: (f0.features || []).filter((id) => app.feature(id)).map((id) => ({ kind: "feature", id })), plane: [U.refFromPlaneRef(f0.plane, dlg.baseState)].filter(Boolean), operation: f0.operation === "join" ? "join" : "new" });
     },
+    onChange: patternOnChange,
     build(v) {
-      const bodies = (v.bodies || []).map((r) => r.body);
       const plane = U.planeRefFromRef((v.plane || [])[0]);
-      if (!bodies.length || !plane) return null;
-      return { type: "mirror", bodies, plane, operation: v.operation };
+      const objs = patternObjects(v);
+      if (!objs || !plane) return null;
+      if (objs.patternType === "features") return { type: "mirror", ...objs, plane };
+      return { type: "mirror", bodies: objs.bodies, plane, operation: v.operation };
     },
   });
 }
@@ -320,7 +325,7 @@ export function openRectPattern(app, opts = {}) {
       const st = dlg.baseState;
       Object.assign(dlg.values, {
         bodies: (f0.bodies || []).map((b) => ({ kind: "body", body: b })),
-        features: (f0.features || []).map((id) => ({ kind: "feature", id })),
+        features: (f0.features || []).filter((id) => app.feature(id)).map((id) => ({ kind: "feature", id })), // a deleted source is a lost reference: reselect
         distType: f0.distType || "spacing",
         dir1: [dirSelRef(f0.dir1 || "X", st)].filter(Boolean),
         dir2: [dirSelRef(f0.dir2, st)].filter(Boolean),
@@ -401,7 +406,7 @@ export function openCircPattern(app, opts = {}) {
     init(dlg) {
       if (!f0) return;
       const full = f0.angle === undefined || Math.abs(Number.parseFloat(f0.angle) - 360) < 1e-9;
-      Object.assign(dlg.values, { bodies: (f0.bodies || []).map((b) => ({ kind: "body", body: b })), features: (f0.features || []).map((id) => ({ kind: "feature", id })), axis: [U.refFromAxis(f0.axis, dlg.baseState)].filter(Boolean), count: String(f0.count ?? "3"), angType: full ? "full" : "angle", angle: full ? "180.0 deg" : f0.angle });
+      Object.assign(dlg.values, { bodies: (f0.bodies || []).map((b) => ({ kind: "body", body: b })), features: (f0.features || []).filter((id) => app.feature(id)).map((id) => ({ kind: "feature", id })), axis: [U.refFromAxis(f0.axis, dlg.baseState)].filter(Boolean), count: String(f0.count ?? "3"), angType: full ? "full" : "angle", angle: full ? "180.0 deg" : f0.angle });
     },
     onChange: patternOnChange,
     build(v) {
@@ -454,14 +459,17 @@ export function openSweep(app, opts = {}) {
     rows: [
       { id: "type", type: "dropdown", label: "Type", options: [{ value: "single", label: "Single Path", icon: "singlePath" }, { value: "guide", label: "Path + Guide Rail", icon: "pathGuide", disabled: true }, { value: "surface", label: "Path + Guide Surface", icon: "pathGuide", disabled: true }] },
       { id: "profile", type: "selection", label: "Profile", kinds: ["profile"], max: 1, prompt: "Select a profile to sweep" },
-      { id: "path", type: "selection", label: "Path", kinds: ["sketchCurve"], prompt: "Select connected sketch curves for the path", filter: (r, dlg) => { const p = (dlg.values.path || [])[0]; const pr = (dlg.values.profile || [])[0]; return (!p || p.sketch === r.sketch) && (!pr || pr.sketch !== r.sketch); } },
+      // the path: connected sketch curves of one sketch (lines, arcs, splines, ellipses) and / or edges of bodies (spline edges too)
+      { id: "path", type: "selection", label: "Path", kinds: ["sketchCurve", "edge"], prompt: "Select connected sketch curves or edges for the path", filter: (r, dlg) => { if (r.kind !== "sketchCurve") return true; const p = (dlg.values.path || []).find((x) => x.kind === "sketchCurve"); const pr = (dlg.values.profile || [])[0]; return (!p || p.sketch === r.sketch) && (!pr || pr.sketch !== r.sketch); } },
+      { id: "orientation", type: "dropdown", label: "Orientation", default: "perpendicular", options: [{ value: "perpendicular", label: "Perpendicular", icon: "singlePath" }, { value: "parallel", label: "Parallel", icon: "fixedPlane" }], tooltip: "Perpendicular keeps the profile perpendicular to the path. Parallel keeps the profile parallel to its sketch plane." },
       { id: "operation", type: "dropdown", label: "Operation", options: OPERATIONS, default: "new", sep: true },
     ],
     init(dlg) {
       if (!f0) return;
       Object.assign(dlg.values, {
         profile: f0.profile ? profileSelRefs([f0.profile]) : [],
-        path: ((f0.path && f0.path.curves) || []).map((c) => ({ kind: "sketchCurve", sketch: f0.path.sketch, curve: c })),
+        path: [...((f0.path && f0.path.curves) || []).map((c) => ({ kind: "sketchCurve", sketch: f0.path.sketch, curve: c })), ...(f0.pathEdges || []).map((er) => U.edgeRef(dlg.baseState, er.body, er.p))],
+        orientation: f0.orientation || "perpendicular",
         operation: f0.operation || "new",
       });
     },
@@ -469,9 +477,15 @@ export function openSweep(app, opts = {}) {
       const pr = profileRefsOf(v.profile)[0];
       const path = v.path || [];
       if (!pr || !path.length) return null;
-      return { type: "sweep", profile: pr, path: { sketch: path[0].sketch, curves: path.map((r) => r.curve) }, operation: v.operation };
+      const curves = path.filter((r) => r.kind === "sketchCurve");
+      const edges = path.filter((r) => r.kind === "edge").map((r) => ({ body: r.body, p: r.p }));
+      const f = { type: "sweep", profile: pr, operation: v.operation };
+      if (curves.length) f.path = { sketch: curves[0].sketch, curves: curves.map((r) => r.curve) };
+      if (edges.length) f.pathEdges = edges;
+      if (v.orientation === "parallel") f.orientation = "parallel";
+      return f;
     },
-    commit(f, dlg) { return dlg.commitFeature(f, { hideSketches: editId ? [] : [f.profile.sketch, f.path.sketch] }); },
+    commit(f, dlg) { return dlg.commitFeature(f, { hideSketches: editId ? [] : [f.profile.sketch, f.path && f.path.sketch].filter(Boolean) }); },
   });
 }
 

@@ -24,3 +24,16 @@ active, bodies outside it are drawn faded (translucent material copy). Display-o
 `{kind:'occurrence', occ}` refs highlight every body of the occurrence. Select Component Priority
 (`SelectComponentPriorityCommand`, priority `'component'`) turns a click on a component's body into its occurrence.
 The 'components' app event redraws.
+
+## Feature-face highlight (feature-faces.js, highlight.js)
+A feature ref (`{kind:'feature', id}`, or a body ref with the hint `feature: <id>` as the timeline hover sets it)
+highlights only the faces that the feature created, or changed when it created none (a Move), like Fusion.
+`featureFaces(app, id)` returns `[{body, index}]` or null. Ownership comes from a geometric comparison of every body
+before and after each feature (`app.evaluator.cache[i].state` and `K.topoOf`): a face whose surface the previous
+shape (or a body the step consumed) does not carry was created by that feature. It is computed on first use and
+cached per evaluator state in WeakMaps, so a rebuild only re-compares the steps that changed. The Highlighter draws
+one merged mesh of those faces plus their boundary edges (`_feature`), and falls back to the whole bodies when there
+is no face information (mesh bodies, sketches, construction planes). `highlighter.handlesFeatures` tells the
+browser's feature highlight hook that the viewport draws feature refs itself; `highlighter.featureFaceRefs(id)` is
+the same list for tests. Limits: torus and free-form faces match only when identical or through a point probe;
+coplanar faces that a later feature merges count as changed by it, not created.

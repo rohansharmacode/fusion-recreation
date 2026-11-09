@@ -174,7 +174,8 @@ export async function deleteFeatures(app, ids, opts = {}) {
   ids = ids.filter((id) => app.feature(id));
   if (!ids.length) return false;
   let extra = [];
-  try { extra = dependentsOf(app, ids); } catch (e) { console.error(e); extra = []; }
+  // a pattern or mirror of features outlives its source features (it then shows a lost-reference warning)
+  try { extra = dependentsOf(app, ids, { noSoft: true }); } catch (e) { console.error(e); extra = []; }
   if (extra.length && opts.confirm !== false) {
     const referenced = ids.map((id) => app.feature(id)).filter(Boolean);
     const html = `The following features are referenced by downstream dependent features in the timeline:<ul>${referenced.map((f) => `<li><b>${esc(f.name)}</b></li>`).join("")}</ul>`

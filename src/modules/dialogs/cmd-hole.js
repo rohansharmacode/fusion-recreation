@@ -4,8 +4,10 @@
 import * as U from "./util.js";
 import { g, holeDiagram } from "./glyphs.js";
 import * as K from "../../kernel.js";
+import { threadTypeOptions, sizeOptions, designationOptions, classOptions, defaultClass, threadData } from "./threads.js";
 
 const V = U.V;
+const ISO_THREAD = "ISO Metric profile";
 const CALLOUTS = ["depth", "diameter", "tipAngle", "cbD", "cbDepth", "csD", "csAngle"];
 
 function holeCenters(dlg) {
@@ -169,6 +171,23 @@ export function openHole(app, opts = {}) {
     b.addEventListener("click", () => { dlg.set("flip", !dlg.values.flip, { user: true }); b.classList.toggle("on", !!dlg.values.flip); });
     return b;
   };
+  /** {designation, pitch, major, minor} of the tapped thread (the stored values for a type missing from the library). */
+  const tapThread = (v) => {
+    const td = threadData(v.t_size, v.t_designation, v.t_class, v.t_type);
+    if (td) return td;
+    const t = f0 && f0.thread;
+    return t && v.t_type === t.threadType && v.t_size === t.size && v.t_designation === t.designation && v.t_class === t.tclass && Number(t.pitch) > 0 ? { designation: t.designation, pitch: t.pitch, major: t.major, minor: t.minor } : null;
+  };
+  /** Size / designation / class options follow the thread type, size and designation (internal classes). */
+  const tapOptions = (dlg, id) => {
+    const v = dlg.values;
+    const set = (k, options) => { dlg.defs[k].options = options; if (!options.some((o) => o.value === v[k])) v[k] = options[0] ? options[0].value : ""; const re = dlg.rowEls && dlg.rowEls[k]; if (re) re.update(); };
+    if (id === "t_type") set("t_size", sizeOptions(v.t_type));
+    if (id === "t_type" || id === "t_size") set("t_designation", designationOptions(v.t_size, v.t_type));
+    const cls = classOptions(true, v.t_type, v.t_size, v.t_designation);
+    set("t_class", cls);
+    if (id !== "t_designation" && cls.some((o) => o.value === defaultClass(true, v.t_type, v.t_size, v.t_designation))) { v.t_class = defaultClass(true, v.t_type, v.t_size, v.t_designation); const re = dlg.rowEls && dlg.rowEls.t_class; if (re) re.update(); }
+  };
   return app.ui.dialog.open({
     id: "FusionHoleCommand",
     title: "Hole",
@@ -204,10 +223,17 @@ export function openHole(app, opts = {}) {
         rows: [
           { id: "extent", type: "dropdown", label: "Extents", options: [{ value: "distance", label: "Distance", icon: "distance" }, { value: "to", label: "To", icon: "toObject", disabled: true }, { value: "all", label: "All", icon: "all" }], extra: flipBtn, noCaret: true, space: 4 },
           { id: "holeType", type: "buttons", label: "Hole Type", space: 9, options: [{ value: "simple", label: "Simple", icon: "holeSimple" }, { value: "counterbore", label: "Counterbore", icon: "holeCounterbore" }, { value: "countersink", label: "Countersink", icon: "holeCountersink" }] },
-          { id: "tapType", type: "buttons", label: "Hole Tap Type", options: [{ value: "simple", label: "Simple", icon: "tapSimple" }, { value: "clearance", label: "Clearance", icon: "tapClearance", disabled: true }, { value: "tapped", label: "Tapped", icon: "tapTapped", disabled: true }, { value: "taper", label: "Taper Tapped", icon: "tapTaper", disabled: true }] },
+          { id: "tapType", type: "buttons", label: "Hole Tap Type", options: [{ value: "simple", label: "Simple", icon: "tapSimple" }, { value: "clearance", label: "Clearance", icon: "tapClearance", disabled: true }, { value: "tapped", label: "Tapped", icon: "tapTapped" }, { value: "taper", label: "Taper Tapped", icon: "tapTaper", disabled: true }] },
+          // Tapped: the thread (ISO or a custom type of Manage Threads Library) sizes the hole (minor diameter)
+          { id: "t_type", type: "dropdown", label: "Thread Type", options: threadTypeOptions(), default: ISO_THREAD, visible: (v) => v.tapType === "tapped" },
+          { id: "t_size", type: "dropdown", label: "Size", options: sizeOptions(), default: "10.0", visible: (v) => v.tapType === "tapped" },
+          { id: "t_designation", type: "dropdown", label: "Designation", options: designationOptions("10.0"), default: "M10x1.5", visible: (v) => v.tapType === "tapped" },
+          { id: "t_class", type: "dropdown", label: "Class", options: classOptions(true), default: "6H", visible: (v) => v.tapType === "tapped" },
+          { id: "t_dir", type: "dropdown", label: "Direction", options: [{ value: "right", label: "Right hand", icon: "threadRH" }, { value: "left", label: "Left hand", icon: "threadLH" }], default: "right", visible: (v) => v.tapType === "tapped" },
+          { id: "t_modeled", type: "check", label: "Modeled", tooltip: "Creates a physical thread in the hole. Unchecked, the thread is cosmetic.", visible: (v) => v.tapType === "tapped" },
           { id: "drillPoint", type: "buttons", label: "Drill Point", options: [{ value: "flat", label: "Flat", icon: "drillFlat" }, { value: "angle", label: "Angle", icon: "drillAngle" }], default: "angle" },
           { id: "depth", type: "value", embed: true, label: "Depth", kind: "length", default: "10.00 mm", positive: true, visible: (v) => v.extent !== "all" },
-          { id: "diameter", type: "value", embed: true, label: "Diameter", kind: "length", default: "10.00 mm", positive: true },
+          { id: "diameter", type: "value", embed: true, label: "Diameter", kind: "length", default: "10.00 mm", positive: true, visible: (v) => v.tapType !== "tapped" },
           { id: "tipAngle", type: "value", embed: true, label: "Tip Angle", kind: "angle", default: "118.0 deg", positive: true, visible: (v) => v.drillPoint === "angle" },
           { id: "cbD", type: "value", embed: true, label: "Counterbore Diameter", kind: "length", default: "16.00 mm", positive: true, visible: (v) => v.holeType === "counterbore" },
           { id: "cbDepth", type: "value", embed: true, label: "Counterbore Depth", kind: "length", default: "5.00 mm", positive: true, visible: (v) => v.holeType === "counterbore" },
@@ -235,6 +261,16 @@ export function openHole(app, opts = {}) {
         v.ref2 = refs[1] ? [refs[1]] : [];
       }
       for (const k of ["extent", "holeType", "drillPoint"]) if (f0[k]) v[k] = f0[k];
+      if (f0.tapType === "tapped" && f0.thread) {
+        const t = f0.thread, type = t.threadType || ISO_THREAD;
+        // a custom type missing from this browser's library keeps its stored values as the only options
+        const known = dlg.defs.t_type.options.some((o) => o.value === type);
+        if (!known) dlg.defs.t_type.options = [...dlg.defs.t_type.options, { value: type, label: type }];
+        dlg.defs.t_size.options = known ? sizeOptions(type) : [{ value: t.size, label: t.size }];
+        dlg.defs.t_designation.options = known ? designationOptions(t.size, type) : [{ value: t.designation, label: t.designation }];
+        dlg.defs.t_class.options = known ? classOptions(true, type, t.size, t.designation) : [{ value: t.tclass, label: t.tclass }];
+        Object.assign(v, { tapType: "tapped", t_type: type, t_size: t.size, t_designation: t.designation, t_class: t.tclass, t_dir: t.rightHanded === false ? "left" : "right", t_modeled: !!t.modeled });
+      }
       for (const k of CALLOUTS) if (f0[k] !== undefined && f0[k] !== "") v[k] = f0[k];
       v.flip = !!f0.flip;
       v.cutBodies = f0.bodies && f0.bodies.length ? [...f0.bodies] : null;
@@ -242,6 +278,7 @@ export function openHole(app, opts = {}) {
     },
     onChange(id, dlg) {
       if (id === "ref1" || id === "ref2" || id === "face") syncOffsets(dlg);
+      if (id === "t_type" || id === "t_size" || id === "t_designation") tapOptions(dlg, id);
       if (id === "off1") applyOffset(dlg, "ref1", "off1");
       if (id === "off2") applyOffset(dlg, "ref2", "off2");
       if (id === "flip") { const b = dlg.el && dlg.el.querySelector(".dlg-flip"); if (b) b.classList.toggle("on", !!dlg.values.flip); }
@@ -266,6 +303,14 @@ export function openHole(app, opts = {}) {
         flip: !!v.flip,
       };
       if (v.drillPoint === "angle") f.tipAngle = v.tipAngle;
+      if (v.tapType === "tapped") {
+        const td = tapThread(v);
+        if (!td) return null;
+        // the hole is drilled at the minor diameter of the internal thread
+        f.tapType = "tapped";
+        f.diameter = `${+td.minor.toFixed(4)} mm`;
+        f.thread = { threadType: v.t_type, size: v.t_size, designation: td.designation, tclass: v.t_class, pitch: td.pitch, major: td.major, minor: td.minor, rightHanded: v.t_dir !== "left", modeled: !!v.t_modeled };
+      }
       if (v.holeType === "counterbore") { f.cbD = v.cbD; f.cbDepth = v.cbDepth; }
       if (v.holeType === "countersink") { f.csD = v.csD; f.csAngle = v.csAngle; }
       if (v.cutBodies && v.cutBodies.length) f.bodies = [...v.cutBodies];

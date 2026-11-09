@@ -9,9 +9,13 @@
 
 const SKIP_KEYS = new Set(["id", "name", "p", "newBody", "newBodies", "sk", "suppressed", "visible", "type"]);
 
-/** Explicit references of a feature: {sketches, cplanes, bodies, geo:[{kind:'edge'|'face', body, p, n?}]} */
+/**
+ * Explicit references of a feature: {sketches, cplanes, bodies, features, soft, geo:[{kind:'edge'|'face', body, p, n?}]}.
+ * `soft` holds the source features of a pattern or mirror of features (they are in `features` too): they fix
+ * the timeline order, but deleting or suppressing one leaves the pattern in place with a warning (Fusion).
+ */
 export function refsOf(f) {
-  const r = { sketches: new Set(), cplanes: new Set(), bodies: new Set(), features: new Set(), geo: [] };
+  const r = { sketches: new Set(), cplanes: new Set(), bodies: new Set(), features: new Set(), soft: new Set(), geo: [] };
   if (!f) return r;
   const addGeo = (kind, o) => {
     if (!o || typeof o.body !== "string" || !Array.isArray(o.p)) return;
@@ -22,7 +26,7 @@ export function refsOf(f) {
     if (o == null || depth > 8) return;
     if (Array.isArray(o)) {
       if (key === "bodies" || key === "tools") { for (const x of o) if (typeof x === "string") r.bodies.add(x); return; }
-      if (key === "edges" || key === "refEdges") { for (const x of o) addGeo("edge", x); return; }
+      if (key === "edges" || key === "refEdges" || key === "pathEdges") { for (const x of o) addGeo("edge", x); return; } // pathEdges: body edges of a Sweep path
       if (key === "faces") { for (const x of o) addGeo("face", x); return; }
       for (const x of o) walk(x, key, depth + 1);
       return;
@@ -46,6 +50,8 @@ export function refsOf(f) {
   // sketch features: only their plane reference matters (sk holds the geometry)
   if (f.type === "sketch") walk({ planeRef: f.planeRef }, "", 0);
   else walk(f, "", 0);
+  // Rectangular / Circular / Path Pattern and Mirror with Object Type "Features": the patterned features
+  if (f.patternType === "features" && Array.isArray(f.features)) for (const id of f.features) if (typeof id === "string") { r.features.add(id); r.soft.add(id); }
   // registered feature types may declare extra references (model.js registerFeature def.deps(f))
   const def = REGISTRY_LOOKUP && REGISTRY_LOOKUP(f.type);
   if (def && typeof def.deps === "function") {
@@ -100,15 +106,15 @@ export function bodiesTouched(doc, results, f) {
   return out;
 }
 
-/** Explicit dependencies of feature f (set of feature ids it needs before it). */
-export function explicitDeps(doc, results, f, creators = bodyCreators(doc)) {
+/** Explicit dependencies of feature f (set of feature ids it needs before it). opts.noSoft leaves out pattern sources. */
+export function explicitDeps(doc, results, f, creators = bodyCreators(doc), opts = {}) {
   const deps = new Set();
   if (!f) return deps;
   const ids = new Set(doc.features.map((x) => x.id));
   const r = refsOf(f);
   for (const s of r.sketches) if (ids.has(s)) deps.add(s);
   for (const c of r.cplanes) if (ids.has(c)) deps.add(c);
-  for (const x of r.features) if (ids.has(x)) deps.add(x);
+  for (const x of r.features) if (ids.has(x) && !(opts.noSoft && r.soft.has(x))) deps.add(x);
   for (const b of r.bodies) { const c = creatorOf(creators, doc, b); if (c) deps.add(c); }
   // Boolean features with implicit participants (join/cut/intersect into whatever bodies existed)
   const res = results && results[f.id];
@@ -176,7 +182,7 @@ export function dependsOn(app, later, earlier, ctx = {}) {
   const doc = app.doc;
   const results = (app.result && app.result.results) || {};
   const creators = ctx.creators || bodyCreators(doc);
-  if (explicitDeps(doc, results, later, creators).has(earlier.id)) return true;
+  if (explicitDeps(doc, results, later, creators, { noSoft: ctx.noSoft }).has(earlier.id)) return true;
   if (ctx.explicitOnly) return false;
   const touched = bodiesTouched(doc, results, earlier);
   const geo = refsOf(later).geo.filter((g) => touched.has(g.body));
@@ -246,7 +252,7 @@ export function dependentsOf(app, ids, opts = {}) {
       const F = doc.features.find((f) => f.id === id);
       if (!F) continue;
       if (doc.features.indexOf(F) >= k) continue;
-      if (dependsOn(app, G, F, { creators, explicitOnly: opts.explicitOnly })) { set.add(G.id); out.push(G); break; }
+      if (dependsOn(app, G, F, { creators, explicitOnly: opts.explicitOnly, noSoft: opts.noSoft })) { set.add(G.id); out.push(G); break; }
     }
   }
   return out;

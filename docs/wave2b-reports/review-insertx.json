@@ -1,0 +1,42 @@
+[
+  {
+    "file": "src/modules/insertx/layout.js",
+    "line": 57,
+    "severity": "high",
+    "confidence": "high",
+    "scenario": "Arrange with a planar body face as Envelope always fails with '2D arrangement requires the envelope to be a face...', because K.faceInfo (src/kernel.js line 949-962) returns {center, normal, planar, type} and not n or c, so the check '!fi.planar || !fi.n' is always true (line 58 also reads fi.c, which is undefined).",
+    "fix": "Use fi.normal for n and fi.center for o (lines 57-58), then add a test with a face envelope; the current scenario only covers originPlane."
+  },
+  {
+    "file": "src/modules/insertx/decal.js",
+    "line": 36,
+    "severity": "low",
+    "confidence": "high",
+    "scenario": "The planar-normal refinement never runs, because K.faceInfo returns 'normal' and not 'n', so a decal always uses the normal stored in the selection reference rather than the face's own normal.",
+    "fix": "Replace fi.n with fi.normal on lines 37 (and keep fi.planar), or drop the dead branch."
+  },
+  {
+    "file": "src/modules/insertx/xref.js",
+    "line": 71,
+    "severity": "low",
+    "confidence": "high",
+    "scenario": "Insert 'a.json', then Update From File with 'b.json': the link file becomes b.json, but x.name stays 'a', so the toast reads 'a updated to v2' and the link name no longer matches its file.",
+    "fix": "In updateXref, when file is given also set x.name = baseName(file)."
+  },
+  {
+    "file": "src/modules/insertx/derive.js",
+    "line": 100,
+    "severity": "medium",
+    "confidence": "low",
+    "scenario": "Tick only the parameter 'total' (expression 'wall * 2') in Insert Derive: only 'total' is copied verbatim, so the derived design references 'wall', which it does not contain. Not verified whether the evaluator then fails the parameter.",
+    "fix": "When copying a parameter, also copy the parameters its expression references (transitively), or list them as required in the dialog."
+  },
+  {
+    "file": "tests/e2e/scenarios/insertx.mjs",
+    "line": 356,
+    "severity": "low",
+    "confidence": "high",
+    "scenario": "The manipulator check starts with '(await t.page.locator(...).count()) >= 0', which is always true, so the check passes even if no move, rotate or scale manipulator is shown.",
+    "fix": "Drop the always-true clause and assert that the manipulator count is greater than 0 (or that screenPoint('x') is defined)."
+  }
+]

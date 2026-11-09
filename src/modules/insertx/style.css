@@ -1,0 +1,23 @@
+/* insertx: external component badge in the browser */
+.br-badge .ix-link { vertical-align: -2px; color: #4a6f96; margin-left: 2px; }
+/* insertx: Edit In Place mode toolbar states */
+.tb-modebar-btn.ix-on { background: var(--c-accent, #0696d7); color: #fff; border-color: var(--c-accent, #0696d7); }
+.tb-modebar-btn.ix-off { opacity: 0.5; }
+/* insertx: dialog rows */
+.ix-list { display: flex; flex-direction: column; gap: 1px; max-height: 190px; overflow: auto; border: 1px solid var(--c-border, #d0d0d0); background: #fff; padding: 2px 4px; min-width: 0; }
+.ix-list-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #222; white-space: nowrap; cursor: pointer; }
+.ix-list-item input { margin: 1px 0; }
+.ix-list-head { font-size: 11px; font-weight: 600; color: #444; margin-top: 3px; }
+.ix-list-empty { font-size: 11px; color: #777; padding: 2px 0; }
+.ix-list-row { align-items: flex-start; }
+.ix-range-row input[type=range] { flex: 1 1 auto; min-width: 60px; }
+.ix-range-out { flex: 0 0 34px; text-align: right; font-size: 11px; color: #333; }
+.ix-range-row .dlg-ctl { display: flex; align-items: center; gap: 4px; }
+.ix-info { font-size: 11px; color: #333; white-space: normal; overflow-wrap: anywhere; }
+.ix-btn { font: inherit; font-size: 11px; padding: 2px 10px; color: #222; background: #fff; border: 1px solid var(--c-border, #c8c8c8); border-radius: 2px; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ix-btn:hover:not(:disabled) { background: var(--c-hover, #e8eef5); }
+.ix-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.ix-table th, .ix-table td { text-align: left; padding: 1px 4px; border-bottom: 1px solid #e4e4e4; white-space: nowrap; }
+.ix-table tr.ix-bad td { color: #b3261e; }
+.ix-table tr.ix-row-pick { cursor: pointer; }
+.ix-table tr.ix-row-pick:hover td { background: var(--c-hover, #e8eef5); }

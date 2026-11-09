@@ -8,6 +8,7 @@ import { openOffsetPlane, openPlaneAtAngle, openMidplane } from "./cmd-construct
 import { openCoil, openPipe } from "./cmd-coil-pipe.js";
 import { openSplitBody, openScale } from "./cmd-split-scale.js";
 import { openThread } from "./cmd-thread.js";
+import { openThreadsLibrary } from "./threads-library.js";
 import { registerComponentCommands } from "./cmd-component.js";
 
 const wrap = (open) => (app, ctx = {}) => {
@@ -32,6 +33,7 @@ export function registerCommands(app) {
   C({ id: "PrimitiveCoil", label: "Coil", tooltip: "Creates a solid coil.", run: wrap(openCoil) });
   C({ id: "PrimitivePipe", label: "Pipe", tooltip: "Creates a solid pipe that follows a selected path.", run: wrap(openPipe) });
   C({ id: "FusionThreadCommand", label: "Thread", tooltip: "Add internal or external threads to cylindrical geometry. Threads can be cosmetic or modeled on the geometry.", run: wrap(openThread) });
+  app.commands.register({ kind: "tool", id: "FusionManageThreadsLibraryCommand", label: "Manage Threads Library", tooltip: "Adds and edits custom thread definitions.", run: (a) => openThreadsLibrary(a) });
   C({ id: "MirrorCommand", label: "Mirror", tooltip: "Creates a copy of selected bodies, mirrored across a plane.", run: wrap(openMirror) });
 
   C({ id: "FusionPressPullCommand", label: "Press Pull", shortcut: "Q", tooltip: "Modifies the selected geometry using offset, extrude, or fillet commands. The operation depends on the geometry selected.", run: (a) => runPressPull(a) });

@@ -9,6 +9,7 @@ import * as annotate from "@module/annotate";
 import * as configure from "@module/configure";
 import * as assembly from "@module/assembly";
 import * as insertx from "@module/insertx";
+import * as pcb from "@module/pcb";
 import * as surface from "@module/surface";
 import * as mesh from "@module/mesh";
 import * as sheetmetal from "@module/sheetmetal";
@@ -33,6 +34,7 @@ export const MODULES = [
   ["configure", configure], // Design configurations
   ["assembly", assembly], // Joints
   ["insertx", insertx], // Insert Component / Derive / Fasteners / McMaster-Carr / Decal
+  ["pcb", pcb], // 3D PCB commands and the PCB contextual environment
   ["surface", surface], // SURFACE tab
   ["mesh", mesh], // MESH tab
   ["sheetmetal", sheetmetal], // SHEET METAL tab

@@ -53,8 +53,12 @@ ask the user before deploying.
   `docs/integration-report.md`. Unused module slots removed, CRLF files normalised to LF, no U+2014 left.
   Engine tests and all 32 QA scenarios pass; release is four files. Booted app: 497 real commands, 528 stubs
   (61 in Design, 467 in placeholder workspaces).
-- Next: wave 2b (assembly, insertx, PCB tools, rough edges), then wave 3 (Render, Drawing). Also open: the six
-  SURFACE > CREATE primitives (`SurfPrimitive*`) are still stubs.
+- Wave 2b (2026-11-09): DONE. Briefs: `docs/workflows/wave2b.md`; builder reports and Haiku reviews:
+  `docs/wave2b-reports/`. assembly 25, insertx 14, pcb 18 (PCB tools plus the `SurfPrimitive*`, Cosmetic Bend and
+  Modify Model leftovers), rough 5 items plus a Tapped hole option. Review findings: 9 fixed, 3 rejected. Engine tests
+  and all 36 QA scenarios pass; release is four files. Design stubs left: 5 (McMaster-Carr, cloud render, and the
+  three Render workspace commands for wave 3). Known gaps are in each report's `knownIssues`.
+- Next: wave 3 (Render, Drawing), only after the user's go.
 - Cloud prep: `tests/e2e/harness.mjs` falls back to Chromium off Windows (or with `QA_BROWSER=chromium`), and
   `docs/fusion-evidence.json` holds command names, short dialog labels and toolbar layouts extracted from the
   local Fusion install by `scripts/fusion-evidence.mjs` (names and labels only). Check both exist; if the harness

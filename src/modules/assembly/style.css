@@ -1,0 +1,24 @@
+/* assembly module: joint dialog tabs, animate button, analysis tables, motion study editor, DOF labels */
+.asm-tabs { display: flex; gap: 0; border-bottom: 1px solid #d5d9de; margin: 0 0 4px; }
+.asm-tab { flex: 1; background: none; border: none; border-bottom: 2px solid transparent; padding: 5px 4px 4px; font: inherit; color: #3c3c3c; cursor: pointer; }
+.asm-tab:hover { color: #0696d7; }
+.asm-tab.on { border-bottom-color: #0696d7; color: #0696d7; font-weight: 600; }
+.asm-animate { min-width: 74px; }
+.asm-animate.on { border-color: #0696d7; color: #0696d7; }
+.asm-panel { max-height: 260px; overflow: auto; font-size: 12px; }
+.asm-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.asm-table th { text-align: left; font-weight: 600; color: #555; border-bottom: 1px solid #d5d9de; padding: 3px 4px; }
+.asm-table td { border-bottom: 1px solid #eef0f2; padding: 3px 4px; vertical-align: top; }
+.asm-dim { color: #808890; }
+.asm-warn { color: #c0392b; }
+.asm-pin { color: #808890; font-size: 11px; }
+.asm-sum { margin-top: 6px; color: #555; }
+.asm-study { font-size: 12px; }
+.asm-study-bar { display: flex; align-items: center; gap: 6px; margin: 3px 0; flex-wrap: wrap; }
+.asm-study-bar input[type="range"] { width: 120px; vertical-align: middle; }
+.asm-study-bar input[type="number"] { width: 58px; }
+.asm-study-bar select { max-width: 150px; }
+.asm-x { border: none; background: none; color: #808890; cursor: pointer; padding: 0 4px; }
+.asm-x:hover { color: #c0392b; }
+.asm-dof-label { position: absolute; left: 0; top: 0; pointer-events: none; background: rgba(255, 255, 255, 0.92); border: 1px solid #0696d7; border-radius: 3px; padding: 1px 5px; font-size: 11px; color: #1f2d3a; white-space: nowrap; }
+.asm-dof-label span { display: block; color: #555; font-size: 10px; }

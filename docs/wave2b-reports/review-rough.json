@@ -1,0 +1,10 @@
+[
+  {
+    "file": "src/modules/dialogs/threads.js",
+    "line": 129,
+    "severity": "medium",
+    "confidence": "high",
+    "scenario": "A custom thread type's designation is removed from the library (or is stored on a feature but no longer listed). Opening that Thread or Hole > Tapped feature and pressing OK makes threadData fall back to the type's first designation (e[1][0]), so the feature is built with another designation's pitch and diameters and the dialog reports no error.",
+    "fix": "For custom types (c non-null) return null when the designation is not found instead of e[1][0]; threadOf (cmd-thread.js line 113) and tapThread (cmd-hole.js line 175) then use their stored-values fallback or show the validation message. The ISO fallback can stay as it was."
+  }
+]

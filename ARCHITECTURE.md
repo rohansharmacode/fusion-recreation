@@ -453,14 +453,13 @@ README.md. Summary of what other modules may use:
 | mesh | `app.ui.mesh = {open(id, opts), palette, display, enterDirect(id), analyze(id)}` | meshRemesh ... meshQuad, meshConvert (Faceted / Prismatic / Organic through the form module's `cageToShape`), meshBase; environment `meshedit` |
 | sheetmetal | `app.ui.sheetMetal = {flatOf(id), flatDXF, enterFlat(id), exitFlat(), flatActive, rules}` | smBaseFlange, smEdgeFlange, smHem, smLoft, smFold, smJog, smUnfold, smRefold, smRip, smCorner, smFillet, smChamfer, smConvert, smJoinBend; `doc.sheetMetal {rules, active, components, flats, rev}`; environment `flatpattern` |
 | plastic | `app.ui.plastic = {rules, openManage(), openAssign({preselect}), types}` | rib, web, emboss, boss, lip, rest, snapFit; `doc.plastic = {rules, assign}` |
-| createx | (dialog openers only) | boundingsolid, fluidvolume, pathpattern, geopattern, csys, vlattice, vtexture; `st.csys`; body kind `volumetric`; rigid-group hook (below) |
+| createx | (dialog openers only) | boundingsolid, fluidvolume, pathpattern, geopattern, csys, vlattice, vtexture; `st.csys`; body kind `volumetric`; Bounding Solid rigid groups (below) |
 | solidx | (dialog openers only) | caxis, cpoint (refs `{kind:'caxis'|'cpoint', id}`, `st.axes`, `st.points`), offsetface, replaceface, splitface, removefaces, removefeatures, align, basefeature, editface, automodel; `M.registerCPlaneMode(mode, fn)`; environment `basefeature` |
 | form | `app.ui.form = {state, createForm, enter, finish, setDisplay, insertTSplineText, readTSM, writeTSM, cageToShape, cageFromShape, evalCage, ops, cage}` | `{type:'form', bodies:[cage]}`; refs tsVertex, tsEdge, tsFace; body kind `tspline`; environment `form`; event `form` |
 
-**Temporary hook: Bounding Solid rigid groups (createx).** `installRigidGroups(app)` in src/modules/createx/bounding.js wraps
-`app.components.setTransform` / `setTransforms` at runtime so that a move of one occurrence of a rigid group carries the
-other members (one undo step; a grounded member holds the whole group). This is a stop-gap: the wave 2b assembly module
-must replace it with a real rigid-group feature and remove the wrapper.
+**Bounding Solid rigid groups (createx).** A Bounding Solid with Rigid Group on (`f.rigidGroup`) forms a rigid group
+with its selected components. The assembly module solves rigid groups (src/modules/assembly); the temporary createx
+wrapper of `app.components.setTransform` is removed.
 
 ## Command ownership (Fusion ids from the local install's TabToolbars.xml)
 At runtime (integration check, 2026-11-09) 1025 ids are registered: 497 real commands (17 of them hidden aliases or shortcut-only)

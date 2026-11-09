@@ -1,0 +1,45 @@
+{
+  "summary": "Resumed rough builder. Items 1 to 3 (feature-face highlight, pattern-of-features dependencies, Sweep along splines) were already written by the earlier builder; they were verified, kept and covered by the new scenario. Item 4: modeled threads now cut ONE groove solid sewn from one-turn sweep faces (K.threadGrooveSolid, built about Z and placed on the axis) with the old one-turn pieces cut as the fallback: same removed volume, same face count, valid, 3 to 6x faster. Item 5: Manage Threads Library (local localStorage + file library with add / edit / copy / delete of custom thread types and items, Fusion's validation messages, JSON export, JSON or Fusion thread XML import); Thread and Hole (Hole Tap Type Tapped, new) offer the custom types.",
+  "implemented": [
+    "feature-face highlight (timeline hover / selection / Edit Feature highlight only the faces a feature created or changed)",
+    "timeline dependencies of Rectangular / Circular / Mirror patterns of features (reorder refused, delete / suppress source = Reference Failures warning, edit source recomputes)",
+    "Sweep along splines (sketch splines, ellipses, circles and spline body edges; Orientation Perpendicular / Parallel)",
+    "faster modeled threads (K.threadGrooveSolid)",
+    "FusionManageThreadsLibraryCommand",
+    "FusionHoleCommand Hole Tap Type Tapped (ISO and custom threads, cosmetic or modeled)"
+  ],
+  "notImplemented": [],
+  "sharedEdits": [
+    "src/kernel.js (earlier builder): sketchCurveEdge(s, cid) exact world edge of any sketch curve (imports curveGeom, pcurvePolyline); sweepSolid mode {fixed:true}",
+    "src/kernel.js: placedFromZ (internal), threadGrooveSolid(t) (new export), threadedShape uses it and falls back to threadedShapePieces(shape, t) (new export: the previous construction)",
+    "src/model.js (earlier builder): mirror APPLY with patternType 'features' through patternFeatures; sweep APPLY accepts any sketch curve and f.pathEdges plus f.orientation 'parallel'; patternFeatures treats a deleted or suppressed source as a lost reference (warning 'Reference Failures: ...') instead of an error",
+    "src/model.js: hole APPLY, tapType 'tapped' with f.thread: result.threads for every cylindrical face of the holes (cosmetic) or K.threadedShape when modeled",
+    "src/modules/viewport/feature-faces.js (new, earlier builder): featureFaces(app, id) face ownership by comparing each body before / after every feature, cached per evaluator state",
+    "src/modules/viewport/highlight.js (earlier builder): _feature(id, selected), featureFaceRefs(id), handlesFeatures; body refs with a feature hint and feature refs draw only the feature's faces",
+    "src/modules/browser/scene.js (earlier builder, 2 lines): installFeatureHighlight lets the highlighter draw feature faces",
+    "src/modules/timeline/deps.js (earlier builder): refsOf soft set (pattern sources), pathEdges as edge geo refs, explicitDeps / dependsOn / dependentsOf option noSoft",
+    "src/modules/timeline/actions.js (earlier builder): deleteFeatures keeps patterns of a deleted source (noSoft)",
+    "src/modules/timeline/index.js (earlier builder): implicit-suppression check with noSoft; hoverRefFor adds the feature hint",
+    "src/modules/dialogs/cmd-create.js (earlier builder): Mirror Object Type Features; pattern dialogs drop deleted sources on Edit; Sweep path accepts sketch curves and edges, Orientation row",
+    "src/modules/dialogs/threads.js: custom thread library layer (threadLibrary, saveThreadLibrary, cleanThreadType, threadTypeErrors, isoItems, threadTypeOptions) and an optional thread type argument on sizeOptions / designationOptions / classOptions / defaultClass / threadData / sizeForDiameter (old calls unchanged)",
+    "src/modules/dialogs/threads-library.js (new): the Threads Library dialog, parseThreadFile / parseThreadXml",
+    "src/modules/dialogs/commands.js: import + register FusionManageThreadsLibraryCommand (kind tool)",
+    "src/modules/dialogs/cmd-thread.js: Thread Type lists custom types; size / designation / class follow the type; a type missing from the library keeps the stored values; validate message for a type without a matching class",
+    "src/modules/dialogs/cmd-hole.js: Hole Tap Type Tapped enabled with Thread Type / Size / Designation / Class / Direction / Modeled rows; Diameter callout hidden while tapped; build sets diameter = minor and f.thread; Edit Feature restores it",
+    "READMEs: src/modules/viewport/README.md and src/modules/timeline/README.md (earlier builder), src/modules/dialogs/README.md (Sweep by the earlier builder; Thread timing, Manage Threads Library, Hole Tapped)"
+  ],
+  "contracts": "Highlight: a ref {kind:'feature', id} or {kind:'body', body, feature:id} highlights only that feature's faces (viewport highlighter.featureFaceRefs(id) -> [{body, index}]). Timeline deps: refsOf(f).soft = pattern sources; explicitDeps(..., {noSoft:true}). Sweep feature: {path?:{sketch, curves}, pathEdges?:[{body, p}], orientation?:'parallel'}. Kernel: K.threadGrooveSolid(t), K.threadedShapePieces(shape, t), K.sketchCurveEdge(s, cid). Threads: threads.js functions take an optional thread type name; custom library in localStorage key fusion-recreation.threadsLibrary.v1; thread features store threadType + pitch / major / minor in mm. Hole: {tapType:'tapped', thread:{threadType, size, designation, tclass, pitch, major, minor, rightHanded, modeled}} -> result.threads (+ modeled).",
+  "tests": [
+    "engine: npm test 63/63, tests/spline_test.mjs ALL PASS, tests/robust_test.mjs 119/119 (after each kernel.js / model.js change)",
+    "QA (build/rough, port 6060): rough 44/44, core-loop 65/65, modeling 83/83, toolbar 62/62, undo-redo 15/15, timeline 43/43, create-modify 45/45; 7/7 PASS, 0 console errors",
+    "thread timing, Node (tests/e2e/out/rough/thread_bench.mjs, M10x1.5 on a plain cylinder): external 4 / 10 / 20 turns 842 / 1918 / 6057 ms before, 363 / 493 / 1043 ms after; internal 645 / 1737 / 3719 ms before, 201 / 546 / 1220 ms after; 14 cases incl. tilted axis, partial turns, left hand, M3 / M30, bolt shank: identical removed volume and face count, all valid (thread_exp3 / thread_exp5)",
+    "thread timing, browser (rough.mjs): 10-turn M10 modeled thread, whole feature 1002 ms after vs 2561 ms for the old pieces cut alone"
+  ],
+  "knownIssues": [
+    "Feature-face highlight compares geometry: torus and free-form faces match only when identical or through a point probe; coplanar faces that a later feature merges count as changed by that feature",
+    "Sweep Perpendicular keeps the profile at its start angle to the path, so a profile that is not perpendicular to the path start gives a tilted section; Path + Guide Rail / Guide Surface stay disabled",
+    "Manage Threads Library is local (localStorage plus files), not Fusion's hub library; Export writes JSON only (Import also reads Fusion thread XML)",
+    "A design that uses a custom thread type missing from this browser's library opens and computes (stored pitch and diameters), but its Thread / Hole dialog then offers only the stored size, designation and class",
+    "Hole: Clearance and Taper Tapped stay disabled; a tapped hole is threaded over the whole cylindrical hole face (no separate Tap Depth input)"
+  ]
+}

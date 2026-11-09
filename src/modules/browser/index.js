@@ -578,8 +578,16 @@ export function init(app) {
     app.selection.set(bodies.map((b) => ({ kind: "body", body: b })));
     runCmd(app, cmd, { source: "browser" }, null, label);
   }
-  /** Browser node of an occurrence ("Component1:1"): Origin, Bodies, Sketches, Construction, its occurrences. */
+  /** Occurrence node plus the row decorators of other modules (api.registerOccDecorator: badge, tip, menu items). */
   function occNode(oid) {
+    const node = occNodeBase(oid);
+    for (const fn of occNode.decorators || []) {
+      try { fn(node, oid, app); } catch (e) { console.warn("[browser] occurrence decorator", e); }
+    }
+    return node;
+  }
+  /** Browser node of an occurrence ("Component1:1"): Origin, Bodies, Sketches, Construction, its occurrences. */
+  function occNodeBase(oid) {
     const C = comps();
     const inf = C.info(oid);
     const vis = inf.visible;
@@ -734,6 +742,8 @@ export function init(app) {
       onDbl: () => editFeat(f.id),
       rename: (name) => renameFeature(app, f.id, name),
       menu: () => [
+        // def.browser.node may return menuFirst() -> items shown before the standard ones (assembly: Edit Joint Limits ...)
+        ...(typeof custom.menuFirst === "function" ? [...(custom.menuFirst() || []), "-"] : []),
         { label: "Edit Feature", act: "edit-feature", icon: "m-editfeature", disabled: !app.hasFeatureEditor(f.type), action: () => editFeat(f.id) },
         "-",
         { label: "Delete", act: "delete", hint: "Del", icon: "m-delete", action: () => deleteFeatures(app, featureTargets(f.id)) },
@@ -1241,6 +1251,13 @@ export function init(app) {
       moduleFolders.push({ label: spec.key, ...spec });
       scheduleRender();
       return () => { const j = moduleFolders.findIndex((m) => m.key === spec.key); if (j >= 0) moduleFolders.splice(j, 1); scheduleRender(); };
+    },
+    /** Decorate occurrence rows: fn(node, oid, app) may set node.badge (html), node.tip, or wrap node.menu. Returns remove(). */
+    registerOccDecorator(fn) {
+      if (typeof fn !== "function") throw new Error("registerOccDecorator needs a function");
+      (occNode.decorators = occNode.decorators || []).push(fn);
+      scheduleRender();
+      return () => { const j = (occNode.decorators || []).indexOf(fn); if (j >= 0) occNode.decorators.splice(j, 1); scheduleRender(); };
     },
     /** Re-render soon (modules call this when their folder content changed). */
     invalidate() { scheduleRender(); },

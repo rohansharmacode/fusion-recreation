@@ -8,11 +8,12 @@
 import "./style.css";
 import { beginModelCommand } from "../dialogs/common.js";
 import { registerCsysFeature, installCsysDisplay, openCsys } from "./csys.js";
-import { registerBoundingFeature, openBoundingSolid, installRigidGroups } from "./bounding.js";
+import { registerBoundingFeature, openBoundingSolid } from "./bounding.js";
 import { registerFluidFeature, openFluidVolume } from "./fluid.js";
 import { registerPathPatternFeature, openPathPattern } from "./pathpattern.js";
 import { registerGeoPatternFeature, openGeoPattern } from "./geopattern.js";
 import { registerLatticeFeatures, openLattice, openTexture } from "./lattice.js";
+import { registerModifyModel } from "./modify-model.js";
 
 const COMMANDS = [
   ["StockModelCommand", "Bounding Solid", "Creates a solid component around a selected component, body, or set of bodies.", openBoundingSolid],
@@ -47,5 +48,6 @@ export function init(app) {
   }
   // the coordinate-system triads need the viewport (created by an earlier module)
   try { installCsysDisplay(app); } catch (e) { console.warn("[createx] coordinate system display", e); }
-  try { installRigidGroups(app); } catch (e) { console.warn("[createx] rigid groups", e); }
+  try { registerModifyModel(app); } catch (e) { console.warn("[createx] modify model", e); }
+  // Bounding Solid rigid groups: the assembly module moves them (src/modules/assembly/features.js rigidSets)
 }

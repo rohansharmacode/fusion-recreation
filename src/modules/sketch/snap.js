@@ -8,7 +8,7 @@ const SNAP_PX = 9, CURVE_PX = 6, ALIGN_PX = 5;
 
 function centers(sk) {
   const s = new Set();
-  for (const cv of Object.values(sk.curves)) if (cv.type === "circle" || cv.type === "arc") s.add(cv.c);
+  for (const cv of Object.values(sk.curves)) if (cv.type === "circle" || cv.type === "arc" || cv.type === "ellipse" || cv.type === "earc") s.add(cv.c);
   return s;
 }
 

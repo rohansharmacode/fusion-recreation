@@ -29,6 +29,11 @@ function curveInfo(r) {
     return { name: "Sketch Arc", measure: `Length : ${f2(L)} mm` };
   }
   if (cv.type === "point") return { name: "Sketch Point", measure: "" };
+  if (cv.type === "spline" || cv.type === "ellipse" || cv.type === "earc") {
+    let L = 0;
+    try { const pl = S.curvePolyline(d.sk, r.curve, 400); for (let i = 1; i < pl.length; i++) L += Math.hypot(pl[i][0] - pl[i - 1][0], pl[i][1] - pl[i - 1][1]); } catch { /* ignore */ }
+    return { name: cv.type === "spline" ? "Sketch Fit Point Spline" : "Sketch Elliptical Curve", measure: `Length : ${f2(L)} mm` };
+  }
   return { name: "Sketch Curve", measure: "" };
 }
 

@@ -396,6 +396,107 @@ const scenario = defineScenario({
     await t.shot("profile-selected");
     await t.key("Escape");
 
+    // ---------- Fit Point Spline (DrawSpline), Ellipse (CircleElipse), Blend Curve ----------
+    t.step("Fit Point Spline: click four fit points, click the first again -> closed spline profile");
+    const curvesOf = (s, type) => Object.entries(s.curves).filter(([, c]) => c.type === type);
+    const regionAreas = () => t.app(() => window.app.sketchState(window.app.activeSketch).regions.regions.map((r) => Math.abs(r.area)));
+    const nSpl0 = curvesOf(await skNow(), "spline").length;
+    await t.app(() => window.app.commands.run("DrawSpline"));
+    t.check("DrawSpline starts the Fit Point Spline tool", await t.app(() => /DrawSpline/.test((window.app.input.top() || {}).name || "")));
+    const splPts = [[-70, -50], [-50, -70], [-30, -60], [-50, -40]];
+    for (const [u, v] of splPts) await clickW(u, v);
+    const prevSpl = await t.app(() => window.app.viewport.groups.sketches.getObjectByName("sketch-module") && true);
+    t.check("the spline preview is drawn while placing fit points", prevSpl);
+    await t.shot("spline-placing");
+    await clickW(-70, -50);
+    s = await skNow();
+    const spl = curvesOf(s, "spline").slice(nSpl0)[0];
+    t.check("clicking the first fit point closes the spline (one closed spline, 4 fit points)", !!spl && spl[1].closed === true && spl[1].pts.length === 4, JSON.stringify(spl));
+    const splArea = await t.app((pts) => { const a = window.app; const sk = a.S.newSketch(); a.S.addSpline(sk, pts.map((p) => a.S.addPoint(sk, p[0], p[1])), { closed: true }); return Math.abs(a.S.regions(sk).regions[0].area); }, splPts);
+    t.check("the closed spline is a profile with the spline's area", (await regionAreas()).some((x) => Math.abs(x - splArea) < 0.05), `expected ${fmt(splArea, 2)}`);
+    t.check("the Fit Point Spline tool stays active after a spline", await t.app(() => /DrawSpline/.test((window.app.input.top() || {}).name || "")));
+    t.step("open spline finished with Enter; a fit point drags like a sketch point; Ctrl+Z undoes the drag");
+    await clickW(-110, -60); await clickW(-100, -40); await clickW(-90, -60);
+    await t.key("Enter"); await t.settle(150);
+    s = await skNow();
+    const open = curvesOf(s, "spline").slice(nSpl0)[1];
+    t.check("Enter finishes an open spline through the three clicks", !!open && !open[1].closed && open[1].pts.length === 3, JSON.stringify(open));
+    await clickW(-110, -90); await clickW(-100, -80);
+    const dq = await at(-90, -90);
+    await t.page.mouse.move(dq.x, dq.y, { steps: 4 }); await t.frames(2);
+    await t.page.mouse.dblclick(dq.x, dq.y); await t.settle(150);
+    s = await skNow();
+    const dbl = curvesOf(s, "spline").slice(nSpl0)[2];
+    t.check("double-click places the last fit point and finishes the spline", !!dbl && dbl[1].pts.length === 3 && !dbl[1].closed, JSON.stringify(dbl));
+    await clickW(50, -30); await clickW(60, -20);
+    const rq = await at(70, -30);
+    await t.page.mouse.move(rq.x, rq.y, { steps: 3 }); await t.frames(2);
+    await t.page.mouse.click(rq.x, rq.y, { button: "right" }); await t.settle(150);
+    s = await skNow();
+    const rc = curvesOf(s, "spline").slice(nSpl0)[3];
+    t.check("right-click (OK) finishes the spline with the points placed so far", !!rc && rc[1].pts.length === 2, JSON.stringify(rc));
+    t.check("no context menu opens while finishing the spline", !(await t.visible(".ctx-menu, .mm-root")));
+    await t.key("Escape"); await t.key("Escape");
+    if (spl) {
+      const pid = spl[1].pts[2];
+      const a0 = await at(-30, -60), a1 = await at(-20, -70);
+      await t.page.mouse.move(a0.x, a0.y, { steps: 3 }); await t.frames(2);
+      await t.page.mouse.down(); await t.page.mouse.move(a1.x, a1.y, { steps: 8 }); await t.frames(3); await t.page.mouse.up(); await t.settle(200);
+      s = await skNow();
+      const P = s.points[pid];
+      t.check("dragging a fit point moves it (and reshapes the spline)", !!P && Math.hypot(P.x + 20, P.y + 70) < 2.5, JSON.stringify(P));
+      t.check("the dragged spline is still one closed profile", (await regionAreas()).some((x) => Math.abs(x - splArea) > 1 && x > 100));
+      await t.key("Control+z"); await t.settle(200);
+      s = await skNow();
+      t.check("Ctrl+Z puts the fit point back", Math.hypot(s.points[pid].x + 30, s.points[pid].y + 60) < 1e-6, JSON.stringify(s.points[pid]));
+    }
+    t.step("Ellipse: centre, first axis point, point on the ellipse");
+    await t.app(() => window.app.commands.run("CircleElipse"));
+    const ePrompt = await t.app(() => document.querySelector(".sk-prompt")?.textContent || "");
+    t.check("CircleElipse prompt asks for the center point", /Place center point/i.test(ePrompt), ePrompt);
+    await clickW(10, -70); await clickW(40, -70);
+    const q2 = await at(10, -60);
+    await t.page.mouse.move(q2.x, q2.y, { steps: 4 }); await t.frames(3);
+    await t.shot("ellipse-placing");
+    await clickW(10, -60);
+    await t.key("Escape"); await t.key("Escape");
+    s = await skNow();
+    const ell = curvesOf(s, "ellipse")[0];
+    const rr = ell && [Math.hypot(s.points[ell[1].a].x - s.points[ell[1].c].x, s.points[ell[1].a].y - s.points[ell[1].c].y), Math.hypot(s.points[ell[1].b].x - s.points[ell[1].c].x, s.points[ell[1].b].y - s.points[ell[1].c].y)];
+    t.check("ellipse created with radii 30 and 10", !!ell && near(rr[0], 30, 0.05) && near(rr[1], 10, 0.05), JSON.stringify(rr));
+    t.check("the ellipse comes with its two construction axis lines", !!ell && Object.values(s.curves).filter((c) => c.type === "line" && c.cons && [ell[1].a, ell[1].b].some((p) => c.p1 === p || c.p2 === p)).length === 2);
+    t.check("the ellipse is a profile with area π·30·10", (await regionAreas()).some((x) => Math.abs(x - Math.PI * 300) < 0.05), JSON.stringify((await regionAreas()).map((x) => +x.toFixed(2))));
+    const ellPix = await at(10, -80);
+    const ellCol = await t.pixels(ellPix.x - 3, ellPix.y - 3, 7, 7);
+    let ellBlue = 0;
+    for (let i = 0; i < ellCol.w; i++) for (let j = 0; j < ellCol.h; j++) { const c = ellCol.px(i, j); if (c[2] > c[0] + 60) ellBlue++; }
+    t.check("the ellipse is drawn in the under-constrained sketch blue", ellBlue > 0, `${ellBlue} blue px`);
+    const ellStatus = await t.app((id) => { const a = window.app; a.selection.set([{ kind: "sketchCurve", sketch: a.activeSketch, curve: id }]); return a.status; }, ell && ell[0]);
+    t.check("selecting the ellipse shows 'Sketch Elliptical Curve' in the status", /Sketch Elliptical Curve/.test(ellStatus || ""), ellStatus);
+    await t.app(() => window.app.selection.clear());
+    t.step("Blend Curve between the ends of two lines (G1)");
+    await t.key("l"); await clickW(50, -70); await clickW(60, -70); await t.key("Escape"); await t.key("Escape");
+    await t.key("l"); await clickW(80, -90); await clickW(80, -80); await t.key("Escape"); await t.key("Escape");
+    s = await skNow();
+    const bA = lineAt(s, [50, -70], [60, -70]), bB = lineAt(s, [80, -90], [80, -80]);
+    t.check("setup: two lines for the blend", !!bA && !!bB);
+    await t.app(() => window.app.commands.run("BlendG1CurveSketchCmd"));
+    await clickW(58, -70); await clickW(80, -82);
+    await t.key("Escape"); await t.key("Escape");
+    s = await skNow();
+    const bl = curvesOf(s, "spline").find(([id, c]) => c.pts.length === 2 && s.constraints.some((k) => k.type === "tangent" && k.refs.includes(id)));
+    const tans = bl ? s.constraints.filter((c) => c.type === "tangent" && c.refs.includes(bl[0])) : [];
+    t.check("Blend Curve adds a 2-point spline tangent to both curves", !!bl && tans.length === 2, JSON.stringify(bl));
+    const g1 = bl && await t.app((id) => {
+      const a = window.app; const st = a.sketchState(a.activeSketch);
+      const pl = a.S.curvePolyline(st.sk, id, 64);
+      const d0 = [pl[1][0] - pl[0][0], pl[1][1] - pl[0][1]], n = pl.length;
+      const d1 = [pl[n - 1][0] - pl[n - 2][0], pl[n - 1][1] - pl[n - 2][1]];
+      return [Math.atan2(d0[1], d0[0]) * 180 / Math.PI, Math.atan2(d1[1], d1[0]) * 180 / Math.PI, pl[0], pl[n - 1]];
+    }, bl[0]);
+    t.check("the blend leaves the first line along it (0°) and meets the second line along it (-90°)", !!g1 && Math.abs(g1[0]) < 3 && Math.abs(g1[1] + 90) < 3, JSON.stringify(g1));
+    await t.shot("spline-ellipse-blend");
+
     // ---------- finish ----------
     t.step("Finish Sketch from the palette");
     const fin = await t.app(() => {
@@ -411,6 +512,59 @@ const scenario = defineScenario({
     const sk = await t.state();
     t.check("sketch feature is in the timeline", (await t.app(() => document.querySelectorAll("#timeline [data-feature]").length)) === sk.features.length && sk.features[0].type === "sketch");
     await t.shot("finished");
+
+    // ---------- the ellipse and closed spline profiles extrude; the document round-trips ----------
+    t.step("Extrude the ellipse + closed spline profiles 10 mm; save/open round trip keeps the sketch curves");
+    const ffProf = await t.app(() => {
+      const a = window.app; const id = a.doc.features[0].id; const st = a.sketchState(id);
+      const ell = Object.entries(st.sk.curves).find(([, c]) => c.type === "ellipse");
+      const spl = Object.entries(st.sk.curves).find(([, c]) => c.type === "spline" && c.closed);
+      const pick = (cid) => st.regions.regions.filter((r) => r.curves.length === 1 && r.curves[0] === cid);
+      const regs = [...(ell ? pick(ell[0]) : []), ...(spl ? pick(spl[0]) : [])];
+      return { id, refs: regs.map((r) => ({ kind: "profile", sketch: id, key: r.key, c: r.centroid })), area: regs.reduce((s, r) => s + Math.abs(r.area), 0) };
+    });
+    t.check("ellipse and closed spline profiles found", ffProf.refs.length === 2, JSON.stringify(ffProf.refs.map((r) => r.key)));
+    await t.app((refs) => window.app.commands.run("Extrude", { preselect: refs }), ffProf.refs);
+    const dlgX = await t.waitFor('.dlg[data-dialog="Extrude"]', { timeout: 3000 });
+    t.check("Extrude opens with the free-form profiles", dlgX);
+    if (dlgX) {
+      await t.fill('.dlg[data-dialog="Extrude"] [data-input="distance"]', "10 mm");
+      await t.settle(300);
+      await t.click('.dlg[data-dialog="Extrude"] [data-action="ok"]');
+      await t.waitFor(() => !document.querySelector('.dlg[data-dialog="Extrude"]'), { timeout: 3000 });
+      const sx = await t.state();
+      const ex = sx.features.find((f) => f.type === "extrude");
+      t.check("extrude of the ellipse + spline computes", !!ex && ex.ok, JSON.stringify(sx.features));
+      t.check(`volume ≈ profile area × 10 (${fmt(ffProf.area * 10)} mm^3)`, near(sx.volume, ffProf.area * 10, ffProf.area * 10 * 2e-3), `volume=${fmt(sx.volume)}`);
+      await t.shot("ellipse-spline-extruded");
+    }
+    const rt = await t.app(() => {
+      const a = window.app;
+      const d = JSON.parse(JSON.stringify(a.doc));
+      const r = new a.M.Evaluator().run(d);
+      const st = r.state.sketches.get(d.features[0].id);
+      const types = Object.values(st.sk.curves).map((c) => c.type);
+      return { spline: types.filter((x) => x === "spline").length, ellipse: types.filter((x) => x === "ellipse").length, ok: Object.values(r.results).every((x) => x.ok), bodies: r.state.bodies.size };
+    });
+    t.check("saved JSON reopens with the splines, the ellipse and the extruded body", rt.spline >= 3 && rt.ellipse === 1 && rt.ok && rt.bodies >= 1, JSON.stringify(rt));
+
+    t.step("Project the elliptical and spline edges of the extruded bodies into a new sketch");
+    t.require("enter a new sketch on XY", await enterSketchOnXY(t));
+    const proj = await t.app(() => {
+      const a = window.app;
+      const refs = [];
+      for (const b of a.bodies()) b.shape.edges.forEach((e, index) => { if ((e.geomType === "ELLIPSE" || e.geomType === "BSPLINE_CURVE") && e.startPoint.z > 5) refs.push({ kind: "edge", body: b.id, index }); });
+      a.selection.set(refs);
+      a.commands.run("ProjectNewCmd");
+      const st = a.sketchState(a.activeSketch);
+      const cs = Object.values(st.sk.curves);
+      return { n: refs.length, ell: cs.filter((c) => c.type === "ellipse" && c.proj).length, spl: cs.filter((c) => c.type === "spline" && c.proj && c.closed).length, areas: st.regions.regions.map((r) => Math.abs(r.area)) };
+    });
+    await t.key("Escape");
+    t.check("Project turns the elliptical edge into a projected ellipse and the B-spline edge into a projected closed spline", proj.ell === 1 && proj.spl === 1, JSON.stringify(proj));
+    t.check("the projected ellipse is a profile (area π·30·10)", proj.areas.some((x) => Math.abs(x - Math.PI * 300) < 0.05), JSON.stringify(proj.areas));
+    t.check("the projected spline matches the original spline profile", proj.areas.some((x) => Math.abs(x - splArea) < 0.05), `${JSON.stringify(proj.areas)} vs ${splArea}`);
+    await t.shot("projected-ellipse-spline");
   },
 });
 

@@ -501,6 +501,150 @@ const shellOf = (doc, t, o = {}) => {
   check("r3 revolve: 180 deg about Z = half", !okAll(r).length && near(vol(r), Math.PI * CX * AREA, 0.01), { e: okAll(r), v: vol(r) });
 }
 
+// ---------- Split Body / Coil / Pipe / Scale / Thread ----------
+const vols = (r) => [...r.state.bodies.values()].map((b) => R.measureVolume(b.shape)).sort((a, b) => a - b);
+{
+  // split the 40 x 20 x 10 block with the YZ plane offset to x = 15 (construction plane) and the XY plane
+  const doc = baseDoc();
+  add(doc, { id: "cp", type: "cplane", name: "Plane1", mode: "offset", base: { kind: "origin", name: "YZ" }, offset: "15 mm" });
+  const sp = add(doc, { id: "sp", type: "split", name: "Split Body1", bodies: ["b1"], tool: { kind: "cplane", id: "cp" }, extend: true });
+  finish(doc);
+  const ev = new M.Evaluator();
+  let r = ev.run(doc);
+  const v = vols(r);
+  check("split: a construction plane divides Body1 into two bodies (3000 + 5000)", !okAll(r).length && v.length === 2 && near(v[0], 3000) && near(v[1], 5000), { e: okAll(r), v });
+  check("split: Body1 keeps the piece on the negative side, the new piece gets its own id", near(vol(r, "b1"), 3000) && r.state.bodies.has("sp_1") && r.results.sp.affected.length === 2, r.results.sp.affected);
+  sp.tool = { kind: "origin", name: "XY" };
+  r = ev.run(doc);
+  check("split: a plane that misses the body is an error", r.results.sp.ok === false && /No intersection/.test(r.results.sp.error), r.results.sp);
+  // split an L-shaped body with its own inner face extended (classic Fusion use)
+  const d2 = M.newDoc("L");
+  const sk = S.newSketch();
+  const P = [[0, 0], [60, 0], [60, 10], [10, 10], [10, 50], [0, 50]].map((q) => S.addPoint(sk, q[0], q[1]));
+  P.forEach((p, i) => S.addLine(sk, p, P[(i + 1) % P.length]));
+  d2.features.push({ id: "s1", type: "sketch", name: "Sketch1", plane: { ...K.ORIGIN_PLANES.XY }, planeRef: { kind: "origin", name: "XY" }, sk, visible: true });
+  d2.marker = 1;
+  const reg = new M.Evaluator().run(d2).state.sketches.get("s1").regions.regions[0];
+  add(d2, { id: "e1", type: "extrude", name: "Extrude1", profiles: [{ sketch: "s1", key: reg.key }], distance: "8 mm", operation: "new", newBody: "b1" });
+  const sp2 = add(d2, { id: "sp", type: "split", name: "Split Body1", bodies: ["b1"], tool: { kind: "face", body: "b1", p: [30, 10, 4], n: [0, 1, 0] }, extend: true });
+  r = new M.Evaluator().run(finish(d2));
+  const v2 = vols(r);
+  check("split: an L bracket split by its own inner face, extended (60x10 bar + 10x40 leg)", !okAll(r).length && v2.length === 2 && near(v2[0], 10 * 40 * 8) && near(v2[1], 60 * 10 * 8), { e: okAll(r), v2 });
+  sp2.extend = false;
+  r = new M.Evaluator().run(d2);
+  check("split: the same face without Extend does not divide the body (error)", r.results.sp.ok === false, r.results.sp);
+}
+{
+  // coil: circular section on centre, 5 turns, pitch 10, Ø50, section 5 -> V = A·2π·rc·turns (screw motion)
+  const doc = M.newDoc("coil");
+  const c = add(doc, { id: "c1", type: "coil", name: "Coil1", plane: { kind: "origin", name: "XY" }, center: [0, 0], coilType: "revHeight", diameter: "50 mm", revolutions: "5", height: "50 mm", angle: "0 deg", rotation: "cw", section: "circular", sectionPosition: "center", sectionSize: "5 mm", operation: "new" });
+  finish(doc);
+  check("coil: assignParams gives the coil its new body id", typeof c.newBody === "string", c.newBody);
+  const ev = new M.Evaluator();
+  let r = ev.run(doc);
+  const want = Math.PI * 6.25 * 2 * Math.PI * 25 * 5;
+  check("coil: Revolution and Height, circular on centre = π·r²·2π·R·turns", !okAll(r).length && near(vol(r, c.newBody), want, want * 2e-4), { e: okAll(r), v: vol(r, c.newBody), want });
+  const bb = bbox(r, c.newBody);
+  check("coil: height 50 along the plane normal (section centred on the path)", bb && near(bb.max[2] - bb.min[2], 55, 0.05), bb);
+  Object.assign(c, { sectionPosition: "inside", coilType: "revPitch", pitch: "8 mm" });
+  finish(doc);
+  r = ev.run(doc);
+  const wantIn = Math.PI * 6.25 * 2 * Math.PI * 22.5 * 5;
+  check("coil: Section Position Inside moves the section inside the diameter", !okAll(r).length && near(vol(r, c.newBody), wantIn, wantIn * 2e-4) && near(bbox(r, c.newBody).max[0], 25, 0.02), { e: okAll(r), v: vol(r, c.newBody), wantIn });
+  Object.assign(c, { section: "square", coilType: "heightPitch", height: "30 mm", pitch: "10 mm" });
+  r = ev.run(doc);
+  const wantSq = 25 * 2 * Math.PI * 22.5 * 3;
+  check("coil: Height and Pitch with a square section", !okAll(r).length && near(vol(r, c.newBody), wantSq, wantSq * 2e-4), { e: okAll(r), v: vol(r, c.newBody), wantSq });
+  Object.assign(c, { pitch: "4 mm" });
+  r = ev.run(doc);
+  check("coil: a pitch below the section size is an error (self-intersecting)", r.results.c1.ok === false && /intersects itself/.test(r.results.c1.error), r.results.c1);
+  Object.assign(c, { coilType: "spiral", revolutions: "3", pitch: "8 mm", section: "circular", sectionPosition: "center", sectionSize: "4 mm", diameter: "20 mm" });
+  r = ev.run(doc);
+  const sbb = r.results.c1.ok && bbox(r, c.newBody);
+  check("coil: Spiral stays flat (height = section size) and grows by the pitch per turn", !okAll(r).length && sbb && near(sbb.max[2] - sbb.min[2], 4, 0.02) && sbb.max[0] > 10 + 3 * 8 - 1, { e: okAll(r), sbb });
+}
+{
+  // pipe along a sketch line + tangent arc
+  const doc = M.newDoc("pipe");
+  const sk = S.newSketch();
+  const a = S.addPoint(sk, 0, 0), b = S.addPoint(sk, 50, 0), cc = S.addPoint(sk, 50, 20), e = S.addPoint(sk, 70, 20);
+  const l1 = S.addLine(sk, a, b);
+  const a1 = S.addArc(sk, cc, b, e);
+  doc.features.push({ id: "s1", type: "sketch", name: "Sketch1", plane: { ...K.ORIGIN_PLANES.XY }, planeRef: { kind: "origin", name: "XY" }, sk, visible: true });
+  doc.marker = 1;
+  const p = add(doc, { id: "p1", type: "pipe", name: "Pipe1", path: { sketch: "s1", curves: [a1, l1] }, distance: "1", section: "circular", sectionSize: "10 mm", hollow: false, thickness: "1 mm", operation: "new" });
+  finish(doc);
+  const ev = new M.Evaluator();
+  let r = ev.run(doc);
+  const L = 50 + 20 * Math.PI / 2;
+  check("pipe: circular Ø10 along line + arc (curves given out of order) = π·25·L", !okAll(r).length && near(vol(r, p.newBody), Math.PI * 25 * L, 0.05), { e: okAll(r), v: vol(r, p.newBody), want: Math.PI * 25 * L });
+  p.hollow = true;
+  r = ev.run(doc);
+  check("pipe: Hollow with 1 mm section thickness", !okAll(r).length && near(vol(r, p.newBody), Math.PI * (25 - 16) * L, 0.05), { e: okAll(r), v: vol(r, p.newBody) });
+  Object.assign(p, { hollow: false, section: "square", sectionSize: "6 mm", distance: "0.5" });
+  finish(doc);
+  r = ev.run(doc);
+  check("pipe: Distance 0.5 sweeps half the path (square section)", !okAll(r).length && near(vol(r, p.newBody), 36 * L / 2, 0.05), { e: okAll(r), v: vol(r, p.newBody), want: 36 * L / 2 });
+  // body edge path: the top front edge of the block, pipe cut into it
+  const d2 = baseDoc();
+  const p2 = add(d2, { id: "p2", type: "pipe", name: "Pipe1", edges: [{ body: "b1", p: [20, 0, 10] }], distance: "1", section: "circular", sectionSize: "4 mm", hollow: false, thickness: "1 mm", operation: "cut" });
+  r = new M.Evaluator().run(finish(d2));
+  check("pipe: along a body edge, Cut removes a quarter of the Ø4 rod", !okAll(r).length && near(vol(r), 8000 - Math.PI * 4 * 40 / 4, 0.05) && !p2.newBody, { e: okAll(r), v: vol(r) });
+}
+{
+  const doc = baseDoc();
+  const sc = add(doc, { id: "sc", type: "scale", name: "Scale1", bodies: ["b1"], point: { kind: "origin" }, scaleType: "uniform", factor: "2" });
+  finish(doc);
+  const ev = new M.Evaluator();
+  let r = ev.run(doc);
+  check("scale: uniform x2 about the origin = 8x volume", !okAll(r).length && near(vol(r), 64000) && near(bbox(r).max[0], 80), { e: okAll(r), v: vol(r) });
+  Object.assign(sc, { scaleType: "nonUniform", sx: "2", sy: "1", sz: "0.5", point: { kind: "vertex", body: "b1", p: [40, 20, 10] } });
+  finish(doc);
+  r = ev.run(doc);
+  const bb = bbox(r);
+  check("scale: non-uniform 2/1/0.5 about a vertex", !okAll(r).length && near(vol(r), 8000) && near(bb.min[0], -40, 1e-3) && near(bb.max[0], 40, 1e-3) && near(bb.min[2], 5, 1e-3), { e: okAll(r), v: vol(r), bb });
+  const nf = r.state.bodies.get("b1").shape.faces.length;
+  check("scale: a non-uniformly scaled box is rebuilt with its 6 faces", nf === 6, nf);
+  sc.factor = "0"; sc.scaleType = "uniform";
+  r = ev.run(doc);
+  check("scale: factor 0 is an error", r.results.sc.ok === false, r.results.sc);
+}
+{
+  // cosmetic thread on a Ø10 cylinder, then modeled
+  const doc = M.newDoc("thr");
+  add(doc, { id: "cy", type: "cylinder", name: "Cylinder1", plane: { kind: "origin", name: "XY" }, center: [0, 0], diameter: "10 mm", height: "6 mm", operation: "new", newBody: "b1" });
+  const th = add(doc, { id: "th", type: "thread", name: "Thread1", faces: [{ body: "b1", p: [5, 0, 3], n: [1, 0, 0] }], threadType: "ISO Metric profile", size: "10.0", designation: "M10x1.5", tclass: "6g", pitch: 1.5, major: 9.85, minor: 8.141, modeled: false, fullLength: true, rightHanded: true });
+  finish(doc);
+  const ev = new M.Evaluator();
+  let r = ev.run(doc);
+  const t0 = r.results.th.threads && r.results.th.threads[0];
+  check("thread: cosmetic thread leaves the body unchanged and reports its helix", !okAll(r).length && near(vol(r), Math.PI * 25 * 6) && t0 && near(t0.r, 5) && near(t0.z1 - t0.z0, 6) && t0.internal === false, { e: okAll(r), t0 });
+  th.modeled = true;
+  r = ev.run(doc);
+  const removed = Math.PI * 25 * 6 - vol(r);
+  const d = (9.85 - 8.141) / 2, est = d * d * Math.tan(Math.PI / 6) * 2 * Math.PI * (5 - d / 3) * 4;
+  check("thread: modeled M10x1.5 cuts a helical 60° groove (≈ screw-sweep volume)", !okAll(r).length && removed > est * 0.9 && removed < est * 1.05, { e: okAll(r), removed, est });
+  Object.assign(th, { fullLength: false, length: "3 mm", offset: "0 mm" });
+  finish(doc);
+  r = ev.run(doc);
+  const removed2 = Math.PI * 25 * 6 - vol(r);
+  check("thread: Full Length off: 3 mm of thread removes about half as much", !okAll(r).length && removed2 > removed * 0.4 && removed2 < removed * 0.6, { e: okAll(r), removed2, removed });
+  th.faces = [{ body: "b1", p: [0, 0, 6], n: [0, 0, 1] }];
+  r = ev.run(doc);
+  check("thread: a planar face is rejected", r.results.th.ok === false && /cylindrical/.test(r.results.th.error), r.results.th);
+}
+{
+  // modeled internal thread (M10x1.5 6H) in a Ø8.526 through hole of the 40 x 20 x 10 block
+  const doc = baseDoc();
+  add(doc, { id: "h", type: "hole", name: "Hole1", placement: "face", points: [[20, 10, 10]], normal: [0, 0, 1], faceRef: { body: "b1", p: [20, 10, 10], n: [0, 0, 1] }, diameter: "8.526 mm", depth: "10 mm", extent: "all", drillPoint: "flat", holeType: "simple", operation: "cut" });
+  add(doc, { id: "ti", type: "thread", name: "Thread1", faces: [{ body: "b1", p: [20 + 4.263, 10, 5], n: [-1, 0, 0] }], size: "10.0", designation: "M10x1.5", tclass: "6H", pitch: 1.5, major: 10.198, minor: 8.526, modeled: true, fullLength: true, rightHanded: true });
+  finish(doc);
+  const r = new M.Evaluator().run(doc);
+  const holed = 8000 - Math.PI * 4.263 * 4.263 * 10;
+  const t = r.results.ti && r.results.ti.threads && r.results.ti.threads[0];
+  check("thread: a hole face is an internal thread; modeled, it cuts into the wall", !okAll(r).length && t && t.internal === true && vol(r) < holed - 20 && vol(r) > holed - 120, { e: okAll(r), v: vol(r), holed, t });
+}
+
 // ---------- wasm memory: repeated previews must not grow the heap ----------
 // Before the fix every evaluation pinned its whole result body for the session (replicad never
 // deletes the raw handle of an operation result, nor the explorer items behind shape.faces/edges):

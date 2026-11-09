@@ -319,7 +319,7 @@ export function init(app) {
 
   // ------------------------------------------------------------------ Show/Hide
   function visTargets() {
-    const bodies = new Set(), feats = new Set();
+    const bodies = new Set(), feats = new Set(), canvases = new Set(), meshes = new Set();
     let origin = false;
     for (const r of app.selection.items) {
       if (r.kind === "body" || r.kind === "face" || r.kind === "edge" || r.kind === "vertex") { if (r.body) bodies.add(r.body); }
@@ -330,8 +330,10 @@ export function init(app) {
       } else if (r.kind === "profile" || r.kind === "sketchCurve" || r.kind === "sketchPoint" || r.kind === "sketchDim") {
         if (app.mode !== "sketch" && r.sketch) feats.add(r.sketch);
       } else if (r.kind === "originPlane" || r.kind === "originAxis" || r.kind === "originPoint") origin = true;
+      else if (r.kind === "canvas") canvases.add(r.id);
+      else if (r.kind === "meshBody") meshes.add(r.id);
     }
-    return { bodies, feats, origin, count: bodies.size + feats.size + (origin ? 1 : 0) };
+    return { bodies, feats, origin, canvases, meshes, count: bodies.size + feats.size + (origin ? 1 : 0) + canvases.size + meshes.size };
   }
   function toggleVisibility() {
     const t = visTargets();
@@ -340,6 +342,9 @@ export function init(app) {
       for (const id of t.bodies) { const m = app.bodyMeta(id); m.visible = m.visible === false; }
       for (const f of doc.features) if (t.feats.has(f.id)) f.visible = f.visible === false;
       if (t.origin) { doc.origin = doc.origin || {}; doc.origin.visible = !doc.origin.visible; }
+      // canvases / mesh bodies (inspect module's INSERT objects)
+      for (const c of doc.canvases || []) if (t.canvases.has(c.id)) c.visible = c.visible === false;
+      for (const m of doc.meshes || []) if (t.meshes.has(m.id)) m.visible = m.visible === false;
     });
     app.selection.clear();
   }

@@ -157,3 +157,56 @@
 
 /* section analysis colour swatch */
 .insp-color { width: 40px; height: 22px; padding: 0; border: 1px solid var(--c-border, #bbb); border-radius: 2px; background: none; cursor: pointer; }
+
+/* ---------------------------------------------------------------- INSERT: Canvas / Insert Mesh dialogs */
+.insp-canvas-dlg .dlg-row[data-row="image"] .dlg-ctl,
+.insp-mesh-dlg .dlg-row[data-row="file"] .dlg-ctl { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.insp-canvas-dlg .dlg-row[data-row="image"] .dlg-text,
+.insp-mesh-dlg .dlg-row[data-row="file"] .dlg-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #222; }
+.insp-file-btn {
+  flex: none; width: 26px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid #c9c9c9; border-radius: 2px; background: #fff; cursor: pointer;
+}
+.insp-file-btn:hover { background: #eef5fd; border-color: #7fb2ea; }
+.insp-canvas-dlg .dlg-row[data-row="opacity"] .dlg-ctl { display: flex; align-items: center; gap: 6px; }
+.insp-canvas-dlg .dlg-row[data-row="opacity"] .dlg-input { width: 42px; flex: none; }
+.insp-slider { flex: 1; min-width: 0; height: 16px; margin: 0; accent-color: #0696d7; cursor: pointer; }
+.insp-mesh-place { display: flex; gap: 6px; padding: 3px 33px 3px 9px; justify-content: flex-start; }
+.insp-btn {
+  height: 24px; padding: 0 10px; border: 1px solid #bdbdbd; border-radius: 2px; background: #fff; color: #3c3c3c;
+  font: 12px var(--font-ui); cursor: pointer;
+}
+.insp-btn:hover:not(:disabled) { background: #f2f2f2; border-color: #9c9c9c; }
+.insp-btn:disabled { color: #ababab; border-color: #dcdcdc; cursor: default; }
+
+/* ---------------------------------------------------------------- Bill of Materials */
+.insp-bom-modal .mn-body { padding: 0; }
+.insp-bom { display: flex; flex-direction: column; min-height: 200px; max-height: 60vh; font: 12px var(--font-ui); color: #222; }
+.insp-bom-bar { display: flex; align-items: baseline; gap: 10px; padding: 8px 14px 6px; border-bottom: 1px solid #e3e3e3; }
+.insp-bom-title { font-weight: 600; }
+.insp-bom-count { color: #6a6a6a; }
+.insp-bom-scroll { overflow: auto; flex: 1; }
+.insp-bom-table { width: 100%; border-collapse: collapse; table-layout: auto; }
+.insp-bom-table th {
+  position: sticky; top: 0; z-index: 1; background: #f5f5f5; color: #3c3c3c; font-weight: 600; text-align: left;
+  padding: 6px 10px; border-bottom: 1px solid #d9d9d9; white-space: nowrap;
+}
+.insp-bom-table td { padding: 5px 10px; border-bottom: 1px solid #eeeeee; white-space: nowrap; }
+.insp-bom-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.insp-bom-table th.num { text-align: right; }
+.insp-bom-table td.name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.insp-bom-table tbody tr { cursor: default; }
+.insp-bom-table tbody tr:hover { background: #eef5fd; }
+.insp-bom-table tbody tr.sel { background: #d6e8fb; }
+.insp-bom-table tbody tr.hidden-body td { color: #8a8a8a; }
+.insp-bom-table tfoot td { font-weight: 600; background: #fafafa; border-top: 1px solid #d9d9d9; border-bottom: none; }
+.insp-bom-unit { font-weight: 400; color: #6a6a6a; }
+.insp-bom-empty td { color: #8a8a8a; text-align: center; padding: 18px; }
+
+/* ---------------------------------------------------------------- Interference results */
+.insp-intf { padding: 0 33px 4px 9px; }
+.insp-intf-none { color: #6a6a6a; padding: 4px 0; }
+.insp-intf-table { width: 100%; border-collapse: collapse; font: 12px var(--font-ui); }
+.insp-intf-table th { text-align: left; font-weight: 600; color: #3c3c3c; padding: 3px 4px; border-bottom: 1px solid #d9d9d9; }
+.insp-intf-table td { padding: 3px 4px; border-bottom: 1px solid #eee; white-space: nowrap; }
+.insp-intf-table .num { text-align: right; }

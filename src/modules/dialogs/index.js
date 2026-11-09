@@ -5,11 +5,13 @@ import "./style.css";
 import { createFramework } from "./framework.js";
 import { registerCommands } from "./commands.js";
 import { installSketchFallback } from "./fallback.js";
+import { installCosmeticThreads } from "./cosmetic.js";
 import { MODULES } from "../../modules.js";
 
 export function init(app) {
   app.ui.dialog = createFramework(app);
   registerCommands(app);
+  app.ui.cosmeticThreads = installCosmeticThreads(app);
   // Builds without a working sketch module (e.g. --only=viewport,dialogs) still need to see and
   // pick sketch profiles: install a minimal fallback unless the real sketch environment is there.
   let installed = false;

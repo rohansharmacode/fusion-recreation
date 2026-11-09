@@ -5,6 +5,9 @@ import { openFillet, openChamfer, openShell, openDraft, openCombine, openMove, r
 import { openHole } from "./cmd-hole.js";
 import { openPrimitive, openMirror, openRectPattern, openCircPattern, openLoft, openSweep } from "./cmd-create.js";
 import { openOffsetPlane, openPlaneAtAngle, openMidplane } from "./cmd-construct.js";
+import { openCoil, openPipe } from "./cmd-coil-pipe.js";
+import { openSplitBody, openScale } from "./cmd-split-scale.js";
+import { openThread } from "./cmd-thread.js";
 
 const wrap = (open) => (app, ctx = {}) => {
   const pre = beginModelCommand(app);
@@ -25,6 +28,9 @@ export function registerCommands(app) {
   C({ id: "PrimitiveTorus", label: "Torus", tooltip: "Creates a torus (donut shaped solid body).", run: wrap((a, o) => openPrimitive(a, "torus", o)) });
   C({ id: "PatternRectangular", label: "Rectangular Pattern", tooltip: "Duplicates bodies and distributes them along linear axes in rows and columns.", run: wrap(openRectPattern) });
   C({ id: "PatternCircular", label: "Circular Pattern", tooltip: "Duplicates bodies and distributes them around an axis.", run: wrap(openCircPattern) });
+  C({ id: "PrimitiveCoil", label: "Coil", tooltip: "Creates a solid coil.", run: wrap(openCoil) });
+  C({ id: "PrimitivePipe", label: "Pipe", tooltip: "Creates a solid pipe that follows a selected path.", run: wrap(openPipe) });
+  C({ id: "FusionThreadCommand", label: "Thread", tooltip: "Add internal or external threads to cylindrical geometry. Threads can be cosmetic or modeled on the geometry.", run: wrap(openThread) });
   C({ id: "MirrorCommand", label: "Mirror", tooltip: "Creates a copy of selected bodies, mirrored across a plane.", run: wrap(openMirror) });
 
   C({ id: "FusionPressPullCommand", label: "Press Pull", shortcut: "Q", tooltip: "Modifies the selected geometry using offset, extrude, or fillet commands. The operation depends on the geometry selected.", run: (a) => runPressPull(a) });
@@ -33,6 +39,8 @@ export function registerCommands(app) {
   C({ id: "FusionShellBodyCommand", label: "Shell", tooltip: "Hollows a solid body, leaving walls of the specified thickness.", run: wrap(openShell) });
   C({ id: "FusionDraftCommand", label: "Draft", tooltip: "Applies a fixed draft angle to planar faces.", run: wrap(openDraft) });
   C({ id: "FusionCombineCommand", label: "Combine", tooltip: "Joins, cuts, or intersects two or more solid bodies to create a single solid body.", run: wrap(openCombine) });
+  C({ id: "ModifyScale", label: "Scale", tooltip: "Scales sketch objects, bodies, or components.", run: wrap(openScale) });
+  C({ id: "FusionSplitBodyCommand", label: "Split Body", tooltip: "Creates new bodies by dividing selected bodies using a profile, face, or plane.", run: wrap(openSplitBody) });
   C({ id: "FusionMoveCommand", label: "Move/Copy", shortcut: "M", tooltip: "Moves the selected bodies a specified distance or angle.", run: wrap(openMove) });
   C({ id: "FusionDeleteCommand", label: "Delete", shortcut: "Delete", when: "model", tooltip: "Deletes the selected objects.", run: (a) => runDelete(a) });
 
@@ -58,6 +66,11 @@ export function registerCommands(app) {
   E.cpattern = edit(openCircPattern);
   E.loft = edit(openLoft);
   E.sweep = edit(openSweep);
+  E.coil = edit(openCoil);
+  E.pipe = edit(openPipe);
+  E.thread = edit(openThread);
+  E.scale = edit(openScale);
+  E.split = edit(openSplitBody);
   for (const t of ["box", "cylinder", "sphere", "torus"]) E[t] = (a, id) => { beginModelCommand(a); return openPrimitive(a, t, { editId: id }); };
   E.cplane = (a, id) => {
     beginModelCommand(a);

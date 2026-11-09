@@ -1,6 +1,7 @@
 // BROWSER: the design tree floating at the top-left of the canvas (Fusion's Browser).
 //   root component "(Unsaved)" / "Name vN" > Document Settings (Units: mm, g; Part Design),
-//   Named Views, Origin, Bodies, Sketches, Construction (folders appear once they have content).
+//   Named Views, Analysis, Origin, Mesh Bodies, Bodies, Canvases, Sketches, Construction (folders appear
+//   once they have content; Canvases / Mesh Bodies come from app.ui.insert, nodes canvas:<id> / meshbody:<id>).
 //   Eye toggles (folder eyes reflect their children; hiding a folder remembers the children's
 //   states and showing it restores them, or shows them all), selection/hover sync with the
 //   canvas, rename (double-click / F2), Fusion's right-click menus, « collapse, − minimise,
@@ -307,6 +308,12 @@ export function init(app) {
       }),
     });
 
+    // Mesh Bodies (Insert Mesh) and Canvases (Canvas) from the inspect module's app.ui.insert
+    const ins2 = app.ui.insert;
+    const insList = (fn) => { try { return ins2 && typeof ins2[fn] === "function" ? (ins2[fn]() || []) : []; } catch { return []; } };
+    const meshItems = insList("meshes");
+    if (meshItems.length) kids.push(insertFolder("mesh", meshItems));
+
     // Bodies
     const bodyIds = bodyIdsAlive();
     if (bodyIds.length) {
@@ -331,6 +338,9 @@ export function init(app) {
         children: bodyIds.map((id) => bodyNode(id)),
       });
     }
+
+    const canvasItems = insList("canvases");
+    if (canvasItems.length) kids.push(insertFolder("canvas", canvasItems));
 
     // Sketches
     const sks = sketchFeatures();
@@ -391,6 +401,66 @@ export function init(app) {
       ],
       right: `<span class="br-radio" title="Activate component">${glyph("br-radio")}</span>`,
       children: kids,
+    };
+  }
+
+  // Canvases / Mesh Bodies folders (items stored by the inspect module in app.doc.canvases / meshes)
+  function insertFolder(kind, items) {
+    const ins = app.ui.insert;
+    const isCanvas = kind === "canvas";
+    const refKind = isCanvas ? "canvas" : "meshBody";
+    const nodeKind = isCanvas ? "canvas" : "meshbody";
+    const ids = items.map((x) => x.id);
+    const anyVis = items.some((x) => x.visible);
+    const call = (fn, ...a) => { try { return ins && ins[fn] ? ins[fn](...a) : undefined; } catch (e) { console.error(e); return undefined; } };
+    const setVis = (tids, v) => call("setVisible", kind, tids, v);
+    const targets = (id) => {
+      const ref = { kind: refKind, id };
+      return app.selection.has(ref) ? app.selection.items.filter((r) => r.kind === refKind).map((r) => r.id) : [id];
+    };
+    const toggleAll = () => setVis(ids, !anyVis);
+    const refs = ids.map((id) => ({ kind: refKind, id }));
+    return {
+      key: isCanvas ? "canvases:root" : "meshbodies:root", label: isCanvas ? "Canvases" : "Mesh Bodies", icon: glyph("br-folder"), eye: anyVis,
+      selectAll: refs,
+      onEye: toggleAll,
+      menu: () => [
+        { label: "Show/Hide", cmd: "VisibilityToggleCmd", act: "toggle-visibility", icon: "m-eye", hint: "V", action: toggleAll },
+        isCanvas ? "-" : null,
+        isCanvas ? { label: "Selectable/Unselectable", cmd: "SelectabilityToggleCmd", act: "selectable", action: () => call("setSelectable", ids, !items.every((x) => x.selectable)) } : null,
+      ].filter(Boolean),
+      children: items.map((it) => {
+        const key = `${nodeKind}:${it.id}`;
+        const ref = { kind: refKind, id: it.id };
+        const vis = !!it.visible;
+        const del = () => call("remove", kind, targets(it.id));
+        const showHide = () => setVis(targets(it.id), !vis);
+        const sub = isCanvas ? (it.missing ? "Canvas (missing plane)" : "Canvas") : `Mesh Body${it.tris ? ` | ${Number(it.tris).toLocaleString()} triangles` : ""}`;
+        return {
+          key, label: it.name, icon: glyph(isCanvas ? "br-canvas" : "br-mesh"), eye: vis, ref, renamable: true,
+          badge: it.missing ? glyph("warning", 14) : "",
+          tip: `<b>${esc(it.name)}</b><div class="br-tip-sub">${esc(sub)}</div>`,
+          onEye: showHide,
+          onDbl: () => (isCanvas ? call("editCanvas", it.id) : startRename(key)),
+          rename: (name) => call("rename", kind, it.id, name),
+          menu: () => (isCanvas ? [
+            { label: "Edit Canvas", cmd: "FusionEditCanvasCommand", act: "edit-canvas", icon: "m-editfeature", action: () => call("editCanvas", it.id) },
+            { label: "Calibrate", cmd: "FusionCalibrateCanvasCommand", act: "calibrate", action: () => notAvailable(app, "Calibrate") },
+            "-",
+            { label: "Delete", act: "delete", hint: "Del", icon: "m-delete", action: del },
+            { label: "Rename", cmd: "RenameBrowserCmd", act: "rename", action: () => startRename(key) },
+            "-",
+            { label: "Show/Hide", cmd: "VisibilityToggleCmd", act: "toggle-visibility", hint: "V", icon: "m-eye", action: showHide },
+            "-",
+            { label: "Selectable/Unselectable", cmd: "SelectabilityToggleCmd", act: "selectable", action: () => call("setSelectable", targets(it.id), !it.selectable) },
+          ] : [
+            { label: "Delete", act: "delete", hint: "Del", icon: "m-delete", action: del },
+            { label: "Rename", cmd: "RenameBrowserCmd", act: "rename", action: () => startRename(key) },
+            "-",
+            { label: "Show/Hide", cmd: "VisibilityToggleCmd", act: "toggle-visibility", hint: "V", icon: "m-eye", action: showHide },
+          ]),
+        };
+      }),
     };
   }
 

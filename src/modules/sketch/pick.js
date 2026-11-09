@@ -21,7 +21,7 @@ export function pickablePoints(sk, active) {
   } else {
     for (const cv of Object.values(sk.curves)) {
       if (cv.type === "point") out.push(cv.p);
-      else if ((cv.type === "circle" || cv.type === "arc") && !cv.cons && !cv.proj) out.push(cv.c);
+      else if ((cv.type === "circle" || cv.type === "arc" || cv.type === "ellipse" || cv.type === "earc") && !cv.cons && !cv.proj) out.push(cv.c);
     }
   }
   return out;

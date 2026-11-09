@@ -2,6 +2,10 @@
 // Levenberg–Marquardt over point coordinates and circle radii, with a
 // sparse numeric Jacobian. Also reports which variables remain free so the
 // UI can colour fully-constrained geometry black (as Fusion does).
+// Spline fit points and ellipse centre / axis points are ordinary point variables; the curves add
+// implicit residuals (ellipse axes perpendicular, elliptical arc ends on the ellipse) and support
+// on-curve, tangent (line-ellipse) and drag ("grab") constraints through curves.js.
+import { splineOf, splineGeom, ellipseOf, ellipseResidual, ellipseSupport, pcurveNearest, ellipseGeom } from "./curves.js";
 
 const D2R = Math.PI / 180;
 
@@ -132,6 +136,58 @@ export function buildSystem(sk, dimValues = {}, pinned = new Set(), extra = {}) 
     const c = sk.curves[cid];
     return [P(c.c), Rr(cid)];
   };
+  // point getter over the variable vector (free-form curve residuals evaluate whole curves)
+  const ptAt = (x) => (pid) => (sk.points[pid] ? P(pid).get(x) : null);
+  const pcVars = (id) => {
+    // variables a spline's shape depends on: its fit points and the points of curves its ends are tangent to
+    const cv = sk.curves[id];
+    const out = [];
+    for (const p of curvePoints(cv)) out.push(...P(p).vars);
+    if (cv.type === "spline") for (const c of sk.constraints) {
+      if (c.type !== "tangent" || !c.refs.includes(id)) continue;
+      for (const r of c.refs) if (r !== id && sk.curves[r]) for (const p of curvePoints(sk.curves[r])) if (sk.points[p]) out.push(...P(p).vars);
+    }
+    return out;
+  };
+  const pcGeom = (id, x) => {
+    const cv = sk.curves[id];
+    const pt = ptAt(x);
+    if (cv.type === "spline") return splineGeom(splineOf(sk, id, new Set(), pt), id);
+    return ellipseGeom(ellipseOf(sk, cv, pt), cv.type === "earc" ? [pt(cv.p1), pt(cv.p2)] : null, id);
+  };
+  /** signed distance of q from free-form curve id (sign: side of the curve direction) */
+  const pcDist = (id, x, q) => {
+    const cv = sk.curves[id];
+    // on an ellipse / elliptical arc: the full ellipse (like points on arcs use the full circle)
+    if (cv.type === "ellipse" || cv.type === "earc") { const E = ellipseOf(sk, cv, ptAt(x)); return E ? ellipseResidual(E, q) : 0; }
+    const g = pcGeom(id, x);
+    if (!g) return 0;
+    const n = pcurveNearest(g, q);
+    if (!n) return 0;
+    const d = g.der(n.t);
+    return Math.sign((d[0] * (q[1] - n.p[1]) - d[1] * (q[0] - n.p[0])) || 1) * n.d;
+  };
+  // implicit ellipse constraints: the second axis point stays on the perpendicular through the centre;
+  // elliptical arc ends stay on the ellipse
+  for (const [id, cv] of Object.entries(sk.curves)) {
+    if (cv.type !== "ellipse" && cv.type !== "earc") continue;
+    const c = P(cv.c), a = P(cv.a), b = P(cv.b);
+    add("ell:" + id, [...c.vars, ...a.vars, ...b.vars], (x) => {
+      const C = c.get(x), A = a.get(x), B = b.get(x);
+      const u = [A[0] - C[0], A[1] - C[1]], w = [B[0] - C[0], B[1] - C[1]];
+      const lu = Math.hypot(...u) || 1e-9, lw = Math.hypot(...w) || 1e-9;
+      return ((u[0] * w[0] + u[1] * w[1]) / (lu * lw)) * 10;
+    });
+    if (cv.type === "earc") {
+      for (const e of [cv.p1, cv.p2]) {
+        const pe = P(e);
+        add("ell:" + id, [...c.vars, ...a.vars, ...b.vars, ...pe.vars], (x) => {
+          const E = ellipseOf(sk, cv, ptAt(x));
+          return E ? ellipseResidual(E, pe.get(x)) : 0;
+        });
+      }
+    }
+  }
   // implicit arc constraints
   for (const [id, cv] of Object.entries(sk.curves)) {
     if (cv.type !== "arc") continue;
@@ -147,6 +203,8 @@ export function buildSystem(sk, dimValues = {}, pinned = new Set(), extra = {}) 
   }
   const isRound = (id) => sk.curves[id] && (sk.curves[id].type === "circle" || sk.curves[id].type === "arc");
   const isLine = (id) => sk.curves[id] && sk.curves[id].type === "line";
+  const isFree = (id) => sk.curves[id] && (sk.curves[id].type === "spline" || sk.curves[id].type === "ellipse" || sk.curves[id].type === "earc");
+  const isEll = (id) => sk.curves[id] && (sk.curves[id].type === "ellipse" || sk.curves[id].type === "earc");
   const distPtLine = (p, a, b) => {
     const dx = b[0] - a[0], dy = b[1] - a[1];
     const L = Math.hypot(dx, dy) || 1e-9;
@@ -175,6 +233,8 @@ export function buildSystem(sk, dimValues = {}, pinned = new Set(), extra = {}) 
             const pp = p.get(x), q = cc.get(x);
             return Math.hypot(pp[0] - q[0], pp[1] - q[1]) - r.get(x);
           });
+        } else if (isFree(R[1])) {
+          add(c.id, [...p.vars, ...pcVars(R[1])], (x) => pcDist(R[1], x, p.get(x)));
         }
         break;
       }
@@ -235,6 +295,21 @@ export function buildSystem(sk, dimValues = {}, pinned = new Set(), extra = {}) 
       case "tangent": {
         let [l, k] = R;
         if (isLine(k)) [l, k] = [k, l];
+        // a spline end tangent to the curve it meets is G1 by construction (curves.js clamps the end)
+        if (sk.curves[l] && sk.curves[k] && (sk.curves[l].type === "spline" || sk.curves[k].type === "spline")) break;
+        if (isLine(l) && isEll(k)) {
+          const [a, b] = line(l);
+          const ce = P(sk.curves[k].c);
+          add(c.id, [...a.vars, ...b.vars, ...pcVars(k)], (x) => {
+            const E = ellipseOf(sk, sk.curves[k], ptAt(x));
+            if (!E) return 0;
+            const A = a.get(x), B = b.get(x);
+            const L = Math.hypot(B[0] - A[0], B[1] - A[1]) || 1e-9;
+            const n = [-(B[1] - A[1]) / L, (B[0] - A[0]) / L];
+            return Math.abs(distPtLine(ce.get(x), A, B)) - ellipseSupport(E, n);
+          });
+          break;
+        }
         if (isLine(l) && isRound(k)) {
           const [a, b] = line(l), [cc, r] = circ(k);
           add(c.id, [...a.vars, ...b.vars, ...cc.vars, ...r.vars], (x) =>
@@ -290,6 +365,9 @@ export function buildSystem(sk, dimValues = {}, pinned = new Set(), extra = {}) 
           const p = P(sk.curves[R[0]].p);
           add(c.id, p.vars, (x) => w * (p.get(x)[0] - c.x));
           add(c.id, p.vars, (x) => w * (p.get(x)[1] - c.y));
+        } else if (isFree(R[0])) {
+          // pull the curve so that it passes through (x, y)
+          add(c.id, pcVars(R[0]), (x) => w * pcDist(R[0], x, [c.x, c.y]));
         }
         break;
       }
@@ -367,6 +445,9 @@ export function curvePoints(cv) {
   if (cv.type === "circle") return [cv.c];
   if (cv.type === "arc") return [cv.c, cv.p1, cv.p2];
   if (cv.type === "point") return [cv.p];
+  if (cv.type === "spline") return [...new Set(cv.pts || [])];
+  if (cv.type === "ellipse") return [cv.c, cv.a, cv.b];
+  if (cv.type === "earc") return [cv.c, cv.a, cv.b, cv.p1, cv.p2];
   return [];
 }
 
@@ -457,6 +538,14 @@ function degenerateWith(sk, getP, getR) {
       const r = getR(id);
       if (Number.isFinite(r) && Math.abs(r) < DEGENERATE_TOL) out.add(id);
       if (cv.type === "arc" && d(getP(cv.p1), getP(cv.p2)) < DEGENERATE_TOL) out.add(id);
+    } else if (cv.type === "spline") {
+      // two consecutive fit points on top of each other
+      const pts = cv.pts || [];
+      const n = pts.length;
+      for (let i = 0; i + 1 < n + (cv.closed ? 1 : 0); i++) if (d(getP(pts[i]), getP(pts[(i + 1) % n])) < DEGENERATE_TOL) { out.add(id); break; }
+    } else if (cv.type === "ellipse" || cv.type === "earc") {
+      if (d(getP(cv.c), getP(cv.a)) < DEGENERATE_TOL || d(getP(cv.c), getP(cv.b)) < DEGENERATE_TOL) out.add(id);
+      if (cv.type === "earc" && d(getP(cv.p1), getP(cv.p2)) < DEGENERATE_TOL) out.add(id);
     }
   }
   return out;

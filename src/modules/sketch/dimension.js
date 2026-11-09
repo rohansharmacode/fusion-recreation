@@ -44,8 +44,9 @@ export function buildDim(sk, sel, L) {
     else return null;
   } else if (sel.length === 2) {
     const [r0, r1] = sel;
-    const ptOf = (r, ty) => (ty === "point" ? pointId(sk, r) : ty === "circle" || ty === "arc" ? sk.curves[r.curve].c : null);
-    if ((t[0] === "point" || t[0] === "circle" || t[0] === "arc") && (t[1] === "point" || t[1] === "circle" || t[1] === "arc")) {
+    const ptOf = (r, ty) => (ty === "point" ? pointId(sk, r) : ty === "circle" || ty === "arc" || ty === "ellipse" || ty === "earc" ? sk.curves[r.curve].c : null);
+    const ctrish = (ty) => ty === "point" || ty === "circle" || ty === "arc" || ty === "ellipse" || ty === "earc";
+    if (ctrish(t[0]) && ctrish(t[1])) {
       const a = ptOf(r0, t[0]), b = ptOf(r1, t[1]);
       if (!a || !b || a === b) return null;
       c = { type: "distance", refs: [a, b], dimType: placementType(P2(sk, a), P2(sk, b), L) };

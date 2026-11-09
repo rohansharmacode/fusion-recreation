@@ -217,7 +217,8 @@ export function rebuild() {
     const big = new Set();
     for (const cv of Object.values(sk.curves)) {
       if (cv.type === "point") big.add(cv.p);
-      else if ((cv.type === "circle" || cv.type === "arc") && !cv.proj) big.add(cv.c);
+      else if ((cv.type === "circle" || cv.type === "arc" || cv.type === "ellipse" || cv.type === "earc") && !cv.proj) big.add(cv.c);
+      else if (cv.type === "spline" && !cv.proj && active) for (const p of cv.pts) big.add(p); // fit points show as dots
     }
     const sets = { s: { ids: [], cls: [] }, b: { ids: [], cls: [] } };
     const push = (pid, c) => { const k = big.has(pid) ? "b" : "s"; sets[k].ids.push(pid); sets[k].cls.push(c); };
@@ -238,7 +239,7 @@ export function rebuild() {
     } else if (!active) {
       const seen = new Set();
       for (const cv of Object.values(sk.curves)) {
-        if (cv.type === "point" || ((cv.type === "circle" || cv.type === "arc") && !cv.cons && !cv.proj)) {
+        if (cv.type === "point" || ((cv.type === "circle" || cv.type === "arc" || cv.type === "ellipse" || cv.type === "earc") && !cv.cons && !cv.proj)) {
           const pid = cv.type === "point" ? cv.p : cv.c;
           if (!sk.points[pid] || seen.has(pid) || pid === "o") continue;
           seen.add(pid);
@@ -586,7 +587,7 @@ function rebuildOverlay() {
     }
     if (ST.opts.showCons) {
       for (const c of sk.constraints) {
-        if (!GLYPH_SVG[c.type]) continue;
+        if (!GLYPH_SVG[c.type] || c.internal) continue;
         for (const spot of glyphSpots(sk, c)) {
           const el = document.createElement("div");
           el.className = "sk-glyph";
@@ -640,6 +641,12 @@ function curveMid(sk, id) {
     return { p: m, n: unit2(sub(m, c)) };
   }
   if (cv.type === "point") return { p: P2(sk, cv.p), n: [0.7, 0.7] };
+  // splines / ellipses: the middle of the drawn polyline, normal from its local direction
+  const g = ST.app.S.curvePolyline(sk, id, 48);
+  if (g.length >= 2) {
+    const k = Math.min(g.length - 2, Math.floor(g.length / 2));
+    return { p: g[k], n: perp2(unit2(sub(g[k + 1], g[k]))) };
+  }
   return null;
 }
 
@@ -662,6 +669,26 @@ function glyphSpots(sk, c) {
         if (sk.curves[k] && sk.curves[k].type === "line") [l, k] = [k, l];
         const L = sk.curves[l], C = sk.curves[k];
         if (!L || !C) break;
+        const S = ST.app.S;
+        if (L.type === "spline" || C.type === "spline") {
+          // G1 at the shared end point
+          const shared = S.curvePoints(L).find((p) => S.curvePoints(C).includes(p));
+          if (shared && sk.points[shared]) out.push({ p: P2(sk, shared), n: [0.7, -0.7], ent: "t" + c.id, pt: true });
+          break;
+        }
+        if (C.type === "ellipse" || C.type === "earc") {
+          if (L.type !== "line") break;
+          const a = P2(sk, L.p1), b = P2(sk, L.p2);
+          let best = null;
+          for (const q of S.curvePolyline(sk, k, 96)) {
+            const u = unit2(sub(b, a));
+            const foot = add2(a, mul2(u, dot2(sub(q, a), u)));
+            const dd = len2(sub(q, foot));
+            if (!best || dd < best.dd) best = { dd, q };
+          }
+          if (best) out.push({ p: best.q, n: unit2(sub(best.q, P2(sk, C.c))), ent: "t" + c.id });
+          break;
+        }
         if (L.type === "line") {
           const a = P2(sk, L.p1), b = P2(sk, L.p2), cc = P2(sk, C.c);
           const u = unit2(sub(b, a));

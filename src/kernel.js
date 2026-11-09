@@ -1,7 +1,8 @@
 // Thin wrapper around replicad / OpenCascade for the modelling features.
 import opencascade from "replicad-opencascadejs";
 import * as R from "replicad";
-import { cycleSegments } from "./sketch/regions.js";
+import { cycleSegments, halfEdgeSamples } from "./sketch/regions.js";
+import { splinePieces, ellipsePoint, ellipseDer } from "./sketch/curves.js";
 
 export { R };
 
@@ -77,16 +78,52 @@ export function planeFromNormal(p, n) {
 }
 
 // ---------- regions -> drawings ----------
+// Spline pieces of a cycle as cubic Beziers in traversal order, end points snapped onto the loop's
+// vertices: [{b:[p0,c1,c2,p3], L}] (L = chord-length parameter span, the B-spline knot spacing).
+function splineSegPieces(s) {
+  let pieces = splinePieces(s.g, s.t0, s.t1);
+  if (!s.fwd) pieces = pieces.reverse().map((p) => ({ b: [p.b[3], p.b[2], p.b[1], p.b[0]], L: p.L }));
+  if (!pieces.length) return pieces;
+  pieces[0].b[0] = s.a;
+  pieces[pieces.length - 1].b[3] = s.b;
+  return pieces;
+}
+/** Ellipse piece of a cycle: frame, CCW angles (th0 < th1) and whether the traversal runs CCW. */
+function ellipseSegInfo(s) {
+  const g = s.g, E = g.E;
+  const th0 = g.th0 + s.t0, th1 = g.th0 + s.t1;
+  return { E, th0, th1, ccw: s.fwd };
+}
 function cycleDrawing(cycle, vertices) {
   const segs = cycleSegments(cycle, vertices);
   if (segs.length === 1 && segs[0].kind === "arc") {
     const s = segs[0];
     return R.drawCircle(s.r).translate(s.c[0], s.c[1]);
   }
+  if (segs.length === 1 && segs[0].kind === "pcurve" && segs[0].sub === "ellipse" && segs[0].full && Math.abs(segs[0].t1 - segs[0].t0 - 2 * Math.PI) < 1e-9) {
+    const { E } = ellipseSegInfo(segs[0]);
+    const major = E.r1 >= E.r2;
+    const ang = (Math.atan2(major ? E.ux[1] : E.uy[1], major ? E.ux[0] : E.uy[0]) * 180) / Math.PI;
+    return R.drawEllipse(Math.max(E.r1, E.r2), Math.min(E.r1, E.r2)).rotate(ang, [0, 0]).translate(E.c[0], E.c[1]);
+  }
   let pen = R.draw(segs[0].a);
   for (const s of segs) {
     if (s.kind === "line") pen = pen.lineTo(s.b);
-    else {
+    else if (s.kind === "pcurve" && s.sub === "spline") {
+      for (const p of splineSegPieces(s)) pen = pen.cubicBezierCurveTo(p.b[3], p.b[1], p.b[2]);
+    } else if (s.kind === "pcurve") {
+      // elliptical arc: cubic Bezier quarter (or smaller) pieces, tangent-exact at the ends
+      const { E, th0, th1, ccw } = ellipseSegInfo(s);
+      const n = Math.max(1, Math.ceil((th1 - th0) / (Math.PI / 4)));
+      const P = (t) => ellipsePoint(E, t), D = (t) => ellipseDer(E, t);
+      for (let i = 0; i < n; i++) {
+        let a = th0 + ((th1 - th0) * i) / n, b = th0 + ((th1 - th0) * (i + 1)) / n;
+        if (!ccw) { a = th1 - ((th1 - th0) * i) / n; b = th1 - ((th1 - th0) * (i + 1)) / n; }
+        const k = (4 / 3) * Math.tan((b - a) / 4);
+        const pa = P(a), pb = i === n - 1 ? s.b : P(b), da = D(a), db = D(b);
+        pen = pen.cubicBezierCurveTo(pb, [pa[0] + da[0] * k, pa[1] + da[1] * k], [pb[0] - db[0] * k, pb[1] - db[1] * k]);
+      }
+    } else {
       // guard against degenerate (collinear) arcs which crash OCCT
       const cr = (s.mid[0] - s.a[0]) * (s.b[1] - s.a[1]) - (s.mid[1] - s.a[1]) * (s.b[0] - s.a[0]);
       if (Math.abs(cr) < 1e-10) pen = pen.lineTo(s.b);
@@ -170,7 +207,43 @@ export function revolveDrawing(drawing, pl, axisOrigin, axisDir, angleDeg) {
 // ---------- sketch regions straight to 3D faces ----------
 // The extrude/revolve hot path (every preview while dragging) builds profile faces directly with
 // OCCT edges on the sketch plane instead of replicad's 2D drawing -> sketchOnPlane conversion,
-// which leaks a few KB per call. Same geometry: lines, three-point arcs, full circles.
+// which leaks a few KB per call. Same geometry: lines, three-point arcs, full circles; splines become
+// one C1-knotted cubic B-spline edge (exactly the sketch's piecewise Bezier), ellipses gp_Elips edges.
+function splineWireEdge(O, s, W, tmp) {
+  const pieces = splineSegPieces(s);
+  const k = pieces.length;
+  if (!k) return null;
+  const poles = new O.NCollection_Array1_gp_Pnt(1, 2 * k + 2);
+  const knots = new O.NCollection_Array1_double(1, k + 1);
+  const mults = new O.NCollection_Array1_int(1, k + 1);
+  tmp.push(poles, knots, mults);
+  let idx = 1;
+  const setP = (p) => { const g = gpPnt(W(p)); poles.SetValue(idx++, g); del(g); };
+  setP(pieces[0].b[0]);
+  for (const pc of pieces) { setP(pc.b[1]); setP(pc.b[2]); }
+  setP(pieces[k - 1].b[3]);
+  let u = 0;
+  knots.SetValue(1, 0); mults.SetValue(1, 4);
+  for (let i = 0; i < k; i++) { u += Math.max(pieces[i].L, 1e-9); knots.SetValue(i + 2, u); mults.SetValue(i + 2, i === k - 1 ? 4 : 2); }
+  const curve = new O.Geom_BSplineCurve(poles, knots, mults, 3, false);
+  tmp.push(curve);
+  return new O.BRepBuilderAPI_MakeEdge(curve);
+}
+function ellipseWireEdge(O, s, W, pl, tmp) {
+  const { E, th0, th1 } = ellipseSegInfo(s);
+  const major = E.r1 >= E.r2;
+  const X2 = major ? E.ux : E.uy;
+  const y = planeY(pl);
+  const Xw = [pl.x[0] * X2[0] + y[0] * X2[1], pl.x[1] * X2[0] + y[1] * X2[1], pl.x[2] * X2[0] + y[2] * X2[1]];
+  const c = gpPnt(W(E.c)), n = gpDir(pl.n), xd = gpDir(Xw);
+  const ax = new O.gp_Ax2(c, n, xd);
+  const el = new O.gp_Elips(ax, Math.max(E.r1, E.r2), Math.min(E.r1, E.r2));
+  tmp.push(c, n, xd, ax, el);
+  if (s.full && th1 - th0 >= 2 * Math.PI - 1e-9) return new O.BRepBuilderAPI_MakeEdge(el);
+  // gp_Elips parameter: the sketch angle when the first axis is the major one, else a quarter turn behind
+  const off = major ? 0 : -Math.PI / 2;
+  return new O.BRepBuilderAPI_MakeEdge(el, th0 + off, th1 + off);
+}
 function cycleWire(cycle, vertices, pl) {
   const O = OC();
   const segs = cycleSegments(cycle, vertices);
@@ -178,7 +251,17 @@ function cycleWire(cycle, vertices, pl) {
   const wb = new O.BRepBuilderAPI_MakeWire();
   const tmp = [];
   try {
-    const addEdge = (me) => { tmp.push(me); const e = me.Edge(); tmp.push(e); wb.Add(e); };
+    const addEdge = (me, reversed = false) => {
+      tmp.push(me);
+      if (me.IsDone && !me.IsDone()) throw new Error("Failed to build a profile curve");
+      const e = me.Edge();
+      tmp.push(e);
+      if (!reversed) { wb.Add(e); return; }
+      const rv = e.Reversed();
+      const re = O.TopoDS.Edge(rv);
+      tmp.push(rv, re);
+      wb.Add(re);
+    };
     if (segs.length === 1 && segs[0].kind === "arc") {
       const s = segs[0];
       const ax = gpAx2(W(s.c), pl.n);
@@ -187,6 +270,12 @@ function cycleWire(cycle, vertices, pl) {
       addEdge(new O.BRepBuilderAPI_MakeEdge(circ));
     } else {
       for (const s of segs) {
+        if (s.kind === "pcurve") {
+          // splines are built in traversal order; ellipse arcs counter-clockwise, reversed when walked backwards
+          if (s.sub === "spline") { const me = splineWireEdge(O, s, W, tmp); if (me) addEdge(me); }
+          else addEdge(ellipseWireEdge(O, s, W, pl, tmp), !s.fwd);
+          continue;
+        }
         const a = gpPnt(W(s.a)), b = gpPnt(W(s.b));
         tmp.push(a, b);
         // degenerate (collinear) arcs crash OCCT: draw them as lines
@@ -260,6 +349,7 @@ export function unionRegions(regions) {
   const keep = new Set([...H].filter((h) => !(h.twin && H.has(h.twin))));
   const sample = (h) => {
     const e = h.e;
+    if (e.kind === "pcurve") return halfEdgeSamples(h);
     if (e.kind === "line") return [e.pu && e.pv ? (h.fwd ? e.pu : e.pv) : null].filter(Boolean);
     const n = Math.max(2, Math.ceil(Math.abs(e.sweep) / 0.3));
     const out = [];
@@ -1483,4 +1573,372 @@ export function polygonFace(pts) {
 
 export function exportSTEPBlob(items) {
   return R.exportSTEP(items.map((b) => ({ shape: b.shape, name: b.name, color: b.color })));
+}
+
+// ---------- Split Body / Scale / Coil / Pipe / Thread helpers (appended) ----------
+/** Solids of a shape: a solid -> [itself]; a compound -> fresh wrappers of its solids (caller owns them). */
+export function solidsOf(shape) {
+  if (!shape) return [];
+  if (shape instanceof R.Solid) return [shape];
+  const O = OC();
+  const SE = O.TopAbs_ShapeEnum;
+  const out = [];
+  const ex = new O.TopExp_Explorer(shape.wrapped, SE.TopAbs_SOLID, SE.TopAbs_SHAPE);
+  try {
+    while (ex.More()) {
+      const c = ex.Current();
+      try { out.push(new R.Solid(O.TopoDS.Solid(c))); } finally { del(c); }
+      ex.Next();
+    }
+  } finally { ex.delete(); }
+  return out;
+}
+
+/**
+ * Split `shape` with tool shapes (faces, shells or solids) using OCCT's general splitter.
+ * Returns the resulting solids (one entry = the tools do not divide the body). The input and the
+ * tools are kept.
+ */
+export function splitShape(shape, tools) {
+  const O = OC();
+  const sp = new O.BRepAlgoAPI_Splitter();
+  const args = new O.NCollection_List_TopoDS_Shape([shape.wrapped]);
+  const tl = new O.NCollection_List_TopoDS_Shape(tools.map((t) => t.wrapped));
+  try {
+    sp.SetArguments(args);
+    sp.SetTools(tl);
+    sp.Build();
+    if (typeof sp.HasErrors === "function" && sp.HasErrors()) throw new Error("The split failed");
+    const raw = sp.Shape();
+    let s;
+    try { s = R.cast(raw); } finally { del(raw); }
+    const parts = solidsOf(s);
+    if (!parts.includes(s)) del(s);
+    return parts;
+  } finally { del(sp, args, tl); }
+}
+
+/** Square planar face of half-size `half` centred on the projection of `c` onto the plane {o, n}. */
+export function planeSquareFace(pl, c, half) {
+  const n = V.norm(pl.n);
+  const c0 = V.sub(c, V.mul(n, V.dot(V.sub(c, pl.o), n)));
+  let u = V.cross(n, [0, 0, 1]);
+  if (V.len(u) < 1e-6) u = V.cross(n, [1, 0, 0]);
+  u = V.norm(u);
+  const w = V.cross(n, u);
+  const P = (a, b) => V.add(c0, V.add(V.mul(u, a * half), V.mul(w, b * half)));
+  return polygonFace([P(-1, -1), P(1, -1), P(1, 1), P(-1, 1)]);
+}
+
+/** Uniformly scaled copy of a shape about point c (the input is kept). */
+export function scaledUniform(shape, k, c = [0, 0, 0]) {
+  return transformed(shape, (t) => { const p = gpPnt(c); try { t.SetScale(p, k); } finally { del(p); } });
+}
+
+/**
+ * Non-uniformly scaled copy (factors s = [sx, sy, sz] along the world axes about c). OCCT's general
+ * transform is not available in this build, so the body is rebuilt from its scaled triangulation
+ * (sewn into a solid, coplanar triangles merged back into faces): exact for planar bodies,
+ * faceted (within the mesh tolerance) for curved ones.
+ */
+export function scaledNonUniform(shape, s, c = [0, 0, 0]) {
+  const O = OC();
+  const bb = bboxOf(shape);
+  const size = bb ? V.len(V.sub(bb.max, bb.min)) : 100;
+  const m = shape.mesh({ tolerance: Math.max(0.002, size * 0.0008), angularTolerance: 10 });
+  const P = m.vertices, T = m.triangles;
+  const pt = (i) => [c[0] + (P[3 * i] - c[0]) * s[0], c[1] + (P[3 * i + 1] - c[1]) * s[1], c[2] + (P[3 * i + 2] - c[2]) * s[2]];
+  const sew = new O.BRepBuilderAPI_Sewing(Math.max(1e-6, size * 1e-7), true, true, true, false);
+  let sewn = null, ms = null, solid = null, uni = null;
+  try {
+    for (let t = 0; t < T.length; t += 3) {
+      const a = pt(T[t]), b = pt(T[t + 1]), d = pt(T[t + 2]);
+      if (V.len(V.cross(V.sub(b, a), V.sub(d, a))) < 1e-12) continue;
+      let f = null;
+      try { f = polygonFace([a, b, d]); sew.Add(f.wrapped); } catch { /* degenerate sliver */ } finally { del(f); }
+    }
+    sew.Perform();
+    sewn = sew.SewedShape();
+    const SE = O.TopAbs_ShapeEnum;
+    const ex = new O.TopExp_Explorer(sewn, SE.TopAbs_SHELL, SE.TopAbs_SHAPE);
+    let shell = null;
+    try { if (ex.More()) shell = ex.Current(); } finally { ex.delete(); }
+    if (!shell) throw new Error("Could not rebuild the scaled body");
+    try { ms = new O.BRepBuilderAPI_MakeSolid(O.TopoDS.Shell(shell)); } finally { del(shell); }
+    solid = ms.Solid();
+    uni = new O.ShapeUpgrade_UnifySameDomain(solid, true, true, false);
+    uni.Build();
+    let out = own(uni.Shape());
+    if (volumeOf(out) < 0) {
+      // the triangulation came out inside-out: flip the solid
+      const flipped = own(out.wrapped.Reversed());
+      del(out);
+      out = flipped;
+    }
+    return out;
+  } finally { del(uni, solid, ms, sewn, sew); }
+}
+
+/** Closed polygon wire through 3D points. */
+export function polygonWire(pts) {
+  const O = OC();
+  const wb = new O.BRepBuilderAPI_MakeWire();
+  try {
+    for (let i = 0; i < pts.length; i++) {
+      const a = gpPnt(pts[i]), b = gpPnt(pts[(i + 1) % pts.length]);
+      const me = new O.BRepBuilderAPI_MakeEdge(a, b);
+      const e = me.Edge();
+      wb.Add(e);
+      del(e, me, a, b);
+    }
+    wb.Build();
+    return new R.Wire(wb.Wire());
+  } finally { del(wb); }
+}
+/** Circle wire (centre c, plane normal n, radius r). */
+export function circleWire(c, n, r) {
+  const e = R.makeCircle(r, c, n);
+  try { return R.assembleWire([e]); } finally { del(e); }
+}
+
+/**
+ * Helix wire about the axis (o, n), starting at o + r·x: `turns` turns rising `pitch` per turn.
+ * taper (deg) makes a conical helix (positive narrows towards the top); left = left-handed.
+ */
+export function helixWire({ o, n, x, r, pitch, turns, taper = 0, left = false }) {
+  const O = OC();
+  const ang = (taper * Math.PI) / 180;
+  const tmp = [];
+  const p = gpPnt(o), dn = gpDir(n), dx = gpDir(x);
+  try {
+    const ax3 = new O.gp_Ax3(p, dn, dx);
+    tmp.push(ax3);
+    // cone (u, v): radius r + v·sin(a), height v·cos(a); a cylinder is the a = 0 case
+    const surf = Math.abs(ang) < 1e-9 ? new O.Geom_CylindricalSurface(ax3, r) : new O.Geom_ConicalSurface(ax3, -ang, r);
+    const vPerTurn = Math.abs(ang) < 1e-9 ? pitch : pitch / Math.cos(ang);
+    const du = 2 * Math.PI * (left ? -1 : 1);
+    const p0 = new O.gp_Pnt2d(0, 0), d0 = new O.gp_Dir2d(du, vPerTurn);
+    const line = new O.Geom2d_Line(p0, d0);
+    const L = turns * Math.hypot(du, vPerTurn);
+    const a2 = line.Value(0), b2 = line.Value(L);
+    const seg = new O.GC_MakeSegment2d(a2, b2);
+    const cur = seg.Value();
+    const me = new O.BRepBuilderAPI_MakeEdge(cur, surf);
+    const e = me.Edge();
+    const mw = new O.BRepBuilderAPI_MakeWire(e);
+    const w = mw.Wire();
+    O.BRepLib.BuildCurves3d(w);
+    tmp.push(surf, p0, d0, line, a2, b2, seg, cur, me, e, mw);
+    return new R.Wire(w);
+  } finally { del(tmp, p, dn, dx); }
+}
+
+/** Planar Archimedean spiral wire about (o, n) from radius r0, growing `pitch` per turn. */
+export function spiralWire({ o, n, x, r0, pitch, turns, left = false }) {
+  const y = V.mul(V.cross(n, x), left ? -1 : 1);
+  const N = Math.max(24, Math.ceil(turns * 48));
+  const pts = [];
+  for (let i = 0; i <= N; i++) {
+    const t = (i / N) * turns * 2 * Math.PI;
+    const r = r0 + (pitch * t) / (2 * Math.PI);
+    pts.push(V.add(o, V.add(V.mul(x, r * Math.cos(t)), V.mul(y, r * Math.sin(t)))));
+  }
+  const e = R.makeBSplineApproximation(pts, { tolerance: 1e-4, degMax: 5, degMin: 3 });
+  try { return R.assembleWire([e]); } finally { del(e); }
+}
+
+/**
+ * Sweep a closed profile wire along a spine wire into a solid. mode: 'corrected' (OCCT's
+ * corrected Frenet, default) | 'frenet' | {binormal:[x,y,z]} (fixed binormal: helices, threads);
+ * transition: 'round' | 'right' | 'transformed' at G0 corners of the spine.
+ */
+export function sweepSolid(profile, spine, { mode = "corrected", transition = "round" } = {}) {
+  const O = OC();
+  const b = new O.BRepOffsetAPI_MakePipeShell(spine.wrapped);
+  let d = null;
+  try {
+    const TM = O.BRepBuilderAPI_TransitionMode;
+    const tm = { round: TM.BRepBuilderAPI_RoundCorner, right: TM.BRepBuilderAPI_RightCorner, transformed: TM.BRepBuilderAPI_Transformed }[transition];
+    if (tm !== undefined) b.SetTransitionMode(tm);
+    if (mode && typeof mode === "object" && mode.binormal) { d = gpDir(mode.binormal); b.SetMode(d); }
+    else if (mode === "frenet") b.SetMode(true);
+    b.Add(profile.wrapped, false, false);
+    b.Build();
+    if (!b.IsDone()) throw new Error("The sweep failed");
+    b.MakeSolid();
+    return own3D(b.Shape(), "sweep");
+  } finally { del(d, b); }
+}
+
+/**
+ * Coil solid. o: base centre, n: axis, x: start direction, D: coil diameter, section:
+ * 'circular'|'square'|'triExternal'|'triInternal', position: 'inside'|'center'|'outside', s: section
+ * size; helix: pitch / turns / taper / left, or spiral: true (planar, pitch = radial growth per turn).
+ */
+export function coilSolid({ o, n, x, D, s, section = "circular", position = "inside", pitch, turns, taper = 0, left = false, spiral = false }) {
+  n = V.norm(n);
+  x = V.norm(V.sub(x, V.mul(n, V.dot(x, n))));
+  const half = s / 2;
+  const rc = D / 2 + (position === "inside" ? -half : position === "outside" ? half : 0);
+  if (!(s > 1e-6)) throw new Error("Section size must be positive");
+  if (!(rc > half * 0.999)) throw new Error("The coil radius is too small!");
+  if (!(turns > 1e-6)) throw new Error("Revolutions must be positive");
+  if (!(pitch > 1e-9)) throw new Error("Pitch must be positive");
+  if (pitch < s * 1.0005) throw new Error("The coil intersects itself: increase the pitch or reduce the section size");
+  if (!spiral && Math.abs(taper) > 1e-9) {
+    const top = rc - Math.tan((taper * Math.PI) / 180) * pitch * turns;
+    if (!(top > half)) throw new Error("The coil radius is too small!");
+  }
+  const c = V.add(o, V.mul(x, rc));
+  const P = (a, b) => V.add(c, V.add(V.mul(x, a), V.mul(n, b)));
+  let prof;
+  if (section === "square") prof = polygonWire([P(-half, -half), P(half, -half), P(half, half), P(-half, half)]);
+  else if (section === "triExternal" || section === "triInternal") {
+    const h = (s * Math.sqrt(3)) / 2, k = section === "triExternal" ? 1 : -1;
+    prof = polygonWire([P((-k * h) / 3, -half), P((2 * k * h) / 3, 0), P((-k * h) / 3, half)]);
+  } else prof = circleWire(c, V.cross(n, x), half);
+  let spine = null;
+  try {
+    spine = spiral ? spiralWire({ o, n, x, r0: rc, pitch, turns, left }) : helixWire({ o, n, x, r: rc, pitch, turns, taper, left });
+    return sweepSolid(prof, spine, { mode: { binormal: n }, transition: "right" });
+  } finally { del(prof, spine); }
+}
+
+/** Point of an arc segment {c, ax, s} at angle t from its start s (rotation about ax). */
+export function arcPoint(g, t) {
+  const v = V.sub(g.s, g.c), k = V.norm(g.ax);
+  const c = Math.cos(t), s = Math.sin(t);
+  const r = V.add(V.add(V.mul(v, c), V.mul(V.cross(k, v), s)), V.mul(k, V.dot(k, v) * (1 - c)));
+  return V.add(g.c, r);
+}
+
+/**
+ * Pipe solid along a chain of path segments, oriented head to tail:
+ * [{kind:'line', a, b} | {kind:'arc', c, ax, r, s, ang} | {kind:'edge', edge, s, t0}].
+ * section: 'circular'|'square'|'triangular'; size; thickness > 0 = hollow wall; up: preferred
+ * profile "up" direction (the path plane normal).
+ */
+export function pipeSolid(segs, { section = "circular", size, thickness = 0, up = null }) {
+  if (!segs.length) throw new Error("The path for pipe cannot be found!");
+  if (!(size > 1e-6)) throw new Error("Cannot create pipe. The pipe dimensions are invalid. Try adjusting the pipe dimensions.");
+  const made = [];
+  const edges = [];
+  try {
+    for (const g of segs) {
+      let e;
+      if (g.kind === "line") e = R.makeLine(g.a, g.b);
+      else if (g.kind === "arc") e = Math.abs(g.ang) >= 2 * Math.PI - 1e-9 ? R.makeCircle(g.r, g.c, g.ax) : R.makeThreePointArc(g.s, arcPoint(g, g.ang / 2), arcPoint(g, g.ang));
+      else { edges.push(g.edge); continue; }
+      made.push(e);
+      edges.push(e);
+    }
+    const first = segs[0];
+    const s0 = first.kind === "line" ? first.a : first.s;
+    const t0 = V.norm(first.kind === "line" ? V.sub(first.b, first.a) : first.kind === "arc" ? V.cross(first.ax, V.sub(first.s, first.c)) : first.t0);
+    let u = up && Math.abs(V.dot(V.norm(up), t0)) < 0.99 ? V.norm(up) : null;
+    if (!u) { u = V.cross(t0, [0, 0, 1]); if (V.len(u) < 1e-6) u = V.cross(t0, [1, 0, 0]); }
+    u = V.norm(V.sub(u, V.mul(t0, V.dot(u, t0))));
+    const w = V.cross(t0, u);
+    const prof = (sz) => {
+      const hh = sz / 2;
+      const P = (a, b) => V.add(s0, V.add(V.mul(w, a), V.mul(u, b)));
+      if (section === "square") return polygonWire([P(-hh, -hh), P(hh, -hh), P(hh, hh), P(-hh, hh)]);
+      if (section === "triangular") {
+        const R0 = sz / Math.sqrt(3); // circumradius of an equilateral triangle of side sz
+        return polygonWire([0, 1, 2].map((i) => { const a = Math.PI / 2 + (i * 2 * Math.PI) / 3; return P(R0 * Math.cos(a), R0 * Math.sin(a)); }));
+      }
+      return circleWire(s0, t0, hh);
+    };
+    let spine;
+    try { spine = R.assembleWire(edges); } catch { throw new Error("The path must be a connected chain of curves"); }
+    try {
+      const sweep = (sz) => { const pw = prof(sz); try { return sweepSolid(pw, spine, { mode: "corrected", transition: "round" }); } finally { del(pw); } };
+      const outer = sweep(size);
+      if (!(thickness > 0)) return outer;
+      const inSize = section === "triangular" ? size - 2 * Math.sqrt(3) * thickness : size - 2 * thickness;
+      if (!(inSize > 1e-6)) { del(outer); throw new Error("Cannot create pipe. The pipe dimensions are invalid. Try adjusting the pipe dimensions."); }
+      const inner = sweep(inSize);
+      try { return cut(outer, inner); } finally { del(outer, inner); }
+    } finally { del(spine); }
+  } finally { del(made); }
+}
+
+/**
+ * Cylindrical face summary for threads: {o (axis point at the low end), a (axis), r, len, internal}
+ * (internal = a hole: the face's outward normal points at the axis). null for other faces.
+ */
+export function cylinderFaceInfo(shape, index) {
+  const fi = topoOf(shape).faces[index];
+  if (!fi || fi.type !== "CYLINDRE" || !fi.a || !fi.ao) return null;
+  const [f] = facesAt(shape, [index]);
+  if (!f) return null;
+  try {
+    const uv = OC().BRepTools.UVBounds(f.wrapped, 0, 0, 0, 0);
+    const v0 = Math.min(uv.VMin, uv.VMax), v1 = Math.max(uv.VMin, uv.VMax);
+    const a = V.norm(fi.a);
+    const o = V.add(fi.ao, V.mul(a, v0));
+    const radial = V.sub(fi.c, V.add(fi.ao, V.mul(a, V.dot(V.sub(fi.c, fi.ao), a))));
+    const internal = V.dot(radial, fi.n) < 0;
+    return { o, a, r: fi.r, len: v1 - v0, internal };
+  } finally { del(f); }
+}
+
+/**
+ * Helical 60° V-groove for a modeled thread on the cylinder (o, a, r) from axial z0 to z1: apex
+ * `depth` into the material (inwards for external threads, outwards for internal ones).
+ */
+export function threadGroove({ o, a, r, z0, z1, pitch, depth, internal = false, left = false }) {
+  a = V.norm(a);
+  let x = V.cross(a, [0, 0, 1]);
+  if (V.len(x) < 1e-6) x = V.cross(a, [1, 0, 0]);
+  x = V.norm(V.cross(x, a));
+  const turns = (z1 - z0) / pitch;
+  if (!(turns > 1e-3)) throw new Error("The thread is too short");
+  const base = V.add(o, V.mul(a, z0));
+  const e = 0.12 * pitch, t30 = Math.tan(Math.PI / 6);
+  const k = internal ? -1 : 1; // +1: material inside the cylinder (external thread)
+  const P = (rad, ax) => V.add(base, V.add(V.mul(x, rad), V.mul(a, ax)));
+  const hw = (depth + e) * t30;
+  const prof = polygonWire([P(r + k * e, -hw), P(r - k * depth, 0), P(r + k * e, hw)]);
+  let spine = null;
+  try {
+    spine = helixWire({ o: base, n: a, x, r, pitch, turns, left });
+    return sweepSolid(prof, spine, { mode: { binormal: a }, transition: "right" });
+  } finally { del(prof, spine); }
+}
+
+/** shape − all tools in one boolean (the inputs are kept). */
+export function cutMany(shape, tools) {
+  const O = OC();
+  const bl = new O.BRepAlgoAPI_Cut();
+  const A = new O.NCollection_List_TopoDS_Shape([shape.wrapped]);
+  const B = new O.NCollection_List_TopoDS_Shape(tools.map((t) => t.wrapped));
+  try {
+    bl.SetArguments(A);
+    bl.SetTools(B);
+    bl.Build();
+    return own3D(bl.Shape(), "cut");
+  } finally { del(bl, A, B); }
+}
+
+/**
+ * Body with a modeled thread cut into a cylindrical face (see threadGroove for t). One long helical
+ * groove defeats OCCT's boolean, so the groove is cut as one-turn pieces (one sweep, translated
+ * copies) plus a partial last turn, all in a single multi-tool cut.
+ */
+export function threadedShape(shape, t) {
+  const a = V.norm(t.a);
+  const turns = (t.z1 - t.z0) / t.pitch;
+  const full = Math.floor(turns + 1e-6);
+  const tools = [];
+  try {
+    if (full >= 1) {
+      const g0 = threadGroove({ ...t, z1: t.z0 + t.pitch });
+      tools.push(g0);
+      for (let k = 1; k < full; k++) tools.push(translated(g0, V.mul(a, k * t.pitch)));
+    }
+    if (turns - full > 1e-3) tools.push(threadGroove({ ...t, z0: t.z0 + full * t.pitch }));
+    if (!tools.length) throw new Error("The thread is too short");
+    return cutMany(shape, tools);
+  } finally { del(tools); }
 }

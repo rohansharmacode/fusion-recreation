@@ -9,6 +9,13 @@ const curveFilter = (r) => !!r && r.kind === "sketchCurve" && r.sketch === ST.sk
 
 function piecePolyline(piece) {
   const g = piece.g;
+  if (g.kind === "pcurve") {
+    const t0 = piece.whole ? 0 : piece.t0, t1 = piece.whole ? g.T : piece.t1;
+    const n = Math.max(16, Math.ceil(((t1 - t0) / g.T) * g.T * g.per * 2));
+    const out = [];
+    for (let i = 0; i <= n; i++) out.push(g.at(t0 + ((t1 - t0) * i) / n));
+    return out;
+  }
   if (g.kind === "line") {
     const at = (t) => [g.a[0] + (g.b[0] - g.a[0]) * t, g.a[1] + (g.b[1] - g.a[1]) * t];
     return [at(piece.whole ? 0 : piece.t0), at(piece.whole ? 1 : piece.t1)];
@@ -162,7 +169,7 @@ export class OffsetTool extends Tool {
     if (!this.ids) {
       const h = vp().pick(ctx.x, ctx.y, { filter: curveFilter });
       if (h) {
-        const ch = S.chainOf(d.sk, h.ref.curve);
+        const ch = S.chainOf(d.sk, h.ref.curve, { linesArcs: true });
         setExtraHover(ch.ids.map((id) => refKey({ kind: "sketchCurve", sketch: ST.sketchId, curve: id })));
       } else setExtraHover([]);
       return;
@@ -183,7 +190,7 @@ export class OffsetTool extends Tool {
       const h = vp().pick(ctx.x, ctx.y, { filter: curveFilter });
       if (!h) return;
       setExtraHover([]);
-      this.choose(ST.app.S.chainOf(d.sk, h.ref.curve).ids);
+      this.choose(ST.app.S.chainOf(d.sk, h.ref.curve, { linesArcs: true }).ids);
       this.move(ctx);
       return;
     }
@@ -570,10 +577,62 @@ function edgeToSketch(e, plane) {
       return arc ? { kind: "arc", c: arc.c, r: arc.r, a: uv(p0), b: uv(p2), ccw: arc.ccw } : null;
     }
   }
+  if (type === "ELLIPSE" || type === "BSPLINE_CURVE" || type === "BEZIER_CURVE") {
+    const free = freeformEdge(e, plane, uv, closed);
+    if (free) return free;
+  }
   const n = 32;
   const pts = [];
   for (let i = 0; i <= n; i++) pts.push(uv(at(i / n)));
   return { kind: "poly", pts, closed };
+}
+
+/**
+ * Ellipse / B-spline body edges project as a sketch ellipse (elliptical arc) when parallel to the
+ * sketch plane, otherwise as a fit point spline (through the B-spline's knots when it is one of the
+ * sketch's own splines, else through 33 samples).
+ */
+function freeformEdge(e, plane, uv, closed) {
+  const K = ST.app.K;
+  const O = K.R.getOC();
+  const ad = new O.BRepAdaptor_Curve(e.wrapped);
+  const xyz = (p) => { const r = [p.X(), p.Y(), p.Z()]; p.delete(); return r; };
+  try {
+    const u0 = ad.FirstParameter(), u1 = ad.LastParameter();
+    const val = (u) => xyz(ad.Value(u));
+    if (e.geomType === "ELLIPSE") {
+      const el = ad.Ellipse();
+      const ax = el.Axis(), xa = el.XAxis(), ya = el.YAxis();
+      const N = xyz(ax.Direction()), X = xyz(xa.Direction()), Y = xyz(ya.Direction()), C = xyz(el.Location());
+      const R1 = el.MajorRadius(), R2 = el.MinorRadius();
+      [ax, xa, ya, el].forEach((o) => o.delete());
+      const dn = K.V.dot(N, plane.n);
+      if (Math.abs(dn) > 0.9999) {
+        const c = uv(C), a = uv(K.V.add(C, K.V.mul(X, R1))), b = uv(K.V.add(C, K.V.mul(Y, R2)));
+        if (closed) return { kind: "ellipse", c, a, b };
+        const s = uv(val(u0)), t = uv(val(u1));
+        return dn > 0 ? { kind: "earc", c, a, b, p1: s, p2: t } : { kind: "earc", c, a, b, p1: t, p2: s };
+      }
+    }
+    let us = [];
+    if (e.geomType === "BSPLINE_CURVE") {
+      try {
+        const h = ad.BSpline();
+        const g = h.get ? h.get() : h;
+        const nk = g.NbKnots();
+        let own = g.Degree() === 3 && nk >= 3;
+        for (let i = 2; i < nk && own; i++) if (g.Multiplicity(i) !== 2) own = false;
+        if (own) for (let i = 1; i <= nk; i++) us.push(g.Knot(i));
+      } catch { us = []; }
+    }
+    if (!us.length) for (let i = 0; i <= 32; i++) us.push(u0 + ((u1 - u0) * i) / 32);
+    const pts = us.map((u) => uv(val(u)));
+    if (closed && pts.length > 2) pts.pop();
+    return pts.length >= 2 ? { kind: "spline", pts, closed: closed && pts.length >= 3 } : null;
+  } catch (err) {
+    console.error(err);
+    return null;
+  } finally { ad.delete(); }
 }
 
 function addProjected(sk, items) {
@@ -602,6 +661,23 @@ function addProjected(sk, items) {
       const c = pt(it.c), a = pt(it.a), b = pt(it.b);
       const id = S.addArcDir(sk, c, a, b, it.ccw);
       sk.curves[id].r = it.r;
+      sk.curves[id].proj = true;
+      n++;
+    } else if (it.kind === "ellipse" || it.kind === "earc") {
+      const c = pt(it.c), a = pt(it.a), b = pt(it.b);
+      const p1 = it.kind === "earc" ? pt(it.p1) : null, p2 = it.kind === "earc" ? pt(it.p2) : null;
+      if (Object.values(sk.curves).some((cv) => cv.proj && cv.type === it.kind && cv.c === c && cv.a === a && (it.kind === "ellipse" || (cv.p1 === p1 && cv.p2 === p2)))) continue;
+      const id = it.kind === "ellipse" ? S.addEllipse(sk, c, a, b, false, { axes: false }).curve : S.addEllipticArc(sk, c, a, b, p1, p2);
+      sk.curves[id].proj = true;
+      n++;
+    } else if (it.kind === "spline") {
+      const ids = [];
+      for (const q of it.pts) { const id = pt(q); if (ids[ids.length - 1] !== id) ids.push(id); }
+      if (it.closed && ids.length > 1 && ids[ids.length - 1] === ids[0]) ids.pop();
+      if (ids.length < 2) continue;
+      const key = ids.join(",");
+      if (Object.values(sk.curves).some((cv) => cv.proj && cv.type === "spline" && cv.pts.join(",") === key)) continue;
+      const id = S.addSpline(sk, ids, { closed: it.closed && ids.length >= 3 });
       sk.curves[id].proj = true;
       n++;
     } else if (it.kind === "poly") {

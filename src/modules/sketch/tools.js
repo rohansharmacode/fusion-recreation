@@ -76,6 +76,8 @@ export class Tool {
         return true;
       },
       onDoubleClick(ev, ctx) { if (self.dbl) self.dbl(ctx); return true; },
+      // right-click: tools that finish on it (Fit Point Spline's OK) consume it, others let the menu open
+      onContextMenu(ev, ctx) { return self.context ? self.context(ctx, ev) === true : false; },
       onKeyDown(ev) {
         const hk = HUD.historyKind(ev);
         if (hk) { self.historyStep(hk); return true; }
@@ -565,10 +567,11 @@ const ARC_DEFS = {
   },
 };
 
-/** The single line/arc ending at point pid (for tangent arcs), or null. */
+/** The single line/arc (or spline / elliptical arc) ending at point pid (for tangent arcs), or null. */
 export function endCurveOf(sk, pid) {
   if (!pid || !sk.points[pid]) return null;
-  const us = Object.entries(sk.curves).filter(([, cv]) => (cv.type === "line" || cv.type === "arc") && (cv.p1 === pid || cv.p2 === pid));
+  const S = ST.app.S;
+  const us = Object.entries(sk.curves).filter(([, cv]) => ["line", "arc", "spline", "earc"].includes(cv.type) && S.curveEnds(cv).includes(pid));
   return us.length >= 1 ? us[us.length - 1][0] : null;
 }
 

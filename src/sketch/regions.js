@@ -1,6 +1,8 @@
 // Planar arrangement of sketch curves -> closed profiles (regions).
 // Curves are split at every intersection, dangling edges are pruned, and the
 // faces of the resulting planar graph are traced with a half-edge walk.
+// Splines and ellipses take part as parametric "pcurve" geoms (see curves.js).
+import { freeformGeom, pcurveIntersect, pcurveNearest, pcurveSamples } from "./curves.js";
 
 const TAU = Math.PI * 2;
 const EPS = 1e-6;
@@ -10,6 +12,7 @@ const norm = (a) => ((a % TAU) + TAU) % TAU;
 export function curveGeom(sk, id) {
   const cv = sk.curves[id];
   const P = (pid) => [sk.points[pid].x, sk.points[pid].y];
+  if (cv.type === "spline" || cv.type === "ellipse" || cv.type === "earc") return freeformGeom(sk, id);
   if (cv.type === "line") return { kind: "line", id, a: P(cv.p1), b: P(cv.p2) };
   if (cv.type === "circle") {
     const c = P(cv.c);
@@ -30,12 +33,18 @@ export function curveGeom(sk, id) {
 // point on curve at param
 function at(g, t) {
   if (g.kind === "line") return [g.a[0] + (g.b[0] - g.a[0]) * t, g.a[1] + (g.b[1] - g.a[1]) * t];
+  if (g.kind === "pcurve") return g.at(t);
   const ang = g.kind === "circle" ? t : g.a0 + t;
   return [g.c[0] + g.r * Math.cos(ang), g.c[1] + g.r * Math.sin(ang)];
 }
 
 // param of a point known to lie on the curve; returns null if outside range
 function paramOf(g, p, tol) {
+  if (g.kind === "pcurve") {
+    const n = pcurveNearest(g, p);
+    if (!n || n.d > Math.max(tol * 10, 1e-9)) return null;
+    return g.closed ? ((n.t % g.T) + g.T) % g.T : Math.max(0, Math.min(g.T, n.t));
+  }
   if (g.kind === "line") {
     const dx = g.b[0] - g.a[0], dy = g.b[1] - g.a[1];
     const L2 = dx * dx + dy * dy;
@@ -57,6 +66,7 @@ function paramOf(g, p, tol) {
 }
 
 function onCurveDist(g, p) {
+  if (g.kind === "pcurve") { const n = pcurveNearest(g, p); return n ? n.d : Infinity; }
   if (g.kind === "line") {
     const dx = g.b[0] - g.a[0], dy = g.b[1] - g.a[1];
     const L = Math.hypot(dx, dy) || 1e-12;
@@ -72,6 +82,15 @@ function circleOf(g) {
 /** All intersection points between two curve geometries. */
 export function intersect(g1, g2, tol = 1e-6) {
   const pts = [];
+  if (g1.kind === "pcurve" || g2.kind === "pcurve") {
+    // parametric curves: roots along the pcurve, kept when they fall inside the other curve's range
+    const [P, Q] = g1.kind === "pcurve" ? [g1, g2] : [g2, g1];
+    for (const r of pcurveIntersect(P, Q, tol)) {
+      if (Q.kind !== "pcurve" && paramOf(Q, r.p, tol) === null) continue;
+      pts.push(r.p);
+    }
+    return pts;
+  }
   const push = (p) => {
     if (paramOf(g1, p, tol) !== null && paramOf(g2, p, tol) !== null) pts.push(p);
   };
@@ -130,6 +149,15 @@ function sampleEdge(e, fwd, segsFull = 64) {
     out.push(fwd ? e.pv : e.pu);
     return out;
   }
+  if (e.kind === "pcurve") {
+    const g = e.g;
+    const n = Math.max(2, Math.ceil(((e.t1 - e.t0) / g.T) * Math.max(segsFull, g.T * g.per)));
+    for (let i = 1; i <= n; i++) {
+      const t = fwd ? e.t0 + ((e.t1 - e.t0) * i) / n : e.t1 - ((e.t1 - e.t0) * i) / n;
+      out.push(i === n ? (fwd ? e.pv : e.pu) : g.at(t));
+    }
+    return out;
+  }
   const n = Math.max(2, Math.ceil((e.sweep / TAU) * segsFull));
   for (let i = 1; i <= n; i++) {
     const s = fwd ? (e.sweep * i) / n : e.sweep * (1 - i / n);
@@ -146,6 +174,51 @@ function polyArea(pts) {
     a += p[0] * q[1] - q[0] * p[1];
   }
   return a / 2;
+}
+
+// Exact signed area of a cycle (Green: 1/2 of the sum of x dy - y dx along each half-edge), so a
+// profile's "Area" is exact for arcs, ellipses and splines rather than its sampled polygon's.
+const cross2 = (a, b) => a[0] * b[1] - a[1] * b[0];
+const GL5 = [[0, 0.5688888888888889], [-0.5384693101056831, 0.4786286704993665], [0.5384693101056831, 0.4786286704993665], [-0.906179845938664, 0.2369268850561891], [0.906179845938664, 0.2369268850561891]];
+function halfEdgeArea2(h, vertices) {
+  const e = h.e;
+  const a = vertices[h.from], b = vertices[h.to];
+  if (e.kind === "line") return cross2(a, b);
+  // curved edges: ∫ (P - c) x dP (exact) + c x (b - a) with the loop's own vertices, so the sum
+  // stays consistent with the neighbouring line edges (chord + segment area)
+  const ba = [b[0] - a[0], b[1] - a[1]];
+  if (e.kind === "arc") {
+    const sw = h.fwd ? e.sweep : -e.sweep;
+    return e.r * e.r * sw + cross2(e.c, ba);
+  }
+  if (e.kind === "pcurve") {
+    const g = e.g;
+    const t0 = h.fwd ? e.t0 : e.t1, t1 = h.fwd ? e.t1 : e.t0;
+    if (g.sub === "ellipse") return g.E.r1 * g.E.r2 * (t1 - t0) + cross2(g.E.c, ba);
+    // spline: piecewise cubic in t, integrate (P - a) x P' span by span with 5-point Gauss (exact for degree 5)
+    let s = cross2(a, b);
+    const lo = Math.min(t0, t1), hi = Math.max(t0, t1);
+    const brk = [lo];
+    for (let k = Math.floor(lo) + 1; k < hi; k++) brk.push(k);
+    brk.push(hi);
+    let q = 0;
+    for (let i = 0; i + 1 < brk.length; i++) {
+      const u0 = brk[i], u1 = brk[i + 1], hm = (u1 - u0) / 2, mid = (u0 + u1) / 2;
+      if (hm <= 0) continue;
+      for (const [x, w] of GL5) {
+        const t = mid + hm * x;
+        const P = g.at(t);
+        q += w * hm * cross2([P[0] - a[0], P[1] - a[1]], g.der(t));
+      }
+    }
+    return s + (t1 >= t0 ? q : -q);
+  }
+  return 0;
+}
+function cycleArea(hes, vertices) {
+  let s = 0;
+  for (const h of hes) s += halfEdgeArea2(h, vertices);
+  return s / 2;
 }
 
 export function pointInPoly(p, poly) {
@@ -166,16 +239,23 @@ export function computeRegions(sk) {
   for (const id of Object.keys(sk.curves)) {
     const cv = sk.curves[id];
     if (cv.cons || cv.type === "point") continue;
-    const g = curveGeom(sk, id);
+    let g = null;
+    try { g = curveGeom(sk, id); } catch { g = null; }
     if (!g) continue;
     if (g.kind === "line" && Math.hypot(g.b[0] - g.a[0], g.b[1] - g.a[1]) < 1e-9) continue;
-    if (g.kind !== "line" && g.r < 1e-9) continue;
+    if (g.kind === "pcurve") {
+      const S = pcurveSamples(g);
+      let L = 0;
+      for (let k = 1; k < S.length; k++) L += Math.hypot(S[k].p[0] - S[k - 1].p[0], S[k].p[1] - S[k - 1].p[1]);
+      if (!(L > 1e-9)) continue;
+    } else if (g.kind !== "line" && g.r < 1e-9) continue;
     geoms.push(g);
   }
   // scale-aware tolerance
   let ext = 1;
   for (const g of geoms) {
     if (g.kind === "line") ext = Math.max(ext, Math.abs(g.a[0]), Math.abs(g.a[1]), Math.abs(g.b[0]), Math.abs(g.b[1]));
+    else if (g.kind === "pcurve") for (const s of pcurveSamples(g)) ext = Math.max(ext, Math.abs(s.p[0]), Math.abs(s.p[1]));
     else ext = Math.max(ext, Math.abs(g.c[0]) + g.r, Math.abs(g.c[1]) + g.r);
   }
   const tol = Math.max(1e-7, ext * 1e-8) * 100;
@@ -193,6 +273,7 @@ export function computeRegions(sk) {
     const s = [];
     if (g.kind === "line") { s.push(0, 1); vid(g.a); vid(g.b); }
     else if (g.kind === "arc") { s.push(0, g.sweep); vid(g.pa); vid(g.pb); }
+    else if (g.kind === "pcurve" && !g.closed) { s.push(0, g.T); vid(g.at(0)); vid(g.at(g.T)); }
     return s;
   });
   for (let i = 0; i < geoms.length; i++) {
@@ -209,6 +290,33 @@ export function computeRegions(sk) {
   const edges = [];
   geoms.forEach((g, gi) => {
     let s = [...new Set(splits[gi].map((v) => +v.toFixed(12)))].sort((a, b) => a - b);
+    if (g.kind === "pcurve") {
+      // drop split parameters whose points coincide (within tol) with the previous one
+      const far = (t0, t1) => { const a = g.at(t0), b = g.at(t1); return Math.hypot(a[0] - b[0], a[1] - b[1]) > tol || Math.abs(t1 - t0) > 0.25 * g.T; };
+      if (g.closed) {
+        s = s.filter((v, k) => k === 0 || far(s[k - 1], v));
+        if (s.length > 1 && !far(s[s.length - 1], s[0] + g.T)) s.pop();
+        if (s.length === 0) s = [0];
+        for (let k = 0; k < s.length; k++) {
+          const t0 = s[k], t1 = k + 1 < s.length ? s[k + 1] : s[0] + g.T;
+          const u = vid(g.at(t0)), v = vid(g.at(t1));
+          edges.push({ kind: "pcurve", curve: g.id, u, v, pu: vertices[u], pv: vertices[v], g, t0, t1 });
+        }
+      } else {
+        const keep = [s[0]];
+        for (let k = 1; k < s.length; k++) {
+          if (far(keep[keep.length - 1], s[k])) keep.push(s[k]);
+          else if (k === s.length - 1) keep[keep.length - 1] = s[k]; // keep the true end parameter
+        }
+        s = keep;
+        for (let k = 0; k + 1 < s.length; k++) {
+          const u = vid(g.at(s[k])), v = vid(g.at(s[k + 1]));
+          if (u === v && !(s.length === 2)) continue;
+          edges.push({ kind: "pcurve", curve: g.id, u, v, pu: vertices[u], pv: vertices[v], g, t0: s[k], t1: s[k + 1] });
+        }
+      }
+      return;
+    }
     if (g.kind === "line") {
       const L = Math.hypot(g.b[0] - g.a[0], g.b[1] - g.a[1]);
       s = s.filter((v, k) => k === 0 || (v - s[k - 1]) * L > tol);
@@ -267,7 +375,16 @@ export function computeRegions(sk) {
     for (const h of [h0, h1]) {
       let q;
       if (e.kind === "line") q = h.fwd ? e.pv : e.pu;
-      else {
+      else if (e.kind === "pcurve") {
+        // a point just along the edge; far enough from the vertex for a stable direction
+        const o = vertices[h.from];
+        let frac = Math.min((e.t1 - e.t0) * 1e-3, 1e-3);
+        for (let k = 0; k < 6; k++) {
+          q = e.g.at(h.fwd ? e.t0 + frac : e.t1 - frac);
+          if (Math.hypot(q[0] - o[0], q[1] - o[1]) > tol * 0.5 || frac >= (e.t1 - e.t0) * 0.1) break;
+          frac *= 4;
+        }
+      } else {
         const frac = Math.min(e.sweep * 1e-3, 1e-3);
         const ang = h.fwd ? e.s0 + frac : e.s0 + e.sweep - frac;
         q = [e.c[0] + e.r * Math.cos(ang), e.c[1] + e.r * Math.sin(ang)];
@@ -305,7 +422,9 @@ export function computeRegions(sk) {
     const poly = [vertices[cyc[0].from]];
     for (const hh of cyc) poly.push(...sampleEdge(hh.e, hh.fwd));
     poly.pop();
-    cycles.push({ hes: cyc, poly, area: polyArea(poly) });
+    let area = polyArea(poly);
+    try { const ex = cycleArea(cyc, vertices); if (Number.isFinite(ex) && Math.sign(ex) === Math.sign(area)) area = ex; } catch { /* keep the polygon area */ }
+    cycles.push({ hes: cyc, poly, area });
   }
   const faces = cycles.filter((c) => c.area > tol * tol);
   const outers = cycles.filter((c) => c.area < -tol * tol);
@@ -348,6 +467,8 @@ export function cycleSegments(cycle, vertices) {
     const e = h.e;
     const a = vertices[h.from], b = vertices[h.to];
     if (e.kind === "line") return { kind: "line", a, b };
+    // spline / ellipse piece: the curve geom, its parameter range and the traversal direction
+    if (e.kind === "pcurve") return { kind: "pcurve", a, b, g: e.g, sub: e.g.sub, t0: e.t0, t1: e.t1, fwd: h.fwd, full: h.from === h.to };
     const midAng = e.s0 + e.sweep / 2;
     const mid = [e.c[0] + e.r * Math.cos(midAng), e.c[1] + e.r * Math.sin(midAng)];
     return { kind: "arc", a, b, mid, c: e.c, r: e.r, full: h.from === h.to };
@@ -375,4 +496,24 @@ export function regionInteriorPoint(region) {
     if (inside(p)) return p;
   }
   return [cx, cy];
+}
+
+/** Points along a half-edge from its start vertex (included) towards its end (excluded). */
+export function halfEdgeSamples(h, per = 0.3) {
+  const e = h.e;
+  if (e.kind === "line") return [h.fwd ? e.pu : e.pv];
+  if (e.kind === "pcurve") {
+    const g = e.g;
+    const n = Math.max(2, Math.ceil(((e.t1 - e.t0) / g.T) * g.T * g.per));
+    const out = [];
+    for (let k = 0; k < n; k++) out.push(k === 0 ? (h.fwd ? e.pu : e.pv) : g.at(h.fwd ? e.t0 + ((e.t1 - e.t0) * k) / n : e.t1 - ((e.t1 - e.t0) * k) / n));
+    return out;
+  }
+  const n = Math.max(2, Math.ceil(Math.abs(e.sweep) / per));
+  const out = [];
+  for (let k = 0; k < n; k++) {
+    const t = h.fwd ? e.s0 + (e.sweep * k) / n : e.s0 + e.sweep - (e.sweep * k) / n;
+    out.push([e.c[0] + e.r * Math.cos(t), e.c[1] + e.r * Math.sin(t)]);
+  }
+  return out;
 }

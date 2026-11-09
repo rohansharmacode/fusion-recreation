@@ -380,6 +380,11 @@ function dragBegin(p, d, ref) {
     p.drag.t = n ? n.t : 0.5;
   }
   if (ref.kind === "sketchCurve" && work.curves[ref.curve].type === "point") { p.drag.ref = { kind: "sketchPoint", sketch: ref.sketch, point: work.curves[ref.curve].p }; }
+  // splines and ellipses move as a whole: every defining point follows the cursor offset
+  const cv = ref.kind === "sketchCurve" && work.curves[ref.curve];
+  if (cv && (cv.type === "spline" || cv.type === "ellipse" || cv.type === "earc") && uv) {
+    p.drag.translate = { from: uv.uv, pts: S.curvePoints(cv).filter((q) => work.points[q]).map((q) => ({ id: q, x: work.points[q].x, y: work.points[q].y })) };
+  }
   ST.app.selection.setHover(null);
   vp().canvas.style.cursor = "move";
 }
@@ -395,9 +400,11 @@ function dragMove(p, ctx) {
     if (!hit) return;
     const w = S.cloneSketch(dd.lastGood);
     const g = dd.ref.kind === "sketchPoint" ? { ref: dd.ref.point, x: hit.uv[0], y: hit.uv[1] } : { ref: dd.ref.curve, x: hit.uv[0], y: hit.uv[1], t: dd.t };
+    const tr = dd.translate;
+    const grabs = tr ? tr.pts.map((q) => ({ ref: q.id, x: q.x + hit.uv[0] - tr.from[0], y: q.y + hit.uv[1] - tr.from[1] })) : [g];
     const P = params();
     let ok = false;
-    try { ok = S.dragSolve(w, P, [g]); } catch (e) { console.error(e); }
+    try { ok = S.dragSolve(w, P, grabs); } catch (e) { console.error(e); }
     if (!ok) return;
     dd.lastGood = w;
     dd.changed = true;

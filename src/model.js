@@ -27,6 +27,11 @@ export const FIELDS = {
   sweep: {},
   delete: {},
   draft: { angle: "angle" },
+  split: {},
+  coil: { diameter: "length", revolutions: "none", height: "length", pitch: "length", angle: "angle", sectionSize: "length" },
+  pipe: { distance: "none", sectionSize: "length", thickness: "length" },
+  scale: { factor: "none", sx: "none", sy: "none", sz: "none" },
+  thread: { length: "length", offset: "length" },
 };
 
 export const TYPE_LABEL = {
@@ -34,6 +39,7 @@ export const TYPE_LABEL = {
   shell: "Shell", hole: "Hole", box: "Box", cylinder: "Cylinder", sphere: "Sphere", torus: "Torus",
   cplane: "Plane", rpattern: "Rectangular Pattern", cpattern: "Circular Pattern", move: "Move",
   mirror: "Mirror", combine: "Combine", loft: "Loft", sweep: "Sweep", delete: "Delete", draft: "Draft",
+  split: "Split Body", coil: "Coil", pipe: "Pipe", scale: "Scale", thread: "Thread",
 };
 const NAME_STEM = { ...TYPE_LABEL, cplane: "Offset Plane", rpattern: "Rectangular Pattern", cpattern: "Circular Pattern" };
 
@@ -74,7 +80,11 @@ export function assignParams(doc, f) {
     if (f[key] === undefined || f[key] === null || f[key] === "") continue;
     if (!f.p[key]) f.p[key] = nextParam(doc);
   }
+  // body makers the app core does not know about get their result body id here (prepareFeature
+  // calls assignParams for every new / edited / previewed feature)
+  if (BODY_TYPES.has(f.type) && !f.newBody && ["new", "join", "newComponent", undefined].includes(f.operation)) f.newBody = nextBody(doc);
 }
+const BODY_TYPES = new Set(["coil", "pipe"]);
 
 export function buildParams(doc) {
   const pt = new ParamTable();
@@ -771,7 +781,265 @@ const APPLY = {
     st._tool = tool;
     return { affected: applyOp(st, f, tool, doc) };
   },
+
+  // Split Body: bodies divided by a plane / (extended) face / body; extra pieces become new bodies
+  split(st, f) {
+    const ids = (f.bodies || []).filter((id) => st.bodies.has(id));
+    if (!ids.length) throw new Error("Select Body to split");
+    const tool = splitTool(st, f, ids);
+    const affected = [];
+    let k = 0;
+    try {
+      for (const id of ids) {
+        if ((f.tools || []).includes(id)) continue;
+        const b = st.bodies.get(id);
+        let parts = K.splitShape(b.shape, tool.shapes);
+        if (parts.length < 2) { K.del(parts); continue; }
+        if (tool.n) {
+          const key = (s) => { const bb = K.bboxOf(s); return bb ? V.dot(V.mul(V.add(bb.min, bb.max), 0.5), tool.n) : 0; };
+          parts = parts.map((s) => ({ s, k: key(s) })).sort((a, c) => a.k - c.k).map((x) => x.s);
+        } else {
+          parts = parts.map((s) => ({ s, k: K.volumeOf(s) })).sort((a, c) => c.k - a.k).map((x) => x.s);
+        }
+        st.bodies.set(id, { id, shape: parts[0], from: f.id });
+        affected.push(id);
+        for (const s of parts.slice(1)) {
+          const nid = (f.newBodies || [])[k] || `${f.id}_${k + 1}`;
+          k++;
+          st.bodies.set(nid, { id: nid, shape: s, from: f.id });
+          affected.push(nid);
+        }
+      }
+    } finally { K.del(tool.owned); }
+    if (!affected.length) throw new Error("No intersection between target(s) and split tool.");
+    return { affected };
+  },
+
+  coil(st, f, P, doc) {
+    const pl = resolvePlane(f.plane, st) || K.ORIGIN_PLANES.XY;
+    const [u, v] = f.center || [0, 0];
+    const num = (key) => (f[key] !== undefined && f[key] !== null && f[key] !== "" ? fval(P, f, key) : NaN);
+    const D = num("diameter"), s = num("sectionSize");
+    const ty = f.coilType || "revHeight";
+    let turns, pitch;
+    if (ty === "revHeight") { turns = num("revolutions"); pitch = num("height") / turns; }
+    else if (ty === "heightPitch") { pitch = num("pitch"); turns = num("height") / pitch; }
+    else { turns = num("revolutions"); pitch = num("pitch"); }
+    if (!(D > 0)) throw new Error("The coil radius is too small!");
+    const tool = K.coilSolid({
+      o: K.toWorld(pl, u, v), n: pl.n, x: pl.x, D, s, section: f.section || "circular", position: f.sectionPosition || "inside",
+      pitch, turns, taper: ty === "spiral" ? 0 : num("angle") || 0, left: f.rotation === "ccw", spiral: ty === "spiral",
+    });
+    st._tool = tool;
+    return { affected: applyOp(st, f, tool, doc) };
+  },
+
+  pipe(st, f, P, doc) {
+    const { segs, up, owned } = pipePath(st, f);
+    try {
+      const frac = f.distance !== undefined && f.distance !== "" ? fval(P, f, "distance") : 1;
+      if (!(frac > 1e-6) || frac > 1 + 1e-9) throw new Error("Distance must be between 0 and 1");
+      const size = fval(P, f, "sectionSize");
+      const t = f.hollow ? fval(P, f, "thickness") : 0;
+      if (f.hollow && !(t > 0)) throw new Error("Section thickness must be positive");
+      const path = trimPath(segs, frac).map((g) => (g.kind === "edge" ? { kind: "edge", edge: g.edge, s: segStart(g), t0: g.t0 } : g));
+      const tool = K.pipeSolid(path, { section: f.section || "circular", size, thickness: t, up });
+      st._tool = tool;
+      return { affected: applyOp(st, f, tool, doc) };
+    } finally { K.del(owned); }
+  },
+
+  scale(st, f, P) {
+    const ids = (f.bodies || []).filter((id) => st.bodies.has(id));
+    if (!ids.length) throw new Error("Select bodies to scale");
+    const c = scaleCenter(st, f.point);
+    let s3;
+    if (f.scaleType === "nonUniform") s3 = ["sx", "sy", "sz"].map((key) => fval(P, f, key));
+    else { const k = fval(P, f, "factor"); s3 = [k, k, k]; }
+    if (!s3.every((x) => x > 1e-9)) throw new Error("The scale factor must be positive");
+    const uniform = Math.abs(s3[0] - s3[1]) < 1e-12 && Math.abs(s3[0] - s3[2]) < 1e-12;
+    for (const id of ids) {
+      const b = st.bodies.get(id);
+      const s = uniform ? K.scaledUniform(b.shape, s3[0], c) : K.scaledNonUniform(b.shape, s3, c);
+      st.bodies.set(id, { id, shape: s, from: f.id });
+    }
+    return { affected: ids };
+  },
+
+  // Thread: cosmetic (geometry unchanged; the result lists the helices for display) or modeled
+  thread(st, f, P) {
+    const threads = [];
+    const affected = [];
+    const pitch = Number(f.pitch);
+    if (!(pitch > 0)) throw new Error("Select a thread size");
+    for (const fr of f.faces || []) {
+      const b = st.bodies.get(fr.body);
+      if (!b) throw new Error("missing faces");
+      const idx = locateFace(b.shape, fr);
+      const ci = idx >= 0 ? K.cylinderFaceInfo(b.shape, idx) : null;
+      if (!ci) throw new Error("Select a cylindrical face");
+      let z0 = 0, z1 = ci.len;
+      if (f.fullLength === false) {
+        const L = fval(P, f, "length"), off = f.offset !== undefined && f.offset !== "" ? fval(P, f, "offset") : 0;
+        // measured from the high end of the cylinder (Fusion's default thread location)
+        z1 = Math.min(ci.len, ci.len - off);
+        z0 = Math.max(0, z1 - L);
+        if (!(z1 - z0 > 1e-6)) throw new Error("The thread length must be positive");
+      }
+      const major = Number(f.major), minor = Number(f.minor);
+      const depth = major > minor && minor > 0 ? (major - minor) / 2 : 0.6134 * pitch;
+      const t = { o: ci.o, a: ci.a, r: ci.r, z0, z1, pitch, depth, internal: ci.internal, left: f.rightHanded === false };
+      if (f.modeled) {
+        const s = K.threadedShape(st.bodies.get(fr.body).shape, t);
+        st.bodies.set(fr.body, { id: fr.body, shape: s, from: f.id });
+      }
+      threads.push({ body: fr.body, ...t });
+      if (!affected.includes(fr.body)) affected.push(fr.body);
+    }
+    if (!threads.length) throw new Error("Select faces to apply Thread");
+    return { affected, threads, modeled: !!f.modeled };
+  },
 };
+
+/** Splitting tool shapes of a split feature: {shapes, owned (to delete), n (plane normal or null)}. */
+function splitTool(st, f, ids) {
+  if (f.tools && f.tools.length) {
+    const shapes = f.tools.map((id) => st.bodies.get(id)).filter(Boolean).map((b) => b.shape);
+    if (!shapes.length) throw new Error("missing split tool");
+    return { shapes, owned: [], n: null };
+  }
+  const tr = f.tool;
+  if (!tr) throw new Error("Select the splitting Tool(s)");
+  let mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+  for (const id of ids) {
+    const bb = K.bboxOf(st.bodies.get(id).shape);
+    if (!bb) continue;
+    for (let i = 0; i < 3; i++) { mn[i] = Math.min(mn[i], bb.min[i]); mx[i] = Math.max(mx[i], bb.max[i]); }
+  }
+  const c = Number.isFinite(mn[0]) ? V.mul(V.add(mn, mx), 0.5) : [0, 0, 0];
+  const half = (Number.isFinite(mn[0]) ? V.len(V.sub(mx, mn)) : 100) * 2 + 10;
+  const square = (pl) => { const face = K.planeSquareFace(pl, c, half); return { shapes: [face], owned: [face], n: V.norm(pl.n) }; };
+  if (tr.kind === "face") {
+    const b = st.bodies.get(tr.body);
+    if (!b) throw new Error("missing split tool");
+    const idx = locateFace(b.shape, tr);
+    const fi = idx >= 0 ? K.topoOf(b.shape).faces[idx] : null;
+    if (!fi) throw new Error("missing split tool");
+    if (fi.type === "PLANE" && f.extend !== false) return square({ o: Array.isArray(tr.p) ? tr.p : fi.c, n: fi.n });
+    const [face] = K.facesAt(b.shape, [idx]);
+    return { shapes: [face], owned: [face], n: fi.type === "PLANE" ? fi.n : null };
+  }
+  const pl = resolvePlane(tr, st);
+  if (!pl) throw new Error("missing split tool");
+  return square(pl);
+}
+
+/** Centre of a scale feature: origin, a sketch point or a stored point (vertex). */
+function scaleCenter(st, pt) {
+  if (!pt || pt.kind === "origin") return [0, 0, 0];
+  if (pt.kind === "sketchPoint") {
+    const s = st.sketches.get(pt.sketch);
+    const q = s && s.sk.points[pt.point];
+    if (!q) throw new Error("The scale point is missing");
+    return K.toWorld(s.plane, q.x, q.y);
+  }
+  if (Array.isArray(pt.p)) return pt.p;
+  return [0, 0, 0];
+}
+
+/**
+ * Path of a pipe as oriented segments (head to tail): sketch lines / arcs / circles of f.path and
+ * body edges of f.edges. {segs, up (sketch plane normal), owned (edge wrappers to delete)}.
+ */
+function pipePath(st, f) {
+  const raw = [];
+  const owned = [];
+  let up = null;
+  if (f.path && f.path.sketch) {
+    const ps = st.sketches.get(f.path.sketch);
+    if (!ps) throw new Error("The path for pipe cannot be found!");
+    up = ps.plane.n;
+    const pl = ps.plane, pts = ps.sk.points;
+    const W = (id) => K.toWorld(pl, pts[id].x, pts[id].y);
+    for (const cid of f.path.curves || []) {
+      const cv = ps.sk.curves[cid];
+      if (!cv) continue;
+      if (cv.type === "line") raw.push({ kind: "line", a: W(cv.p1), b: W(cv.p2) });
+      else if (cv.type === "arc") {
+        const c = pts[cv.c], a = pts[cv.p1], b = pts[cv.p2];
+        const a0 = Math.atan2(a.y - c.y, a.x - c.x);
+        let a1 = Math.atan2(b.y - c.y, b.x - c.x);
+        while (a1 <= a0 + 1e-12) a1 += 2 * Math.PI;
+        raw.push({ kind: "arc", c: W(cv.c), ax: [...pl.n], r: Math.hypot(a.x - c.x, a.y - c.y), s: W(cv.p1), ang: a1 - a0 });
+      } else if (cv.type === "circle") {
+        const c = pts[cv.c];
+        raw.push({ kind: "arc", c: W(cv.c), ax: [...pl.n], r: cv.r, s: K.toWorld(pl, c.x + cv.r, c.y), ang: 2 * Math.PI });
+      }
+    }
+  }
+  for (const er of f.edges || []) {
+    const b = st.bodies.get(er.body);
+    if (!b) throw new Error("missing paths");
+    const idx = locateEdge(b.shape, er);
+    const ti = idx >= 0 ? K.topoOf(b.shape).edges[idx] : null;
+    if (!ti) throw new Error("missing paths");
+    if (ti.type === "LINE") raw.push({ kind: "line", a: ti.s, b: ti.t });
+    else if (ti.type === "CIRCLE" && ti.r > 0) raw.push({ kind: "arc", c: ti.c, ax: ti.a, r: ti.r, s: ti.s, ang: ti.len / ti.r });
+    else {
+      const [e] = K.edgesAt(b.shape, [idx]);
+      owned.push(e);
+      raw.push({ kind: "edge", edge: e, s: ti.s, e: ti.t, t0: ti.ts, t1: ti.tt, len: ti.len });
+    }
+  }
+  if (!raw.length) throw new Error("The path for pipe cannot be found!");
+  return { segs: chainPath(raw), up, owned };
+}
+const segStart = (g) => (g.kind === "line" ? g.a : g.kind === "edge" && g.rev ? g.e : g.s);
+const segEnd = (g) => (g.kind === "line" ? g.b : g.kind === "arc" ? K.arcPoint(g, g.ang) : g.rev ? g.s : g.e);
+const segLen = (g) => (g.kind === "line" ? V.len(V.sub(g.b, g.a)) : g.kind === "arc" ? g.r * Math.abs(g.ang) : g.len || 0);
+function segReverse(g) {
+  if (g.kind === "line") return { ...g, a: g.b, b: g.a };
+  if (g.kind === "arc") return { ...g, s: K.arcPoint(g, g.ang), ax: V.mul(g.ax, -1) };
+  return { ...g, rev: !g.rev, t0: V.mul(g.t1 || g.t0, -1), t1: V.mul(g.t0, -1) };
+}
+/** Order path segments head to tail (starting at a free end of an open chain). */
+function chainPath(raw) {
+  const close = (p, q) => V.len(V.sub(p, q)) < 1e-4;
+  const left = raw.slice();
+  const touches = (p, g0) => left.some((g) => g !== g0 && (close(p, segStart(g)) || close(p, segEnd(g))));
+  let i0 = left.findIndex((g) => !touches(segStart(g), g) || !touches(segEnd(g), g));
+  if (i0 < 0) i0 = 0;
+  let first = left[i0];
+  if (touches(segStart(first), first) && !touches(segEnd(first), first)) first = segReverse(first);
+  left.splice(i0, 1);
+  const out = [first];
+  while (left.length) {
+    const end = segEnd(out[out.length - 1]);
+    let i = left.findIndex((g) => close(segStart(g), end));
+    if (i >= 0) { out.push(left.splice(i, 1)[0]); continue; }
+    i = left.findIndex((g) => close(segEnd(g), end));
+    if (i >= 0) { out.push(segReverse(left.splice(i, 1)[0])); continue; }
+    throw new Error("The path must be a connected chain of curves");
+  }
+  return out;
+}
+/** First `frac` (0..1] of a path's length (lines and arcs are cut exactly, other edges kept whole). */
+function trimPath(segs, frac) {
+  if (frac >= 1 - 1e-9) return segs;
+  const total = segs.reduce((s, g) => s + segLen(g), 0);
+  let want = total * frac;
+  const out = [];
+  for (const g of segs) {
+    const L = segLen(g);
+    if (want >= L - 1e-9) { out.push(g); want -= L; if (want <= 1e-9) break; continue; }
+    const k = want / L;
+    if (g.kind === "line") out.push({ ...g, b: V.add(g.a, V.mul(V.sub(g.b, g.a), k)) });
+    else if (g.kind === "arc") out.push({ ...g, ang: g.ang * k });
+    else out.push(g);
+    break;
+  }
+  return out;
+}
 
 /** Fuse freshly made tool shapes into one; the inputs and intermediate results are released. */
 function fuseTemp(parts) {

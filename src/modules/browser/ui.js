@@ -105,6 +105,8 @@ const G = {
   "br-point": svg16(`<circle cx="8" cy="8" r="3.2" fill="#f7d98b" stroke="#b07c10" stroke-width="1"/><circle cx="8" cy="8" r="1" fill="#b07c10"/>`),
   "br-view": svg16(`<rect x="1.5" y="4.6" width="9" height="7.2" rx="1" fill="#eceff3" stroke="#4b4b4b" stroke-width=".9"/><path d="M10.5 7l4-2.1v7.2l-4-2.1z" fill="#d6dbe1" stroke="#4b4b4b" stroke-width=".9" stroke-linejoin="round"/>`),
   "br-section": svg16(`<path d="M2 6.2l5-3h7v6.6l-5 3H2z" fill="#e7e9ec" stroke="#4b4b4b" stroke-width=".9" stroke-linejoin="round"/><path d="M2 6.2h7v6.6M9 6.2l5-3" fill="none" stroke="#4b4b4b" stroke-width=".9"/><path d="M5.6 4.1v8.7" stroke="#2f74e6" stroke-width="1.3"/><path d="M2.6 6.8h2.6v5.4H2.6z" fill="#b46fd1"/>`),
+  "br-canvas": svg16(`<rect x="1.5" y="2.5" width="13" height="11" rx=".6" fill="#fff" stroke="#4b4b4b" stroke-width="1"/><path d="M2.6 12.4l3.5-4.3 2.5 2.7 1.8-1.8 3 3.4z" fill="#6aa84f"/><circle cx="11" cy="5.6" r="1.4" fill="#f2b705"/>`),
+  "br-mesh": svg16(`<path d="M8 1.8l5.6 3.2v6.2L8 14.2l-5.6-3V5z" fill="#e3e3e3" stroke="#4b4b4b" stroke-width=".9" stroke-linejoin="round"/><path d="M2.4 5L8 8.2l5.6-3.2M8 8.2v6M2.4 11.2L8 8.2l5.6 3M8 1.8v6.4M2.4 5l5.6 9.2M13.6 5L8 14.2" fill="none" stroke="#858585" stroke-width=".55"/>`),
   "br-com": svg16(`<circle cx="8" cy="8" r="6" fill="#fff" stroke="#3d3d3d" stroke-width="1"/><path d="M8 2v6h6A6 6 0 0 0 8 2zM8 8v6a6 6 0 0 1-6-6z" fill="#3d3d3d"/>`),
   "br-radio": svg16(`<circle cx="8" cy="8" r="6.4" fill="#dfe6f0" stroke="#7a8597" stroke-width="1"/><circle cx="8" cy="8" r="4.9" fill="#f8fafd"/><circle cx="8" cy="8" r="2.7" fill="#111"/>`),
   "br-collapse": svg16(`<path d="M7.6 5.3v5.4L4.2 8zM12.1 5.3v5.4L8.7 8z" fill="#727272"/>`),

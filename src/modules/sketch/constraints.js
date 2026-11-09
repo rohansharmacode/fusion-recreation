@@ -11,7 +11,16 @@ const kindOf = (sk, r) => {
   if (!cv) return null;
   if (cv.type === "point") return "point";
   if (cv.type === "circle" || cv.type === "arc") return "round";
+  if (cv.type === "spline") return "spline";
+  if (cv.type === "ellipse" || cv.type === "earc") return "ellipse";
   return "line";
+};
+/** The point shared by an end of spline s and curve o (G1 tangency needs one), or null. */
+const sharedEnd = (sk, s, o) => {
+  const S = ST.app.S;
+  const ends = S.curveEnds(sk.curves[s]);
+  const op = S.curvePoints(sk.curves[o]);
+  return ends.find((p) => op.includes(p)) || null;
 };
 const pid = (sk, r) => (r.kind === "sketchPoint" ? r.point : sk.curves[r.curve].p);
 const cid = (r) => r.curve;
@@ -71,6 +80,22 @@ export const CONSTRAINTS = {
       const k = p.map((r) => kindOf(sk, r));
       if (k.includes("point")) return err("Select two curves");
       if (k[0] === "line" && k[1] === "line") return err("A tangent constraint needs a circle or an arc");
+      if (k.includes("spline")) {
+        // G1 at the point where the spline ends on the other curve; the other curve keeps its shape
+        const si = k[1] === "spline" ? 1 : 0;
+        const s = cid(p[si]), o = cid(p[1 - si]);
+        if (s === o) return err("Select two curves");
+        const at = sharedEnd(sk, s, o);
+        if (!at || !ST.app.S.curveEnds(sk.curves[o]).includes(at)) return err("Select curves that meet at an end point of the spline");
+        if (has(sk, "tangent", [o, s])) return err(ALREADY);
+        return { cons: [{ type: "tangent", refs: [o, s] }] };
+      }
+      if (k.includes("ellipse")) {
+        if (!k.includes("line")) return err("Select a line and an ellipse");
+        const c = { type: "tangent", refs: [cid(p[0]), cid(p[1])] };
+        if (has(sk, "tangent", c.refs)) return err(ALREADY);
+        return { cons: [c] };
+      }
       const c = { type: "tangent", refs: [cid(p[0]), cid(p[1])] };
       if (k[0] === "round" && k[1] === "round") {
         const A = sk.curves[cid(p[0])], B = sk.curves[cid(p[1])];
@@ -87,7 +112,7 @@ export const CONSTRAINTS = {
     build(sk, p) {
       if (p.length < 2) return NEED;
       const k = p.map((r) => kindOf(sk, r));
-      if (k[0] !== k[1] || k[0] === "point") return err("Select two lines or two arcs/circles");
+      if (k[0] !== k[1] || k[0] === "point" || k[0] === "spline" || k[0] === "ellipse") return err("Select two lines or two arcs/circles");
       if (has(sk, "equal", [cid(p[0]), cid(p[1])])) return err(ALREADY);
       return { cons: [{ type: "equal", refs: [cid(p[0]), cid(p[1])] }] };
     },
@@ -112,7 +137,7 @@ export const CONSTRAINTS = {
     build(sk, p) {
       if (p.length < 2) return NEED;
       const k = p.map((r) => kindOf(sk, r));
-      if (k[0] !== "round" || k[1] !== "round") return err("Select two arcs or circles");
+      if (!["round", "ellipse"].includes(k[0]) || !["round", "ellipse"].includes(k[1])) return err("Select two arcs, circles or ellipses");
       if (sk.curves[cid(p[0])].c === sk.curves[cid(p[1])].c) return err(ALREADY);
       return { cons: [{ type: "concentric", refs: [cid(p[0]), cid(p[1])] }] };
     },

@@ -120,6 +120,26 @@ const GLYPHS = {
   pathGuide: `<path d="M2 13c3-6 7-2 12-9M2 9c3-6 7-2 12-8" fill="none" stroke="${B}" stroke-width="1.2"/><circle cx="2.5" cy="12.5" r="1.6" fill="${O}"/>`,
   rails: `<path d="M3 14V2M13 14V2" stroke="${B}" stroke-width="1.3"/><path d="M3 8h10" stroke="${K}" stroke-width=".8" stroke-dasharray="1.4 1"/>`,
   free: `<circle cx="8" cy="8" r="2.4" fill="none" stroke="${K}" stroke-width="1"/>`,
+
+  // coil / pipe / scale / split / thread
+  coilRevHeight: `<path d="M4 13.5h8M4 2.5h8" stroke="${K}" stroke-width=".8"/><path d="M4 12c4 .8 8-.6 8-1.6s-8-1.2-8-2.4 8-1.3 8-2.4-8-1.2-8-2.4" fill="none" stroke="${B}" stroke-width="1.3"/><path d="M14 3v10" stroke="${O}" stroke-width="1"/>`,
+  coilRevPitch: `<path d="M3 12c4 .8 8-.6 8-1.6s-8-1.2-8-2.4 8-1.3 8-2.4-8-1.2-8-2.4" fill="none" stroke="${B}" stroke-width="1.3"/><path d="M13.5 8.1v-2.4" stroke="${O}" stroke-width="1.2"/><path d="M12.5 8.1h2M12.5 5.7h2" stroke="${O}" stroke-width=".8"/>`,
+  coilHeightPitch: `<path d="M3 12c4 .8 8-.6 8-1.6s-8-1.2-8-2.4 8-1.3 8-2.4-8-1.2-8-2.4" fill="none" stroke="${B}" stroke-width="1.3"/><path d="M13.5 13V3" stroke="${O}" stroke-width="1"/><path d="M12.5 8.1h2M12.5 5.7h2" stroke="${O}" stroke-width=".8"/>`,
+  coilSpiral: `<path d="M8 8.2c.9 0 1.2-1.2.3-1.6-1.4-.6-2.6.9-2.1 2.3.7 1.9 3.3 2 4.5.5 1.5-1.9.6-4.8-1.8-5.4-3-.8-5.6 1.7-5.1 4.7.6 3.5 4.6 5 7.6 3.3" fill="none" stroke="${B}" stroke-width="1.2"/>`,
+  rotCW: `<path d="M12.6 8.5A4.8 4.8 0 1 1 9.5 3.8" fill="none" stroke="${K}" stroke-width="1.3"/><path d="M8.6 1.6l3.4 2.1-3.2 2.4z" fill="${K}"/>`,
+  rotCCW: `<path d="M3.4 8.5A4.8 4.8 0 1 0 6.5 3.8" fill="none" stroke="${K}" stroke-width="1.3"/><path d="M7.4 1.6L4 3.7l3.2 2.4z" fill="${K}"/>`,
+  secCircle: `<circle cx="8" cy="8" r="5" fill="${BL}" stroke="${BD}" stroke-width="1"/>`,
+  secSquare: `<rect x="3" y="3" width="10" height="10" fill="${BL}" stroke="${BD}" stroke-width="1"/>`,
+  secTriangle: `<path d="M8 2.6l5.6 10H2.4z" fill="${BL}" stroke="${BD}" stroke-width="1" stroke-linejoin="round"/>`,
+  secTriExt: `<path d="M3 3v10l9.5-5z" fill="${BL}" stroke="${BD}" stroke-width="1" stroke-linejoin="round"/><path d="M14.5 2v12" stroke="${K}" stroke-width=".8" stroke-dasharray="1.2 1"/>`,
+  secTriInt: `<path d="M13 3v10L3.5 8z" fill="${BL}" stroke="${BD}" stroke-width="1" stroke-linejoin="round"/><path d="M14.5 2v12" stroke="${K}" stroke-width=".8" stroke-dasharray="1.2 1"/>`,
+  posInside: `<path d="M13.5 1.5v13" stroke="${O}" stroke-width="1.2"/><circle cx="9" cy="8" r="4" fill="${BL}" stroke="${BD}" stroke-width="1"/>`,
+  posCenter: `<circle cx="8" cy="8" r="4" fill="${BL}" stroke="${BD}" stroke-width="1"/><path d="M8 1.5v13" stroke="${O}" stroke-width="1.2"/>`,
+  posOutside: `<path d="M2.5 1.5v13" stroke="${O}" stroke-width="1.2"/><circle cx="7" cy="8" r="4" fill="${BL}" stroke="${BD}" stroke-width="1"/>`,
+  scaleUniform: `<rect x="2" y="8" width="6" height="6" fill="none" stroke="${K}" stroke-width=".9" stroke-dasharray="1.2 1"/><rect x="2" y="2" width="12" height="12" fill="none" stroke="${B}" stroke-width="1.2"/><path d="M8 8l4-4M12 4H9.5M12 4v2.5" fill="none" stroke="${O}" stroke-width="1.1"/>`,
+  scaleNonUniform: `<rect x="2" y="9" width="5" height="5" fill="none" stroke="${K}" stroke-width=".9" stroke-dasharray="1.2 1"/><rect x="2" y="5" width="12" height="9" fill="none" stroke="${B}" stroke-width="1.2"/><path d="M8 3h5M13 3l-1.6-1.2M13 3l-1.6 1.2" fill="none" stroke="${O}" stroke-width="1.1"/>`,
+  threadRH: `<path d="M4 3l8 2M4 6l8 2M4 9l8 2M4 12l8 2" stroke="${K}" stroke-width="1.1"/>`,
+  threadLH: `<path d="M12 3L4 5M12 6L4 8M12 9l-8 2M12 12l-8 2" stroke="${K}" stroke-width="1.1"/>`,
 };
 
 export function g(name, size = 16) {

@@ -130,9 +130,29 @@ FusionFilletEdgesCommand (F), FusionChamferCommand, FusionShellBodyCommand, Fusi
 FusionCombineCommand, FusionMoveCommand (M), FusionDeleteCommand (Delete, model mode),
 ConstructionPlaneOffsetFromPlaneCommand (+ WorkPlaneOffsetFromPlaneCommand),
 ConstructionPlaneAtAngleCommand, ConstructionMidPlaneCommand.
+PrimitiveCoil, PrimitivePipe, FusionThreadCommand (`cmd-coil-pipe.js`, `cmd-thread.js`, ISO table in
+`threads.js`), FusionSplitBodyCommand, ModifyScale (`cmd-split-scale.js`).
 `app.featureEditors` for extrude (press-pull extrudes reopen Press Pull), revolve, fillet, chamfer,
 shell, draft, hole, box, cylinder, sphere, torus, cplane, combine, move, mirror, rpattern,
-cpattern, loft, sweep. Model commands started in the sketch environment finish the sketch first
+cpattern, loft, sweep, coil, pipe, thread, scale, split.
+
+* **Coil**: Plane, Type (Revolution and Height / Revolution and Pitch / Height and Pitch / Spiral), Diameter,
+  Rotation, Revolutions, Height, Pitch, Angle (taper), Section (Circular / Square / Triangular (External) /
+  (Internal)), Section Position (Inside / On Center / Outside), Section Size, Operation. After the plane: click
+  the centre, move + click for the diameter (or type it), then the diameter / height arrows.
+* **Pipe**: Path (sketch lines / arcs / circles, Chain Selection, or body edges), Distance (0..1 of the path),
+  Section (Circular / Square / Triangular), Section Size, Hollow + Section Thickness, Operation.
+* **Split Body**: Body to Split, Splitting Tool(s) (origin / construction plane, face, body), Extend Splitting
+  Tool(s) (planar faces become their infinite plane). Extra pieces become new bodies (`<featureId>_<k>`);
+  the preview draws the splitting plane.
+* **Scale**: Entities, Point (origin point by default, vertex or sketch point), Scale Type Uniform / Non Uniform,
+  Scale Factor or X / Y / Z Scale. Non-uniform scaling rebuilds the body from its triangulation (OCCT's general
+  transform is not in this build): exact for planar bodies, faceted for curved ones.
+* **Thread**: Faces (cylindrical), Modeled, Full Length (else Offset / Length from the high end), Thread Type
+  (ISO Metric profile), Size / Designation / Class (sized from the selected cylinder; 6g / 4g6g external, 6H
+  internal), Direction. Cosmetic threads keep the geometry and are drawn as helical lines on the face
+  (`cosmetic.js`, from `result.threads`); modeled threads cut a 60° helical groove (one-turn sweeps in one
+  multi-tool cut, ~0.5 s per turn). Model commands started in the sketch environment finish the sketch first
 (`SketchStop`'s run, or `app.setMode('model')`). `run(app, {preselect})` accepts explicit refs.
 
 ## DOM hooks (for tests)

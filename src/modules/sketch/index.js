@@ -11,6 +11,7 @@ import { endTool, makeDrawTool } from "./tools.js";
 import { DimensionTool, initDimension, closeEdit } from "./dimension.js";
 import { CONSTRAINTS, runConstraint, runFix } from "./constraints.js";
 import { TrimTool, ExtendTool, OffsetTool, FilletTool, ChamferTool, MirrorTool, ProjectTool, toggleConstruction, projectRefs } from "./modify.js";
+import { SplineTool, BlendTool, makeEllipseTool } from "./freeform.js";
 
 const inSketch = (app) => app.mode === "sketch";
 
@@ -35,10 +36,13 @@ const DRAW = [
   ["ShapeSlotOverall", "Overall Slot", null, "Creates a slot from its overall length and width."],
   ["ShapeSlotCenterPoint", "Center Point Slot", null, "Creates a slot from its center, an arc center and the width."],
   ["DrawPoint", "Point", null, "Creates a sketch point."],
+  ["DrawSpline", "Fit Point Spline", null, "Creates a spline through the selected fit points. Select the first point to start the spline. Select additional points as fit points."],
+  ["CircleElipse", "Ellipse", null, "Creates an ellipse defined by a center point, major axis and a point on the ellipse."],
 ];
+const FREEFORM_TOOLS = { DrawSpline: () => new SplineTool(), CircleElipse: () => makeEllipseTool() };
 
 function startDrawTool(app, id, label) {
-  const go = () => { const t = makeDrawTool(id, label); if (t) t.start(); };
+  const go = () => { const t = FREEFORM_TOOLS[id] ? FREEFORM_TOOLS[id]() : makeDrawTool(id, label); if (t) t.start(); };
   if (!inSketch(app)) { startCreateSketch(go); return; }
   go();
 }
@@ -86,6 +90,7 @@ function registerCommands(app) {
   sketchTool("ChamferSketchDistanceDistance", "Two Distance Chamfer", null, "Cuts a sketch corner with a different distance on each side.", () => new ChamferTool("dd").start());
   sketchTool("ChamferSketchDistanceAngle", "Distance and Angle Chamfer", null, "Cuts a sketch corner using one distance and an angle.", () => new ChamferTool("da").start());
   sketchTool("MirrorSketchCommand", "Mirror", null, "Mirrors sketch geometry about a line.", () => new MirrorTool().start());
+  sketchTool("BlendG1CurveSketchCmd", "Blend Curve", null, "Creates a tangent or curvature continuous blend curve between the endpoints of two sketch curves or edges. Select two sketch curves or edges in the canvas to blend.", () => new BlendTool().start());
   sketchTool("ProjectNewCmd", "Project", "P", "Projects edges and faces of bodies onto the sketch plane.", () => {
     const pre = app.selection.items.filter((r) => r.kind === "edge" || r.kind === "face" || r.kind === "body");
     if (pre.length) { projectRefs(pre); app.selection.clear(); }

@@ -219,6 +219,22 @@ const toUrl = (svg) => "data:image/svg+xml;charset=utf-8," + encodeURIComponent(
 export const iconUrl = (id, opts = {}) => toUrl(icon(id, opts));
 export const uiIconUrl = (name, opts = {}) => toUrl(uiIcon(name, opts));
 
+/**
+ * Extension points for feature modules (each module keeps its icon drawings in its own folder):
+ *   registerIcons({ CommandId: () => "<svg inner markup for a 32x32 viewBox>" })  (use draw.js / parts.js helpers;
+ *        `ctx.small` is true while drawing a <=20px icon). Replaces the keyword-guessed icon for that id.
+ *   registerFeatureIcons({ featureType: "CommandId" })   timeline / browser icon for a registered feature type.
+ * Original artwork only: never trace or copy Autodesk icons.
+ */
+export function registerIcons(map) {
+  for (const [id, fn] of Object.entries(map || {})) if (typeof fn === "function") CMD[id] = fn;
+  cache.clear();
+}
+export function registerFeatureIcons(map) {
+  for (const [type, id] of Object.entries(map || {})) if (id) FEATURE[type] = String(id);
+  cache.clear();
+}
+
 export const iconIds = () => Object.keys(CMD);
 export const iconGroups = () => {
   const groups = [...SOLID_GROUPS, ...SKETCH_GROUPS, ...OTHER_GROUPS];

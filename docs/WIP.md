@@ -35,6 +35,9 @@ ask the user before deploying.
 - YAGNI, no scope growth without permission. Discuss options with the user before big plan changes.
 - No Autodesk logos or icon artwork; Help > About keeps the "unofficial, not affiliated with Autodesk" label.
   Never commit files copied from the Fusion install or the private reference screenshots.
+- Clean rebuild (2026-11-10): no decompiling, and no copied Autodesk prose, data tables, code or art. The install
+  only tells command ids, names and layout. `node scripts/check-no-copy.mjs "<INSTALL>"` must report 0 matches before
+  each commit. The ISO thread table is now computed from ISO 261 / 68-1 / 965-1 (it was taken from the install).
 
 ## Status at handover
 - Last green commit: `a000b92` (prep: module slots, icon registry). Everything after it is untested WIP.
